@@ -5,6 +5,7 @@
 import {
   getTrips, addTrip, updateTrip, deleteTrip,
   TRIP_TYPES, COMP_COLORS, uid,
+  getSettings, updateSettings, getPinTypes, DEFAULT_PIN_TYPES,
 } from './store.js';
 import {
   notify, showModal, closeModal,
@@ -191,9 +192,10 @@ function _heroHtml(trips) {
         </div>
         <div style="display:flex;gap:8px">
           <button class="btn-new" data-action="open-import" title="Importer KML/CSV">⬆ Importer</button>
-          <button class="btn-new" data-action="export-all" title="Exporter tous les voyages en JSON">⬇ Exporter</button>
+          <button class="btn-new" data-action="export-all" title="Exporter tous les voyages en CSV">⬇ Exporter</button>
           <button class="btn-new" data-action="show-stats">📊 Statistiques</button>
           <button class="btn-new" data-action="open-mymap">🗺 MyMap</button>
+          <button class="btn-new" data-action="open-settings" title="Paramètres" style="padding:6px 10px;font-size:16px;line-height:1">⚙️</button>
         </div>
       </div>
       <div class="hero-stats">
@@ -442,6 +444,133 @@ function _downloadCsv(csvContent, filename) {
   URL.revokeObjectURL(url);
 }
 
+// ── Settings Modal ─────────────────────────────────────────────────────────────
+
+function _openSettingsModal() {
+  const settings = getSettings();
+  const pinTypes = getPinTypes();
+
+  function buildPinTypeRows() {
+    return pinTypes.map((pt, i) => `
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px" data-pt-row="${i}">
+        <input type="text" data-pt-emoji="${i}" value="${_esc(pt.emoji)}"
+          style="width:48px;text-align:center;font-size:18px;padding:4px;border:1.5px solid var(--c3);border-radius:7px;background:var(--bg)">
+        <input type="text" data-pt-label="${i}" value="${_esc(pt.label)}" placeholder="Nom du type"
+          style="flex:1;padding:5px 8px;border:1.5px solid var(--c3);border-radius:7px;font-size:12px;background:var(--bg)">
+        <button type="button" data-pt-del="${i}" style="background:var(--crl,#fee2e2);color:var(--coral,#e85d3e);border:none;border-radius:6px;padding:4px 8px;font-size:12px;cursor:pointer">✕</button>
+      </div>`).join('');
+  }
+
+  function buildHtml() {
+    return `
+      <button class="mc" onclick="closeModal()">✕</button>
+      <h3 style="font-family:'Lora',serif;font-size:17px;font-weight:700;margin-bottom:4px">⚙️ Paramètres</h3>
+
+      <div class="fg" style="margin-top:14px">
+        <label style="font-size:12px;font-weight:700;color:var(--ink2)">Types de PIN (carnet & MyMap)</label>
+        <div style="font-size:11px;color:var(--ink4);margin-bottom:8px">Personnalisez les icônes disponibles pour les entrées de journal.</div>
+        <div id="pt-rows">${buildPinTypeRows()}</div>
+        <button type="button" id="pt-add"
+          style="margin-top:6px;background:var(--c2);border:1.5px solid var(--c3);border-radius:7px;padding:5px 12px;font-size:12px;font-weight:700;cursor:pointer;color:var(--ink3)">
+          ＋ Ajouter un type
+        </button>
+      </div>
+
+      <hr style="border:none;border-top:1px solid var(--c3);margin:16px 0">
+
+      <div class="fg">
+        <label style="font-size:12px;font-weight:700;color:var(--ink2)">Données</label>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px">
+          <button type="button" data-action="export-all"
+            style="background:var(--c2);border:1.5px solid var(--c3);border-radius:7px;padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer;color:var(--ink3)">
+            ⬇ Exporter (CSV)
+          </button>
+          <button type="button" id="settings-clear-data"
+            style="background:#fee2e2;border:1.5px solid #fca5a5;border-radius:7px;padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer;color:var(--coral,#e85d3e)">
+            🗑 Effacer toutes les données
+          </button>
+        </div>
+      </div>
+
+      <div class="ma">
+        <button class="bc" onclick="closeModal()">Annuler</button>
+        <button class="bs" id="settings-save">Enregistrer</button>
+      </div>`;
+  }
+
+  showModal(buildHtml());
+
+  function collectPinTypes() {
+    const rows = document.querySelectorAll('[data-pt-row]');
+    const result = [];
+    rows.forEach((_, i) => {
+      const emoji = document.querySelector(`[data-pt-emoji="${i}"]`)?.value?.trim() || '';
+      const label = document.querySelector(`[data-pt-label="${i}"]`)?.value?.trim() || '';
+      if (emoji && label) {
+        const key = label.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
+        result.push({ key: key || 'pin_' + i, emoji, label });
+      }
+    });
+    return result;
+  }
+
+  document.getElementById('pt-add')?.addEventListener('click', () => {
+    const newTypes = collectPinTypes();
+    newTypes.push({ key: 'new_' + uid(), emoji: '📌', label: 'Nouveau type' });
+    const rowsEl = document.getElementById('pt-rows');
+    if (rowsEl) {
+      // Re-render with updated list using temp pinTypes
+      const tempPinTypes = newTypes;
+      rowsEl.innerHTML = tempPinTypes.map((pt, i) => `
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px" data-pt-row="${i}">
+          <input type="text" data-pt-emoji="${i}" value="${_esc(pt.emoji)}"
+            style="width:48px;text-align:center;font-size:18px;padding:4px;border:1.5px solid var(--c3);border-radius:7px;background:var(--bg)">
+          <input type="text" data-pt-label="${i}" value="${_esc(pt.label)}" placeholder="Nom du type"
+            style="flex:1;padding:5px 8px;border:1.5px solid var(--c3);border-radius:7px;font-size:12px;background:var(--bg)">
+          <button type="button" data-pt-del="${i}" style="background:var(--crl,#fee2e2);color:var(--coral,#e85d3e);border:none;border-radius:6px;padding:4px 8px;font-size:12px;cursor:pointer">✕</button>
+        </div>`).join('');
+      reAttach();
+    }
+  });
+
+  function reAttach() {
+    document.getElementById('pt-rows')?.addEventListener('click', e => {
+      const delBtn = e.target.closest('[data-pt-del]');
+      if (!delBtn) return;
+      const idx = parseInt(delBtn.dataset.ptDel, 10);
+      const types = collectPinTypes();
+      types.splice(idx, 1);
+      const rowsEl = document.getElementById('pt-rows');
+      if (rowsEl) {
+        rowsEl.innerHTML = types.map((pt, i) => `
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px" data-pt-row="${i}">
+            <input type="text" data-pt-emoji="${i}" value="${_esc(pt.emoji)}"
+              style="width:48px;text-align:center;font-size:18px;padding:4px;border:1.5px solid var(--c3);border-radius:7px;background:var(--bg)">
+            <input type="text" data-pt-label="${i}" value="${_esc(pt.label)}" placeholder="Nom du type"
+              style="flex:1;padding:5px 8px;border:1.5px solid var(--c3);border-radius:7px;font-size:12px;background:var(--bg)">
+            <button type="button" data-pt-del="${i}" style="background:var(--crl,#fee2e2);color:var(--coral,#e85d3e);border:none;border-radius:6px;padding:4px 8px;font-size:12px;cursor:pointer">✕</button>
+          </div>`).join('');
+        reAttach();
+      }
+    });
+  }
+  reAttach();
+
+  document.getElementById('settings-clear-data')?.addEventListener('click', () => {
+    if (confirm('Effacer TOUTES les données (voyages, journal, bagages) ? Cette action est irréversible.')) {
+      localStorage.clear();
+      location.reload();
+    }
+  });
+
+  document.getElementById('settings-save')?.addEventListener('click', () => {
+    const newPinTypes = collectPinTypes();
+    updateSettings({ pinTypes: newPinTypes.length > 0 ? newPinTypes : DEFAULT_PIN_TYPES });
+    notify('Paramètres enregistrés', '✅');
+    closeModal();
+  });
+}
+
 // ── Event delegation ───────────────────────────────────────────────────────────
 
 function _attachListeners(wrap) {
@@ -482,6 +611,10 @@ function _attachListeners(wrap) {
 
       case 'show-stats':
         _renderStats();
+        break;
+
+      case 'open-settings':
+        _openSettingsModal();
         break;
 
       case 'toggle-status': {

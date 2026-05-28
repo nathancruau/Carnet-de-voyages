@@ -80,6 +80,31 @@ export function createTrip(data = {}) {
   };
 }
 
+// ── Default app settings ───────────────────────────────────────────────────────
+
+export const DEFAULT_PIN_TYPES = [
+  { key: 'hiker',  emoji: '🥾', label: 'Randonnée' },
+  { key: 'city',   emoji: '🏙️', label: 'Ville' },
+  { key: 'temple', emoji: '⛩️', label: 'Temple / Patrimoine' },
+  { key: 'beach',  emoji: '🏖️', label: 'Plage' },
+  { key: 'park',   emoji: '🌲', label: 'Parc / Nature' },
+];
+
+export function getSettings() {
+  return state.settings || {};
+}
+
+export function updateSettings(updates) {
+  state.settings = { ...(state.settings || {}), ...updates };
+  saveData();
+  return state.settings;
+}
+
+export function getPinTypes() {
+  const s = state.settings || {};
+  return Array.isArray(s.pinTypes) && s.pinTypes.length > 0 ? s.pinTypes : DEFAULT_PIN_TYPES;
+}
+
 /* ── Internal state ── */
 let state = { trips: [] };
 

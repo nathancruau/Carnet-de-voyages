@@ -2,18 +2,16 @@
    CARNET DE VOYAGES — Journal Module
    ============================================================ */
 
-import { getTrip, updateTrip, uid } from '../store.js';
+import { getTrip, updateTrip, uid, getPinTypes } from '../store.js';
 import { notify, showModal, closeModal, fmtDate, fmtDateShort, isoToDate, dateToIso } from '../utils.js';
 
-// ── PIN type definitions ───────────────────────────────────────────────────────
+// ── PIN type definitions (dynamic from settings) ──────────────────────────────
 
-const PIN_TYPES = {
-  hiker:  '🥾',
-  city:   '🏙️',
-  temple: '⛩️',
-  beach:  '🏖️',
-  park:   '🌲',
-};
+function _pinTypeMap() {
+  const map = {};
+  for (const pt of getPinTypes()) map[pt.key] = pt.emoji;
+  return map;
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -196,7 +194,7 @@ function _entryCard(trip, e) {
   const dayLabel  = e.dayId ? _dayLabel(trip, e.dayId) : null;
 
   let metaPills = `<span class="jn-meta-pill">${_esc(dateLabel)}</span>`;
-  if (e.pinType && PIN_TYPES[e.pinType]) metaPills += `<span class="jn-meta-pill" title="${_esc(e.pinType)}">${PIN_TYPES[e.pinType]}</span>`;
+  if (e.pinType && _pinTypeMap()[e.pinType]) metaPills += `<span class="jn-meta-pill" title="${_esc(e.pinType)}">${_pinTypeMap()[e.pinType]}</span>`;
   if (e.weather) metaPills += `<span class="jn-meta-pill">${_esc(e.weather)}</span>`;
   if (e.mood)    metaPills += `<span class="jn-meta-pill">${_esc(e.mood)}</span>`;
   if (e.rating)  metaPills += `<span class="jn-meta-pill">${_starsHtml(e.rating)}</span>`;
@@ -245,11 +243,19 @@ function _entryCard(trip, e) {
 // ── Journal Map ───────────────────────────────────────────────────────────────
 
 function _initJournalMap(tripId) {
-  // If a map already exists, just refresh pins
   if (_journalMap) {
-    setTimeout(() => { if (_journalMap) _journalMap.invalidateSize(); }, 80);
-    _refreshJournalPins(tripId);
-    return;
+    try {
+      const container = _journalMap.getContainer();
+      if (document.contains(container)) {
+        setTimeout(() => { if (_journalMap) _journalMap.invalidateSize(); }, 80);
+        _refreshJournalPins(tripId);
+        return;
+      }
+    } catch (_) {}
+    // Container gone — destroy and reinitialize
+    try { _journalMap.remove(); } catch (_) {}
+    _journalMap = null;
+    _journalMarkers = {};
   }
 
   requestAnimationFrame(() => {
@@ -289,12 +295,12 @@ function _refreshJournalPins(tripId) {
   const entries = (trip.journalEntries || []).filter(e => e.lat != null && e.lng != null);
 
   entries.forEach(entry => {
-    const emoji = (entry.pinType && PIN_TYPES[entry.pinType]) ? PIN_TYPES[entry.pinType] : '📍';
+    const emoji = (entry.pinType && _pinTypeMap()[entry.pinType]) ? _pinTypeMap()[entry.pinType] : '📍';
     const icon = L.divIcon({
       className: '',
-      html: `<div style="background:#0891b2;border:2px solid #fff;border-radius:50%;width:32px;height:32px;display:flex;align-items:center;justify-content:center;font-size:14px;box-shadow:0 1px 6px rgba(0,0,0,.4)">${emoji}</div>`,
-      iconSize:   [32, 32],
-      iconAnchor: [16, 16],
+      html: `<div style="background:#fff;border:2px solid #d1d5db;border-radius:50%;width:30px;height:30px;display:flex;align-items:center;justify-content:center;font-size:17px;box-shadow:0 1px 6px rgba(0,0,0,.3)">${emoji}</div>`,
+      iconSize:   [30, 30],
+      iconAnchor: [15, 15],
       popupAnchor:[0, -18],
     });
 
@@ -437,14 +443,6 @@ function _openEntryModal(tripId, entryId) {
   const weatherEmojis = ['☀️', '⛅', '🌧️', '⛈️', '🌨️', '🌫️', '🌊', '🏔️'];
   const moodEmojis    = ['😊', '😎', '😍', '🥹', '😴', '🤔', '😤', '🙏'];
 
-  const PIN_TYPE_LABELS = {
-    hiker:  '🥾',
-    city:   '🏙️',
-    temple: '⛩️',
-    beach:  '🏖️',
-    park:   '🌲',
-  };
-
   function daysOptsHtml(selId) {
     return `<option value="">Aucun jour spécifique</option>` +
       days.map(d =>
@@ -461,12 +459,8 @@ function _openEntryModal(tripId, entryId) {
 
   function pinTypeButtons() {
     const btns = [
-      { val: null,     emoji: '—',    label: 'Aucun' },
-      { val: 'hiker',  emoji: '🥾',   label: 'Randonnée' },
-      { val: 'city',   emoji: '🏙️',  label: 'Ville' },
-      { val: 'temple', emoji: '⛩️',  label: 'Temple' },
-      { val: 'beach',  emoji: '🏖️',  label: 'Plage' },
-      { val: 'park',   emoji: '🌲',   label: 'Parc' },
+      { val: null, emoji: '—', label: 'Aucun' },
+      ...getPinTypes().map(pt => ({ val: pt.key, emoji: pt.emoji, label: pt.label })),
     ];
     return btns.map(({ val, emoji, label }) => {
       const sel = state.pinType === val;
@@ -683,6 +677,21 @@ function _openEntryModal(tripId, entryId) {
         ev.preventDefault();
         document.getElementById('je-loc-search')?.click();
       }
+    });
+
+    // Dynamic search on input (debounced)
+    let _locDebTimer = null;
+    document.getElementById('je-loc-input')?.addEventListener('input', () => {
+      clearTimeout(_locDebTimer);
+      const q = (document.getElementById('je-loc-input')?.value || '').trim();
+      if (q.length < 3) {
+        const res = document.getElementById('je-loc-results');
+        if (res) res.innerHTML = '';
+        return;
+      }
+      _locDebTimer = setTimeout(() => {
+        document.getElementById('je-loc-search')?.click();
+      }, 500);
     });
 
     // Location results — click to pick

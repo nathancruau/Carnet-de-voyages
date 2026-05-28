@@ -5,18 +5,16 @@
    Exports: renderMyMap(), destroyMyMap()
    ============================================================ */
 
-import { getTrips, TRIP_TYPES } from './store.js';
+import { getTrips, TRIP_TYPES, getPinTypes } from './store.js';
 import { fmtDate, fmtDateShort } from './utils.js';
 
-// ── PIN type definitions ───────────────────────────────────────────────────────
+// ── PIN type helper (dynamic from settings) ────────────────────────────────────
 
-const PIN_TYPES = {
-  hiker:  '🥾',
-  city:   '🏙️',
-  temple: '⛩️',
-  beach:  '🏖️',
-  park:   '🌲',
-};
+function _pinTypeMap() {
+  const map = {};
+  for (const pt of getPinTypes()) map[pt.key] = pt.emoji;
+  return map;
+}
 
 // ── Module-level state ─────────────────────────────────────────────────────────
 let _map          = null;   // Leaflet map instance
@@ -70,7 +68,7 @@ function _makeIcon(color, size = 13, emoji = null) {
   if (emoji) {
     return L.divIcon({
       className: '',
-      html: `<div style="background:${color};border:2px solid #fff;border-radius:50%;width:28px;height:28px;display:flex;align-items:center;justify-content:center;font-size:14px;box-shadow:0 1px 6px rgba(0,0,0,.4)">${emoji}</div>`,
+      html: `<div style="background:#fff;border:2px solid #d1d5db;border-radius:50%;width:28px;height:28px;display:flex;align-items:center;justify-content:center;font-size:16px;box-shadow:0 1px 6px rgba(0,0,0,.3)">${emoji}</div>`,
       iconSize:    [28, 28],
       iconAnchor:  [14, 14],
       popupAnchor: [0, -20],
@@ -210,8 +208,9 @@ function _buildSidebarTree(pins) {
     const groupId   = 'mm-grp-' + trip.id;
 
     const pinsHtml = tPins.map(pin => {
-      const pinEmoji = (pin.entry?.pinType && PIN_TYPES[pin.entry.pinType])
-        ? PIN_TYPES[pin.entry.pinType]
+      const _ptm = _pinTypeMap();
+      const pinEmoji = (pin.entry?.pinType && _ptm[pin.entry.pinType])
+        ? _ptm[pin.entry.pinType]
         : '📍';
       const label = pin.entry.title || (pin.entry.date ? fmtDateShort(pin.entry.date) : 'Sans titre');
       return `
@@ -279,12 +278,8 @@ function _sidebarHtml(pins) {
     </div>`;
 
   const pinTypeFilters = [
-    { val: 'all',    label: 'Tous' },
-    { val: 'hiker',  label: '🥾' },
-    { val: 'city',   label: '🏙️' },
-    { val: 'temple', label: '⛩️' },
-    { val: 'beach',  label: '🏖️' },
-    { val: 'park',   label: '🌲' },
+    { val: 'all', label: 'Tous' },
+    ...getPinTypes().map(pt => ({ val: pt.key, label: pt.emoji })),
   ].map(({ val, label }) =>
     `<button class="mm-type-btn${_filters.pinType === val ? ' active' : ''}"
              onclick="_mmSetPinType('${val}')">${label}</button>`
@@ -337,7 +332,7 @@ function _redrawMarkers(pins) {
 
   for (const pin of pins) {
     const color  = _colorForFlag(pin.trip.flag);
-    const emoji  = PIN_TYPES[pin.entry?.pinType] || null;
+    const emoji  = _pinTypeMap()[pin.entry?.pinType] || null;
     const marker = L.marker([pin.lat, pin.lng], { icon: _makeIcon(color, 14, emoji) });
     marker.bindPopup(_popupHtml(pin.trip, pin.entry), { maxWidth: 250 });
     marker.addTo(_map);

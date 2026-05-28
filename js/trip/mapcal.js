@@ -94,11 +94,20 @@ export function destroyMap() {
 // ─── Map initialization ───────────────────────────────────────────────────────
 
 function _initMap(tripId) {
-  // If a map already exists for this trip, just invalidate size
   if (_map) {
-    setTimeout(() => { if (_map) _map.invalidateSize(); }, 80);
-    _refreshMapPins(tripId);
-    return;
+    try {
+      const container = _map.getContainer();
+      if (document.contains(container)) {
+        setTimeout(() => { if (_map) _map.invalidateSize(); }, 80);
+        _refreshMapPins(tripId);
+        return;
+      }
+    } catch (_) {}
+    // Container gone — destroy and reinitialize
+    try { _map.remove(); } catch (_) {}
+    _map = null;
+    _markers = {};
+    _routeLayers = [];
   }
 
   requestAnimationFrame(() => {
@@ -173,10 +182,10 @@ function _refreshMapPins(tripId) {
       if (item.lat != null && item.lng != null) {
         const evtIcon = L.divIcon({
           className: '',
-          html: `<div style="width:16px;height:16px;border-radius:50%;background:${day.color || '#0d9488'};border:2.5px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4);cursor:pointer"></div>`,
-          iconSize:   [16, 16],
-          iconAnchor: [8, 8],
-          popupAnchor:[0, -14],
+          html: `<div style="background:#fff;border:2px solid #d1d5db;border-radius:50%;width:24px;height:24px;display:flex;align-items:center;justify-content:center;font-size:14px;box-shadow:0 1px 4px rgba(0,0,0,.3);cursor:pointer">${tIc(item.type)}</div>`,
+          iconSize:   [24, 24],
+          iconAnchor: [12, 12],
+          popupAnchor:[0, -16],
         });
         const evtMarker = L.marker([item.lat, item.lng], { icon: evtIcon, zIndexOffset: 50 });
         evtMarker.bindPopup(
@@ -915,6 +924,14 @@ function _buildLocationSearch(container, onSelect, onMapClick) {
 
   searchBtn.addEventListener('click', doSearch);
   queryInput.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); doSearch(); } });
+
+  let _debTimer = null;
+  queryInput.addEventListener('input', () => {
+    clearTimeout(_debTimer);
+    const q = (queryInput.value || '').trim();
+    if (q.length < 3) { resultsEl.innerHTML = ''; return; }
+    _debTimer = setTimeout(doSearch, 500);
+  });
 
   mapClickBtn.addEventListener('click', () => {
     if (onMapClick) onMapClick();
