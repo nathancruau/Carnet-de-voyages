@@ -18,14 +18,20 @@ import { importFile } from './import.js';
 
 // ── Module state ───────────────────────────────────────────────────────────────
 
-let _currentFilter  = 'all';
+let _currentFilter    = 'all';
+let _currentTab       = 'trips';   // 'trips' | 'stats'
 let _listenerAttached = false;
 
 // Companion list being edited in the open modal
-let _modalComps = [];
-let _modalColor = '#0d9488';
-let _modalType  = 'voyage';
-let _editingId  = null;
+let _modalComps  = [];
+let _modalColor  = '#0d9488';
+let _modalType   = 'voyage';
+let _modalStatus = 'done';
+let _editingId   = null;
+
+// Photo file mode state
+let _photoMode   = 'url';   // 'url' | 'file'
+let _photoBase64 = null;
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -72,6 +78,106 @@ function _calcStats(trips) {
   return { voyageCount, weekendCount, sortieCount, totalDays, countries: destinations.size };
 }
 
+// ── Stats view HTML ────────────────────────────────────────────────────────────
+
+function _statsViewHtml(trips) {
+  if (trips.length === 0) {
+    return `<div style="text-align:center;padding:40px 20px;color:var(--ink4)">
+      <div style="font-size:36px;margin-bottom:8px">📊</div>
+      <div style="font-size:14px">Aucun voyage pour calculer des statistiques.</div>
+    </div>`;
+  }
+
+  const s = _calcStats(trips);
+
+  // Average trip duration
+  const tripsWithDates = trips.filter(t => t.startDate && t.endDate);
+  let avgDays = 0;
+  if (tripsWithDates.length > 0) {
+    const totalD = tripsWithDates.reduce((sum, t) => {
+      return sum + Math.round(
+        (new Date(t.endDate + 'T12:00:00') - new Date(t.startDate + 'T12:00:00')) / 86400000
+      ) + 1;
+    }, 0);
+    avgDays = Math.round(totalD / tripsWithDates.length);
+  }
+
+  // Top destinations (count per destination)
+  const destCount = {};
+  trips.forEach(t => {
+    const d = (t.destination || '').trim();
+    if (d) destCount[d] = (destCount[d] || 0) + 1;
+  });
+  const topDests = Object.entries(destCount)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5);
+
+  // Trips per year
+  const perYear = {};
+  trips.forEach(t => {
+    const y = (t.startDate || t.createdAt || '').slice(0, 4);
+    if (y && y !== '') perYear[y] = (perYear[y] || 0) + 1;
+  });
+  const years = Object.keys(perYear).sort();
+  const maxPerYear = Math.max(...Object.values(perYear), 1);
+
+  // Budget total
+  let totalBudget = 0;
+  trips.forEach(t => {
+    if (Array.isArray(t.budgetLines)) {
+      totalBudget += t.budgetLines.reduce((s, b) => s + (Number(b.amount) || 0), 0);
+    }
+  });
+
+  const perYearBars = years.map(y => {
+    const count = perYear[y];
+    const pct   = Math.round((count / maxPerYear) * 100);
+    return `
+      <div style="display:flex;flex-direction:column;align-items:center;gap:4px;min-width:36px">
+        <div style="font-size:10px;font-weight:700;color:var(--ink3)">${count}</div>
+        <div style="width:28px;background:var(--teal);border-radius:4px 4px 0 0;height:${Math.max(pct, 6)}px;transition:height .3s"></div>
+        <div style="font-size:10px;color:var(--ink4);transform:rotate(-45deg);white-space:nowrap;transform-origin:center;margin-top:2px">${y}</div>
+      </div>`;
+  }).join('');
+
+  const topDestsHtml = topDests.length
+    ? topDests.map(([dest, cnt]) => `
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--c2)">
+          <span style="font-size:13px;color:var(--ink)">${_esc(dest)}</span>
+          <span style="font-size:12px;font-weight:700;color:var(--teal)">${cnt} voyage${cnt > 1 ? 's' : ''}</span>
+        </div>`).join('')
+    : `<div style="font-size:12px;color:var(--ink4)">Aucune destination renseignée</div>`;
+
+  return `
+    <div style="max-width:700px;margin:0 auto;padding:8px 0">
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin-bottom:24px">
+        <div class="hs-card"><div class="hs-v">${trips.length}</div><div class="hs-l">Voyages total</div></div>
+        <div class="hs-card"><div class="hs-v">${s.weekendCount}</div><div class="hs-l">Week-ends</div></div>
+        <div class="hs-card"><div class="hs-v">${s.sortieCount}</div><div class="hs-l">Sorties</div></div>
+        <div class="hs-card"><div class="hs-v">${s.totalDays}</div><div class="hs-l">Jours voyagés</div></div>
+        <div class="hs-card"><div class="hs-v">${s.countries}</div><div class="hs-l">Destinations</div></div>
+        <div class="hs-card"><div class="hs-v">${avgDays}</div><div class="hs-l">Durée moy. (j)</div></div>
+        ${totalBudget > 0 ? `<div class="hs-card"><div class="hs-v">${totalBudget.toLocaleString('fr-FR')} €</div><div class="hs-l">Budget total</div></div>` : ''}
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+        <div style="background:var(--c2);border-radius:12px;padding:16px">
+          <h4 style="font-size:13px;font-weight:700;color:var(--ink3);margin-bottom:12px">🏆 Top destinations</h4>
+          ${topDestsHtml}
+        </div>
+
+        <div style="background:var(--c2);border-radius:12px;padding:16px">
+          <h4 style="font-size:13px;font-weight:700;color:var(--ink3);margin-bottom:12px">📅 Voyages par année</h4>
+          ${years.length > 0
+            ? `<div style="display:flex;align-items:flex-end;gap:6px;height:90px;padding-bottom:20px">${perYearBars}</div>`
+            : `<div style="font-size:12px;color:var(--ink4)">Aucune date renseignée</div>`
+          }
+        </div>
+      </div>
+    </div>
+  `;
+}
+
 // ── Hero HTML ──────────────────────────────────────────────────────────────────
 
 function _heroHtml(trips) {
@@ -116,19 +222,20 @@ function _heroHtml(trips) {
 
 // ── Filter tabs HTML ───────────────────────────────────────────────────────────
 
-function _filterTabsHtml(active) {
+function _filterTabsHtml(activeFilter, activeTab) {
   const tabs = [
     { key: 'all',     label: 'Tous' },
     { key: 'voyage',  label: 'Voyages' },
     { key: 'weekend', label: 'Week-ends' },
     { key: 'sortie',  label: 'Sorties' },
   ];
-  return `<div class="filter-tabs">
-    ${tabs.map(t =>
-      `<button class="filter-tab${active === t.key ? ' active' : ''}"
-               data-action="filter" data-filter="${t.key}">${t.label}</button>`
-    ).join('')}
-  </div>`;
+  const filterBtns = tabs.map(t =>
+    `<button class="filter-tab${activeTab === 'trips' && activeFilter === t.key ? ' active' : ''}"
+             data-action="filter" data-filter="${t.key}">${t.label}</button>`
+  ).join('');
+  const statBtn = `<button class="filter-tab${activeTab === 'stats' ? ' active' : ''}"
+             data-action="show-stats">📊 Statistiques</button>`;
+  return `<div class="filter-tabs">${filterBtns}${statBtn}</div>`;
 }
 
 // ── Trip card HTML ─────────────────────────────────────────────────────────────
@@ -220,6 +327,7 @@ function _addCardHtml() {
 
 export function renderHome(filter = _currentFilter) {
   _currentFilter = filter;
+  _currentTab    = 'trips';
 
   const wrap = document.getElementById('home-wrap');
   if (!wrap) return;
@@ -243,7 +351,7 @@ export function renderHome(filter = _currentFilter) {
         <h2>Mes voyages</h2>
         <button class="btn-new" data-action="new-trip">＋ Nouveau</button>
       </div>
-      ${_filterTabsHtml(filter)}
+      ${_filterTabsHtml(filter, 'trips')}
       <div class="trips-grid" id="trips-grid">
         ${sorted.map(_tripCardHtml).join('')}
         ${_addCardHtml()}
@@ -252,6 +360,34 @@ export function renderHome(filter = _currentFilter) {
   `;
 
   // Attach the click listener only once; subsequent renderHome calls reuse it
+  if (!_listenerAttached) {
+    _attachListeners(wrap);
+    _listenerAttached = true;
+  }
+}
+
+function _renderStats() {
+  _currentTab = 'stats';
+
+  const wrap = document.getElementById('home-wrap');
+  if (!wrap) return;
+
+  const allTrips = getTrips();
+
+  wrap.innerHTML = `
+    ${_heroHtml(allTrips)}
+    <div class="home-sec">
+      <div class="home-sec-hd">
+        <h2>Mes voyages</h2>
+        <button class="btn-new" data-action="new-trip">＋ Nouveau</button>
+      </div>
+      ${_filterTabsHtml(_currentFilter, 'stats')}
+      <div id="stats-view" style="padding:8px 0">
+        ${_statsViewHtml(allTrips)}
+      </div>
+    </div>
+  `;
+
   if (!_listenerAttached) {
     _attachListeners(wrap);
     _listenerAttached = true;
@@ -291,6 +427,10 @@ function _attachListeners(wrap) {
       case 'filter':
         renderHome(target.dataset.filter);
         break;
+
+      case 'show-stats':
+        _renderStats();
+        break;
     }
   });
 }
@@ -321,6 +461,7 @@ function _buildModalHtml(trip) {
   const destination = trip?.destination || '';
   const flag        = trip?.flag        || '';
   const photo       = trip?.photo       || '';
+  const status      = trip?.status      || 'done';
 
   // Color swatches (using class names from CSS: .col-opts, .col-o, .sel)
   const colors = ['#0d9488','#7c3aed','#e85d3e','#d97706','#db2777','#0284c7','#16a34a'];
@@ -339,7 +480,55 @@ function _buildModalHtml(trip) {
                     data-modal-type="${key}">${t.icon} ${t.label}</button>`;
   }).join('');
 
+  // Status pills
+  const statuses = [
+    { key: 'planning', label: '📝 En planification' },
+    { key: 'done',     label: '✅ Réalisé' },
+  ];
+  const statusPills = statuses.map(s => {
+    const isSel = _modalStatus === s.key;
+    const col   = s.key === 'done' ? '#16a34a' : '#0284c7';
+    return `<button class="tp${isSel ? ' sel' : ''}"
+                    style="${isSel ? `background:${col};border-color:${col};color:#fff` : ''}"
+                    data-modal-status="${s.key}">${s.label}</button>`;
+  }).join('');
+
   const isEdit = _editingId !== null;
+
+  // Photo section — tabs for URL vs file
+  const urlTabActive  = _photoMode === 'url';
+  const fileTabActive = _photoMode === 'file';
+
+  const photoPreviewSrc = urlTabActive ? photo : (_photoBase64 || '');
+  const showPreview     = urlTabActive ? !!photo : !!_photoBase64;
+
+  const photoSection = `
+    <div class="fg">
+      <label>Photo</label>
+      <div style="display:flex;gap:6px;margin-bottom:6px">
+        <button type="button" id="photo-tab-url"
+          style="background:${urlTabActive ? 'var(--teal)' : 'var(--c2)'};color:${urlTabActive ? '#fff' : 'var(--ink3)'};border:1.5px solid ${urlTabActive ? 'var(--teal)' : 'var(--c3)'};border-radius:7px;padding:5px 12px;font-size:12px;font-weight:700;cursor:pointer">
+          🔗 URL
+        </button>
+        <button type="button" id="photo-tab-file"
+          style="background:${fileTabActive ? 'var(--teal)' : 'var(--c2)'};color:${fileTabActive ? '#fff' : 'var(--ink3)'};border:1.5px solid ${fileTabActive ? 'var(--teal)' : 'var(--c3)'};border-radius:7px;padding:5px 12px;font-size:12px;font-weight:700;cursor:pointer">
+          📁 Fichier
+        </button>
+      </div>
+      <div id="photo-url-section" style="display:${urlTabActive ? 'block' : 'none'}">
+        <input type="url" id="m-photo" value="${_esc(photo)}"
+               placeholder="https://…" autocomplete="off">
+      </div>
+      <div id="photo-file-section" style="display:${fileTabActive ? 'block' : 'none'}">
+        <input type="file" id="m-photo-file" accept="image/*"
+               style="width:100%;padding:6px 0;font-size:12px;cursor:pointer">
+      </div>
+      <img id="m-photo-preview" class="ip"
+           src="${_esc(photoPreviewSrc)}"
+           style="${showPreview ? 'display:block' : 'display:none'}"
+           alt="aperçu"
+           onerror="this.style.display='none'">
+    </div>`;
 
   return `
     <h3 style="font-family:'Lora',serif;font-size:18px;font-weight:700;margin-bottom:16px">
@@ -365,16 +554,7 @@ function _buildModalHtml(trip) {
       </div>
     </div>
 
-    <div class="fg">
-      <label>Photo (URL)</label>
-      <input type="url" id="m-photo" value="${_esc(photo)}"
-             placeholder="https://…" autocomplete="off">
-      <img id="m-photo-preview" class="ip"
-           src="${_esc(photo)}"
-           style="${photo ? 'display:block' : 'display:none'}"
-           alt="aperçu"
-           onerror="this.style.display='none'">
-    </div>
+    ${photoSection}
 
     <div class="fg">
       <label>Couleur</label>
@@ -384,6 +564,11 @@ function _buildModalHtml(trip) {
     <div class="fg">
       <label>Type de voyage</label>
       <div class="t-row" id="m-types">${typePills}</div>
+    </div>
+
+    <div class="fg">
+      <label>Statut</label>
+      <div class="t-row" id="m-statuses">${statusPills}</div>
     </div>
 
     <div class="fg">
@@ -411,15 +596,20 @@ function _buildModalHtml(trip) {
 // ── Modal: open ────────────────────────────────────────────────────────────────
 
 export function openEditTripModal(id = null) {
-  _editingId  = id;
-  const trip  = id ? getTrips().find(t => t.id === id) : null;
+  _editingId   = id;
+  const trip   = id ? getTrips().find(t => t.id === id) : null;
+
+  // Reset photo mode state
+  _photoMode   = 'url';
+  _photoBase64 = null;
 
   // Seed module state from the trip being edited (or defaults)
-  _modalComps = trip
+  _modalComps  = trip
     ? (trip.companions || []).map(c => ({ ...c }))
     : [];
-  _modalColor = trip?.color || '#0d9488';
-  _modalType  = trip?.type  || 'voyage';
+  _modalColor  = trip?.color  || '#0d9488';
+  _modalType   = trip?.type   || 'voyage';
+  _modalStatus = trip?.status || 'done';
 
   showModal(_buildModalHtml(trip));
   _initModalListeners(trip);
@@ -431,11 +621,55 @@ function _initModalListeners(trip) {
   // Date picker
   dpInit('m-dp', trip?.startDate ?? null, trip?.endDate ?? null);
 
-  // Photo preview
+  // Photo tab switching
+  document.getElementById('photo-tab-url')?.addEventListener('click', () => {
+    _photoMode = 'url';
+    _photoBase64 = null;
+    document.getElementById('photo-url-section').style.display  = 'block';
+    document.getElementById('photo-file-section').style.display = 'none';
+    // Update tab button styles
+    document.getElementById('photo-tab-url').style.background   = 'var(--teal)';
+    document.getElementById('photo-tab-url').style.color        = '#fff';
+    document.getElementById('photo-tab-url').style.borderColor  = 'var(--teal)';
+    document.getElementById('photo-tab-file').style.background  = 'var(--c2)';
+    document.getElementById('photo-tab-file').style.color       = 'var(--ink3)';
+    document.getElementById('photo-tab-file').style.borderColor = 'var(--c3)';
+    // Restore URL preview
+    const url     = document.getElementById('m-photo')?.value?.trim() || '';
+    const preview = document.getElementById('m-photo-preview');
+    if (preview) {
+      preview.src          = url;
+      preview.style.display = url ? 'block' : 'none';
+    }
+  });
+
+  document.getElementById('photo-tab-file')?.addEventListener('click', () => {
+    _photoMode = 'file';
+    document.getElementById('photo-url-section').style.display  = 'none';
+    document.getElementById('photo-file-section').style.display = 'block';
+    // Update tab button styles
+    document.getElementById('photo-tab-file').style.background  = 'var(--teal)';
+    document.getElementById('photo-tab-file').style.color       = '#fff';
+    document.getElementById('photo-tab-file').style.borderColor = 'var(--teal)';
+    document.getElementById('photo-tab-url').style.background   = 'var(--c2)';
+    document.getElementById('photo-tab-url').style.color        = 'var(--ink3)';
+    document.getElementById('photo-tab-url').style.borderColor  = 'var(--c3)';
+    // Show existing base64 preview if any
+    const preview = document.getElementById('m-photo-preview');
+    if (preview && _photoBase64) {
+      preview.src          = _photoBase64;
+      preview.style.display = 'block';
+    } else if (preview) {
+      preview.style.display = 'none';
+    }
+  });
+
+  // Photo URL preview
   const photoInput   = document.getElementById('m-photo');
   const photoPreview = document.getElementById('m-photo-preview');
   if (photoInput && photoPreview) {
     photoInput.addEventListener('input', () => {
+      if (_photoMode !== 'url') return;
       const url = photoInput.value.trim();
       if (url) {
         photoPreview.src          = url;
@@ -446,6 +680,22 @@ function _initModalListeners(trip) {
       }
     });
   }
+
+  // Photo file input
+  document.getElementById('m-photo-file')?.addEventListener('change', ev => {
+    const file = ev.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = e => {
+      _photoBase64 = e.target.result;
+      const preview = document.getElementById('m-photo-preview');
+      if (preview) {
+        preview.src          = _photoBase64;
+        preview.style.display = 'block';
+      }
+    };
+    reader.readAsDataURL(file);
+  });
 
   // Color swatches
   document.getElementById('m-colors')?.addEventListener('click', e => {
@@ -470,6 +720,23 @@ function _initModalListeners(trip) {
       p.style.background  = isSel ? tInfo.color : '';
       p.style.borderColor = isSel ? tInfo.color : '';
       p.style.color       = isSel ? '#fff'      : '';
+    });
+  });
+
+  // Status pills
+  document.getElementById('m-statuses')?.addEventListener('click', e => {
+    const pill = e.target.closest('[data-modal-status]');
+    if (!pill) return;
+    _modalStatus = pill.dataset.modalStatus;
+    const colMap = { done: '#16a34a', planning: '#0284c7' };
+    document.querySelectorAll('#m-statuses [data-modal-status]').forEach(p => {
+      const k     = p.dataset.modalStatus;
+      const isSel = k === _modalStatus;
+      const col   = colMap[k] || '#0d9488';
+      p.classList.toggle('sel', isSel);
+      p.style.background  = isSel ? col  : '';
+      p.style.borderColor = isSel ? col  : '';
+      p.style.color       = isSel ? '#fff' : '';
     });
   });
 
@@ -530,8 +797,15 @@ function _handleSave() {
 
   const destination = (document.getElementById('m-dest')?.value  || '').trim();
   const flag        = (document.getElementById('m-flag')?.value  || '').trim() || '🌍';
-  const photo       = (document.getElementById('m-photo')?.value || '').trim();
   const { start, end } = dpGetDates();
+
+  // Resolve photo value: file mode uses base64, URL mode reads input
+  let photo;
+  if (_photoMode === 'file' && _photoBase64) {
+    photo = _photoBase64;
+  } else {
+    photo = (document.getElementById('m-photo')?.value || '').trim();
+  }
 
   const data = {
     name,
@@ -540,22 +814,41 @@ function _handleSave() {
     photo,
     color:      _modalColor,
     type:       _modalType,
+    status:     _modalStatus,
     startDate:  start || null,
     endDate:    end   || null,
     companions: _modalComps,
   };
 
   if (_editingId) {
-    // Update existing trip
-    const existing = getTrips().find(t => t.id === _editingId);
-    const hadDays  = existing && Array.isArray(existing.days) && existing.days.length > 0;
-    const updated  = updateTrip(_editingId, data);
+    // Capture old dates before updating
+    const existing   = getTrips().find(t => t.id === _editingId);
+    const oldStart   = existing?.startDate || null;
+    const oldEnd     = existing?.endDate   || null;
+    const oldDays    = existing?.days      || [];
+    const hadDays    = Array.isArray(existing?.days) && existing.days.length > 0;
 
-    // Only generate days if there were none before
-    if (updated && !hadDays) {
-      const newDays = generateDays(updated);
-      if (newDays.length > 0) {
-        updateTrip(_editingId, { days: newDays });
+    const updated = updateTrip(_editingId, data);
+
+    if (updated) {
+      const dateChanged = data.startDate !== oldStart || data.endDate !== oldEnd;
+
+      if (dateChanged && data.startDate && data.endDate) {
+        // Regenerate day skeleton and merge with existing day data by date
+        const newDays    = generateDays(updated);
+        const mergedDays = newDays.map(nd => {
+          const old = oldDays.find(od => od.date === nd.date);
+          return old
+            ? { ...nd, title: old.title, region: old.region, lat: old.lat, lng: old.lng, color: old.color, photo: old.photo, items: old.items }
+            : nd;
+        });
+        updateTrip(_editingId, { days: mergedDays });
+      } else if (!hadDays) {
+        // No days existed before — generate fresh if possible
+        const newDays = generateDays(updated);
+        if (newDays.length > 0) {
+          updateTrip(_editingId, { days: newDays });
+        }
       }
     }
     notify('Voyage mis à jour !', '✅');
@@ -596,6 +889,12 @@ function _openImportModal() {
         Importez vos anciens voyages depuis un fichier KML (Google Earth) ou CSV.
         Les points seront regroupés automatiquement par date et région.
       </p>
+      <div style="margin-bottom:12px">
+        <button type="button" id="imp-download-sample"
+          style="background:var(--c2);border:1.5px solid var(--c3);border-radius:8px;padding:7px 14px;font-size:12px;font-weight:700;cursor:pointer;color:var(--ink3);display:inline-flex;align-items:center;gap:6px">
+          📥 Télécharger un exemple CSV
+        </button>
+      </div>
       <label class="ml">Type de voyage importé
         <div class="t-row" id="imp-types">
           <button class="tp sel" data-imp-type="voyage"  style="background:#0d9488;border-color:#0d9488;color:#fff">✈️ Voyage</button>
@@ -613,6 +912,24 @@ function _openImportModal() {
       <button class="btn-sec" onclick="closeModal()">Annuler</button>
       <button class="btn-pri" id="imp-go">Importer</button>
     </div>`, {});
+
+  // Sample CSV download
+  document.getElementById('imp-download-sample')?.addEventListener('click', () => {
+    const csvContent = [
+      'name,date,lat,lng,region',
+      'Reykjavik,2024-06-01,64.1355,-21.8954,Islande',
+      'Akureyri,2024-06-03,65.6885,-18.1006,Islande',
+    ].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
+    a.download = 'exemple_voyage.csv';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  });
 
   // Type selection
   let selectedType = 'voyage';
