@@ -68,7 +68,7 @@ function _makeIcon(color, size = 13, emoji = null) {
   if (emoji) {
     return L.divIcon({
       className: '',
-      html: `<div style="background:#fff;border:2px solid #d1d5db;border-radius:50%;width:28px;height:28px;display:flex;align-items:center;justify-content:center;font-size:16px;box-shadow:0 1px 6px rgba(0,0,0,.3)">${emoji}</div>`,
+      html: `<div style="background:${color};border:2px solid #fff;border-radius:50%;width:28px;height:28px;display:flex;align-items:center;justify-content:center;font-size:16px;box-shadow:0 1px 6px rgba(0,0,0,.4)"><span style="filter:grayscale(1) brightness(2)">${emoji}</span></div>`,
       iconSize:    [28, 28],
       iconAnchor:  [14, 14],
       popupAnchor: [0, -20],

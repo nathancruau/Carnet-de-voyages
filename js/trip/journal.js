@@ -298,7 +298,7 @@ function _refreshJournalPins(tripId) {
     const emoji = (entry.pinType && _pinTypeMap()[entry.pinType]) ? _pinTypeMap()[entry.pinType] : '📍';
     const icon = L.divIcon({
       className: '',
-      html: `<div style="background:#fff;border:2px solid #d1d5db;border-radius:50%;width:30px;height:30px;display:flex;align-items:center;justify-content:center;font-size:17px;box-shadow:0 1px 6px rgba(0,0,0,.3)">${emoji}</div>`,
+      html: `<div style="background:#0891b2;border:2px solid #fff;border-radius:50%;width:30px;height:30px;display:flex;align-items:center;justify-content:center;font-size:17px;box-shadow:0 1px 6px rgba(0,0,0,.4)"><span style="filter:grayscale(1) brightness(2)">${emoji}</span></div>`,
       iconSize:   [30, 30],
       iconAnchor: [15, 15],
       popupAnchor:[0, -18],

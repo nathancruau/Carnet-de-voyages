@@ -182,7 +182,7 @@ function _refreshMapPins(tripId) {
       if (item.lat != null && item.lng != null) {
         const evtIcon = L.divIcon({
           className: '',
-          html: `<div style="background:#fff;border:2px solid #d1d5db;border-radius:50%;width:24px;height:24px;display:flex;align-items:center;justify-content:center;font-size:14px;box-shadow:0 1px 4px rgba(0,0,0,.3);cursor:pointer">${tIc(item.type)}</div>`,
+          html: `<div style="background:${day.color || '#0d9488'};border:2px solid #fff;border-radius:50%;width:24px;height:24px;display:flex;align-items:center;justify-content:center;font-size:13px;box-shadow:0 1px 4px rgba(0,0,0,.4);cursor:pointer"><span style="filter:grayscale(1) brightness(2)">${tIc(item.type)}</span></div>`,
           iconSize:   [24, 24],
           iconAnchor: [12, 12],
           popupAnchor:[0, -16],
