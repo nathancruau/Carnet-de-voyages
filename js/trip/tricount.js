@@ -310,6 +310,94 @@ function _renderDepenses(trip, participants) {
     ${comparisonHtml}`;
 }
 
+// ── Category bar chart ────────────────────────────────────────────────────────
+
+function _renderCatBarChart(trip, expenses) {
+  const cats = trip.budgetCats || [];
+  if (cats.length === 0 || expenses.length === 0) return '';
+
+  // Sum real expenses by category
+  const spentByCat = {};
+  for (const exp of expenses) {
+    if (exp.catId) {
+      spentByCat[exp.catId] = (spentByCat[exp.catId] || 0) + (Number(exp.amount) || 0);
+    }
+  }
+
+  // Only show cats that have real expenses
+  const activeCats = cats.filter(c => spentByCat[c.id] > 0);
+  if (activeCats.length === 0) return '';
+
+  const maxSpent = Math.max(...activeCats.map(c => spentByCat[c.id] || 0));
+
+  let bars = '';
+  for (const cat of activeCats) {
+    const spent   = spentByCat[cat.id] || 0;
+    const planned = Number(cat.planned) || 0;
+    const pct     = maxSpent > 0 ? Math.round((spent / maxSpent) * 100) : 0;
+    const overBudget = planned > 0 && spent > planned;
+    const barColor = overBudget ? 'var(--coral)' : (cat.color || '#0d9488');
+
+    bars += `
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+        <div style="width:28px;text-align:center;font-size:15px">${_esc(cat.icon || '📦')}</div>
+        <div style="width:90px;font-size:11px;font-weight:600;color:var(--ink2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${_esc(cat.name)}</div>
+        <div style="flex:1;background:var(--c3);border-radius:4px;height:12px;overflow:hidden">
+          <div style="width:${pct}%;height:100%;background:${barColor};border-radius:4px;transition:width .3s"></div>
+        </div>
+        <div style="width:80px;text-align:right;font-size:11px;font-weight:700;color:${overBudget ? 'var(--coral)' : 'var(--ink)'}">
+          ${_fmtEur(spent)}${planned > 0 ? `<span style="font-weight:400;color:var(--ink4)"> / ${_fmtEur(planned)}</span>` : ''}
+        </div>
+      </div>`;
+  }
+
+  return `
+    <div style="margin-top:20px;background:var(--c);border:1.5px solid var(--c3);border-radius:10px;padding:14px 16px">
+      <div style="font-size:12px;font-weight:700;color:var(--ink2);margin-bottom:12px">D&eacute;penses par cat&eacute;gorie</div>
+      ${bars}
+    </div>`;
+}
+
+// ── Budget vs real comparison ─────────────────────────────────────────────────
+
+function _renderBudgetComparison(trip, totalSpent) {
+  const cats        = trip.budgetCats || [];
+  const totalBudget = cats.reduce((s, c) => s + (Number(c.planned) || 0), 0);
+
+  if (totalBudget === 0) return '';
+
+  const diff      = totalBudget - totalSpent;
+  const underBudget = diff >= 0;
+  const pct       = Math.min(100, Math.round((totalSpent / totalBudget) * 100));
+  const barColor  = underBudget ? 'var(--grn)' : 'var(--coral)';
+
+  return `
+    <div style="margin-top:16px;background:var(--c);border:1.5px solid var(--c3);border-radius:10px;padding:14px 16px">
+      <div style="font-size:12px;font-weight:700;color:var(--ink2);margin-bottom:12px">Comparaison budget / r&eacute;el</div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px">
+        <div style="flex:1;min-width:100px;background:var(--c2);border-radius:8px;padding:10px 12px;border:1px solid var(--c3)">
+          <div style="font-size:10px;color:var(--ink4);margin-bottom:3px">Budget pr&eacute;vu</div>
+          <div style="font-size:14px;font-weight:800;color:var(--ink)">${_fmtEur(totalBudget)}</div>
+        </div>
+        <div style="flex:1;min-width:100px;background:var(--c2);border-radius:8px;padding:10px 12px;border:1px solid var(--c3)">
+          <div style="font-size:10px;color:var(--ink4);margin-bottom:3px">D&eacute;penses r&eacute;elles</div>
+          <div style="font-size:14px;font-weight:800;color:var(--ink)">${_fmtEur(totalSpent)}</div>
+        </div>
+        <div style="flex:1;min-width:100px;background:${underBudget ? 'var(--tl)' : '#fff0ee'};border-radius:8px;padding:10px 12px;border:1px solid ${underBudget ? 'var(--teal)' : 'var(--coral)'}44">
+          <div style="font-size:10px;color:var(--ink4);margin-bottom:3px">&Eacute;cart</div>
+          <div style="font-size:14px;font-weight:800;color:${underBudget ? 'var(--grn)' : 'var(--coral)'}">
+            ${underBudget ? '-' : '+'}${_fmtEur(Math.abs(diff))}
+          </div>
+          <div style="font-size:10px;color:${underBudget ? 'var(--grn)' : 'var(--coral)'}">${underBudget ? 'sous le budget' : 'hors budget'}</div>
+        </div>
+      </div>
+      <div style="font-size:10px;color:var(--ink4);margin-bottom:5px">${pct}% du budget utilis&eacute;</div>
+      <div style="background:var(--c3);border-radius:6px;height:10px;overflow:hidden">
+        <div style="width:${pct}%;height:100%;background:${barColor};border-radius:6px;transition:width .3s"></div>
+      </div>
+    </div>`;
+}
+
 // ── Bilans tab ────────────────────────────────────────────────────────────────
 
 function _renderBilans(trip, participants, balances, settlements) {
