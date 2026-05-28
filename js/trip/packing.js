@@ -41,7 +41,7 @@ function _buildHtml(trip) {
         const items       = cat.items || [];
         const catChecked  = items.filter(i => checked[i.id]).length;
         return `
-          <div class="pack-cat-card">
+          <div class="pack-cat-card" style="min-width:240px;max-width:300px;flex:0 0 260px">
             <div class="pack-cat-header">
               <span class="pack-cat-icon">${cat.icon || '📦'}</span>
               <span class="pack-cat-name">${_esc(cat.name)}</span>
@@ -55,18 +55,21 @@ function _buildHtml(trip) {
                 const priority    = item.priority || 'rec';
                 const prioLabel   = { must: '★', rec: '◆', opt: '◇' }[priority] || '◆';
                 const prioColor   = { must: 'var(--coral)', rec: 'var(--amb)', opt: 'var(--ink4)' }[priority] || 'var(--ink4)';
-                const carrier     = item.carrier || null;
+                // Migration: support both old carrier (string) and new carriers (array)
+                const carriers    = item.carriers ? item.carriers : (item.carrier ? [item.carrier] : []);
                 const companions  = trip.companions || [];
-                let carrierHtml   = '';
-                if (carrier === 'me') {
-                  carrierHtml = `<span class="pack-carrier-av" title="Moi" style="background:var(--teal)">Moi</span>`;
-                } else if (carrier) {
-                  const comp = companions.find(c => c.id === carrier);
-                  if (comp) {
-                    const initials = (comp.name || '?').slice(0, 2).toUpperCase();
-                    carrierHtml = `<span class="pack-carrier-av" title="${_esc(comp.name)}" style="background:${_esc(comp.color || '#7c3aed')}">${initials}</span>`;
+                const carrierHtml = carriers.map(carrier => {
+                  if (carrier === 'me') {
+                    return `<span class="pack-carrier-av" title="Moi" style="background:var(--teal)">Moi</span>`;
+                  } else {
+                    const comp = companions.find(c => c.id === carrier);
+                    if (comp) {
+                      const initials = (comp.name || '?').slice(0, 2).toUpperCase();
+                      return `<span class="pack-carrier-av" title="${_esc(comp.name)}" style="background:${_esc(comp.color || '#7c3aed')}">${initials}</span>`;
+                    }
+                    return '';
                   }
-                }
+                }).join('');
                 return `
                   <div class="pack-item ${isChecked ? 'checked' : ''}" data-action="toggle" data-cat="${cat.id}" data-item="${item.id}">
                     <div class="pack-item-check" style="border-color:${cat.color || 'var(--teal)'}${isChecked ? ';background:' + (cat.color || 'var(--teal)') : ''}">
@@ -102,7 +105,7 @@ function _buildHtml(trip) {
         </div>
       </div>
       ${progressHtml}
-      <div class="pack-cats">${catsHtml}</div>
+      <div class="pack-cats" style="display:flex;flex-direction:row;flex-wrap:nowrap;gap:12px;overflow-x:auto;align-items:flex-start;padding-bottom:8px">${catsHtml}</div>
     </div>`;
 }
 
@@ -118,8 +121,8 @@ function _attachListeners(panel, tripId) {
     if (action === 'edit-cat')  { _openCatModal(tripId, el.dataset.cat); return; }
     if (action === 'del-cat')   { _deleteCat(tripId, el.dataset.cat); return; }
     if (action === 'add-item')  { _openItemModal(tripId, el.dataset.cat, null); return; }
-    if (action === 'edit-item') { _openItemModal(tripId, el.dataset.cat, el.dataset.item); return; }
-    if (action === 'del-item')  { _deleteItem(tripId, el.dataset.cat, el.dataset.item); return; }
+    if (action === 'edit-item') { e.stopPropagation(); _openItemModal(tripId, el.dataset.cat, el.dataset.item); return; }
+    if (action === 'del-item')  { e.stopPropagation(); _deleteItem(tripId, el.dataset.cat, el.dataset.item); return; }
     if (action === 'toggle')    { _toggleItem(tripId, el.dataset.item); return; }
     if (action === 'reset-all') { _resetAll(tripId); return; }
   });
@@ -233,22 +236,37 @@ function _openItemModal(tripId, catId, itemId) {
   const item       = itemId ? (cat.items || []).find(i => i.id === itemId) : null;
   const title      = item ? 'Modifier l\'article' : 'Nouvel article';
   const companions = trip.companions || [];
-  const curCarrier = item?.carrier || null;
 
-  // Build carrier avatar buttons: "Moi" + each companion
-  const carrierAvatars = [
+  // Migration: support both old carrier (string) and new carriers (array)
+  const initialCarriers = item
+    ? (item.carriers ? [...item.carriers] : (item.carrier ? [item.carrier] : []))
+    : [];
+
+  // Local multi-selection state
+  const state = { carriers: new Set(initialCarriers) };
+
+  const allAvatars = [
     { id: 'me', label: 'Moi', color: 'var(--teal)' },
     ...companions.map(c => ({ id: c.id, label: c.name, color: c.color || '#7c3aed' }))
-  ].map(av => {
-    const initials = av.id === 'me' ? 'Moi' : (av.label || '?').slice(0, 2).toUpperCase();
-    const isSelected = curCarrier === av.id;
-    return `<button type="button"
-      class="pack-carrier-pick${isSelected ? ' sel' : ''}"
-      data-carrier-id="${_esc(av.id)}"
-      title="${_esc(av.label)}"
-      style="background:${isSelected ? av.color : 'var(--c2)'};color:${isSelected ? '#fff' : 'var(--ink3)'};border:1.5px solid ${isSelected ? av.color : 'var(--c3)'}"
-    >${initials}</button>`;
-  }).join('');
+  ];
+
+  function buildCarrierButtons() {
+    return allAvatars.map(av => {
+      const initials   = av.id === 'me' ? 'Moi' : (av.label || '?').slice(0, 2).toUpperCase();
+      const isSelected = state.carriers.has(av.id);
+      return `<button type="button"
+        class="pack-carrier-pick${isSelected ? ' sel' : ''}"
+        data-carrier-id="${_esc(av.id)}"
+        title="${_esc(av.label)}"
+        style="background:${isSelected ? av.color : 'var(--c2)'};color:${isSelected ? '#fff' : 'var(--ink3)'};border:1.5px solid ${isSelected ? av.color : 'var(--c3)'}"
+      >${initials}</button>`;
+    }).join('');
+  }
+
+  function refreshCarrierRow() {
+    const row = document.getElementById('pitem-carrier-row');
+    if (row) row.innerHTML = buildCarrierButtons();
+  }
 
   showModal(`
     <div class="modal-head"><h3>${title}</h3></div>
@@ -266,43 +284,43 @@ function _openItemModal(tripId, catId, itemId) {
           <label class="prio-opt"><input type="radio" name="prio" value="opt"  ${(item?.priority || 'rec') === 'opt'  ? 'checked' : ''} /> <span style="color:var(--ink4)">◇ Optionnel</span></label>
         </div>
       </label>
-      ${companions.length >= 0 ? `
       <div class="ml">
-        <span style="font-size:12px;font-weight:600;color:var(--ink2);display:block;margin-bottom:6px">Qui l'apporte ?</span>
+        <span style="font-size:12px;font-weight:600;color:var(--ink2);display:block;margin-bottom:6px">Qui l'apporte ? <span style="font-size:10px;font-weight:400;color:var(--ink4)">(sélection multiple)</span></span>
         <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center" id="pitem-carrier-row">
-          ${carrierAvatars}
-          <button type="button" class="pack-carrier-pick${curCarrier === null ? ' sel' : ''}" data-carrier-id="" title="Non assigné"
-            style="background:${curCarrier === null ? 'var(--c4)' : 'var(--c2)'};color:var(--ink3);border:1.5px solid var(--c3);font-size:10px">—</button>
+          ${buildCarrierButtons()}
         </div>
-        <input type="hidden" id="pitem-carrier" value="${_esc(curCarrier || '')}" />
-      </div>` : ''}
+      </div>
     </div>
     <div class="modal-footer">
       <button class="btn-sec" onclick="closeModal()">Annuler</button>
       <button class="btn-pri" onclick="_savePItem('${tripId}','${catId}','${itemId || ''}')">Enregistrer</button>
     </div>`, {});
 
-  // Carrier picker interactivity
+  // Carrier picker: toggle multi-selection
   document.getElementById('pitem-carrier-row')?.addEventListener('click', e => {
     const btn = e.target.closest('[data-carrier-id]');
     if (!btn) return;
-    const newCarrier = btn.dataset.carrierId || null;
-    document.getElementById('pitem-carrier').value = newCarrier || '';
-    // Update button styles
-    document.querySelectorAll('#pitem-carrier-row [data-carrier-id]').forEach(b => {
-      const isNow = b.dataset.carrierId === (newCarrier || '');
-      b.classList.toggle('sel', isNow);
-      // Reset inline colours — let CSS handle .sel state via class
-    });
+    const carrierId = btn.dataset.carrierId;
+    if (!carrierId) return; // ignore clicks on non-carrier elements
+    if (state.carriers.has(carrierId)) {
+      state.carriers.delete(carrierId);
+    } else {
+      state.carriers.add(carrierId);
+    }
+    refreshCarrierRow();
   });
+
+  // Expose state so _savePItem can access it via closure
+  window._currentPackingItemState = state;
 }
 
 window._savePItem = function(tripId, catId, itemId) {
   const name     = document.getElementById('pitem-name')?.value.trim();
   const subtitle = document.getElementById('pitem-sub')?.value.trim() || '';
   const priority = document.querySelector('input[name="prio"]:checked')?.value || 'rec';
-  const carrierRaw = document.getElementById('pitem-carrier')?.value || '';
-  const carrier  = carrierRaw || null;
+  // Read carriers from the closure state set by _openItemModal
+  const carriersSet = window._currentPackingItemState?.carriers || new Set();
+  const carriers = Array.from(carriersSet);
 
   if (!name) { notify('Veuillez entrer un nom', '⚠'); return; }
 
@@ -316,12 +334,17 @@ window._savePItem = function(tripId, catId, itemId) {
   const items = [...(cats[catIdx].items || [])];
   if (itemId) {
     const idx = items.findIndex(i => i.id === itemId);
-    if (idx !== -1) items[idx] = { ...items[idx], name, subtitle, priority, carrier };
+    if (idx !== -1) {
+      // Remove old carrier field if present, save as carriers array
+      const { carrier: _oldCarrier, ...rest } = items[idx];
+      items[idx] = { ...rest, name, subtitle, priority, carriers };
+    }
   } else {
-    items.push({ id: uid(), name, subtitle, priority, carrier });
+    items.push({ id: uid(), name, subtitle, priority, carriers });
   }
   cats[catIdx] = { ...cats[catIdx], items };
 
+  window._currentPackingItemState = null;
   updateTrip(tripId, { packingCats: cats });
   closeModal();
   renderPacking(tripId);

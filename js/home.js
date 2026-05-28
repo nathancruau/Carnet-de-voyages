@@ -191,6 +191,8 @@ function _heroHtml(trips) {
         </div>
         <div style="display:flex;gap:8px">
           <button class="btn-new" data-action="open-import" title="Importer KML/CSV">⬆ Importer</button>
+          <button class="btn-new" data-action="export-all" title="Exporter tous les voyages en JSON">⬇ Exporter</button>
+          <button class="btn-new" data-action="show-stats">📊 Statistiques</button>
           <button class="btn-new" data-action="open-mymap">🗺 MyMap</button>
         </div>
       </div>
@@ -233,9 +235,7 @@ function _filterTabsHtml(activeFilter, activeTab) {
     `<button class="filter-tab${activeTab === 'trips' && activeFilter === t.key ? ' active' : ''}"
              data-action="filter" data-filter="${t.key}">${t.label}</button>`
   ).join('');
-  const statBtn = `<button class="filter-tab${activeTab === 'stats' ? ' active' : ''}"
-             data-action="show-stats">📊 Statistiques</button>`;
-  return `<div class="filter-tabs">${filterBtns}${statBtn}</div>`;
+  return `<div class="filter-tabs">${filterBtns}</div>`;
 }
 
 // ── Trip card HTML ─────────────────────────────────────────────────────────────
@@ -294,6 +294,18 @@ function _tripCardHtml(trip) {
     ? `<div class="tc-stats">${stats.map(s => `<span class="tc-s">${s}</span>`).join('')}</div>`
     : '';
 
+  // Status badge
+  const isDone = (trip.status || 'done') === 'done';
+  const badgeBg     = isDone ? '#dcfce7' : '#e0f2fe';
+  const badgeColor  = isDone ? '#16a34a' : '#0284c7';
+  const badgeBorder = isDone ? '#86efac' : '#7dd3fc';
+  const badgeLabel  = isDone ? '✅ Réalisé' : '📝 Planification';
+  const statusBadgeHtml = `<span
+    data-action="toggle-status"
+    data-trip-id="${trip.id}"
+    style="font-size:9px;font-weight:700;padding:2px 8px;border-radius:999px;cursor:pointer;border:1px solid ${badgeBorder};display:inline-block;margin-bottom:6px;background:${badgeBg};color:${badgeColor}"
+  >${badgeLabel}</span>`;
+
   return `
     <div class="trip-card" data-action="open-trip" data-trip-id="${trip.id}">
       ${imgHtml}
@@ -308,6 +320,7 @@ function _tripCardHtml(trip) {
         <div class="tc-title">${trip.flag || '🌍'} ${_esc(trip.name) || 'Sans titre'}</div>
         <div class="tc-dates">${dateStr}</div>
         <div class="tc-companions">${compsHtml}</div>
+        ${statusBadgeHtml}
         ${statsHtml}
       </div>
     </div>
@@ -394,6 +407,20 @@ function _renderStats() {
   }
 }
 
+// ── Export helper ──────────────────────────────────────────────────────────────
+
+function _downloadJson(data, filename) {
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href     = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
 // ── Event delegation ───────────────────────────────────────────────────────────
 
 function _attachListeners(wrap) {
@@ -409,6 +436,10 @@ function _attachListeners(wrap) {
 
       case 'open-import':
         _openImportModal();
+        break;
+
+      case 'export-all':
+        _downloadJson(getTrips(), 'carnet-voyages.json');
         break;
 
       case 'new-trip':
@@ -431,6 +462,17 @@ function _attachListeners(wrap) {
       case 'show-stats':
         _renderStats();
         break;
+
+      case 'toggle-status': {
+        e.stopPropagation();
+        const tripId = target.dataset.tripId;
+        const trip   = getTrips().find(t => t.id === tripId);
+        if (!trip) break;
+        const newStatus = (trip.status || 'done') === 'done' ? 'planning' : 'done';
+        updateTrip(tripId, { status: newStatus });
+        renderHome(_currentFilter);
+        break;
+      }
     }
   });
 }
@@ -587,6 +629,7 @@ function _buildModalHtml(trip) {
 
     <div class="ma">
       ${isEdit ? `<button class="bd" id="m-delete">🗑 Supprimer</button>` : ''}
+      ${isEdit ? `<button class="bc" id="m-export">⬇ Exporter</button>` : ''}
       <button class="bc" id="m-cancel">Annuler</button>
       <button class="bs" id="m-save">${isEdit ? 'Enregistrer' : 'Créer le voyage'}</button>
     </div>
@@ -776,6 +819,14 @@ function _initModalListeners(trip) {
 
   // Cancel
   document.getElementById('m-cancel')?.addEventListener('click', closeModal);
+
+  // Export single trip
+  document.getElementById('m-export')?.addEventListener('click', () => {
+    const t = getTrips().find(t => t.id === _editingId);
+    if (!t) return;
+    const safeName = (t.name || 'voyage').replace(/[^a-zA-Z0-9À-ɏ_-]/g, '-');
+    _downloadJson(t, `voyage-${safeName}.json`);
+  });
 }
 
 function _refreshCompList() {
