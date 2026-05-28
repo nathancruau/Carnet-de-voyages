@@ -279,6 +279,12 @@ function _renderDepenses(trip, participants) {
       </tr>`;
   }
 
+  // Budget vs real comparison
+  const comparisonHtml = _renderBudgetComparison(trip, totalSpent);
+
+  // Category bar chart
+  const barChartHtml = _renderCatBarChart(trip, expenses);
+
   return `
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">
       <div>
@@ -299,7 +305,9 @@ function _renderDepenses(trip, participants) {
         </tr>
       </thead>
       <tbody>${rows}</tbody>
-    </table>`;
+    </table>
+    ${barChartHtml}
+    ${comparisonHtml}`;
 }
 
 // ── Bilans tab ────────────────────────────────────────────────────────────────

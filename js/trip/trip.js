@@ -136,11 +136,14 @@ function _renderTopbar(trip) {
     </div>
     <div class="spacer"></div>
     <div class="nav-tabs">
+      <span class="nav-tabs-group-lbl">Planifié</span>
       <div class="nav-tab active" data-tab="mapcal">🗺 Carte &amp; Planning</div>
-      <div class="nav-tab" data-tab="journal">📔 Carnet</div>
-      <div class="nav-tab" data-tab="budget">💰 Budget prévu</div>
-      <div class="nav-tab" data-tab="tricount">💳 Budget réel</div>
+      <div class="nav-tab" data-tab="budget">💰 Budget</div>
       <div class="nav-tab" data-tab="packing">🎒 Bagages</div>
+      <div class="nav-tabs-sep"></div>
+      <span class="nav-tabs-group-lbl">Réel</span>
+      <div class="nav-tab" data-tab="journal">📔 Carnet</div>
+      <div class="nav-tab" data-tab="tricount">💳 Dépenses</div>
     </div>
   `;
 

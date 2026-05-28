@@ -67,6 +67,8 @@ export function createTrip(data = {}) {
     endDate:        data.endDate     || null,   // 'YYYY-MM-DD' or null
     companions,
     createdAt:      now,
+    status:         data.status         || 'planning',  // 'planning' | 'done'
+    countryCode:    data.countryCode    || '',
 
     days:           data.days           || [],
     budgetCats:     data.budgetCats     || defaultBudgetCats(),
@@ -110,6 +112,8 @@ function _migrateTrip(t) {
   if (t.photo   === undefined) t.photo      = '';
   if (t.color   === undefined) t.color      = '#0d9488';
   if (t.type    === undefined) t.type       = 'voyage';
+  if (!t.status)               t.status    = 'done';   // legacy trips assumed done
+  if (t.countryCode === undefined) t.countryCode = '';
   // Ensure companions have ids
   t.companions = t.companions.map(c => ({
     id:    c.id    || ('c_' + uid()),

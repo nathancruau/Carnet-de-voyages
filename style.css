@@ -154,7 +154,7 @@ html,body{height:100%;font-family:var(--fn);background:var(--c);color:var(--ink)
 }
 .spacer{flex:1}
 .nav-tabs{
-  display:flex;gap:2px;background:var(--c2);border-radius:8px;
+  display:flex;align-items:center;gap:2px;background:var(--c2);border-radius:8px;
   padding:3px;border:1px solid var(--c3);
 }
 .nav-tab{
@@ -162,6 +162,8 @@ html,body{height:100%;font-family:var(--fn);background:var(--c);color:var(--ink)
   cursor:pointer;color:var(--ink3);transition:all .15s;white-space:nowrap;
 }
 .nav-tab.active{background:#fff;color:var(--teal);box-shadow:var(--sh)}
+.nav-tabs-sep{width:1px;height:18px;background:var(--c4);margin:0 3px;flex-shrink:0}
+.nav-tabs-group-lbl{font-size:9px;font-weight:800;color:var(--ink4);text-transform:uppercase;letter-spacing:.5px;padding:0 4px;white-space:nowrap}
 
 /* Stats pills in topbar */
 .top-stat{display:flex;align-items:center;gap:4px;padding:4px 9px;font-size:12px;font-weight:600;color:var(--ink2)}

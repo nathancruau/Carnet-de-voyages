@@ -145,11 +145,11 @@ function _renderMain(trip, cats, lines) {
       </div>
       <div class="bud-sm-card">
         <div class="bud-sm-v" style="color:${totalSpent > totalPlanned ? 'var(--coral)' : 'var(--grn)'}">${_fmtEur(totalSpent)}</div>
-        <div class="bud-sm-l">Total lignes</div>
+        <div class="bud-sm-l">Lignes saisies</div>
       </div>
       <div class="bud-sm-card">
         <div class="bud-sm-v" style="color:${diff < 0 ? 'var(--coral)' : 'var(--ink)'}">${_fmtEur(Math.abs(diff))}</div>
-        <div class="bud-sm-l">${diff < 0 ? 'Dépassement' : 'Restant'}</div>
+        <div class="bud-sm-l">${diff >= 0 ? 'Disponible' : 'Dépassement'}</div>
       </div>
     </div>`;
 
@@ -157,6 +157,10 @@ function _renderMain(trip, cats, lines) {
   if (!selCat && cats.length > 0 && _totalPlanned(cats) > 0) {
     html += _renderDonut(cats, lines);
   }
+
+  // Planned costs from trip days (read-only)
+  const daysCostHtml = _renderDaysCosts(trip, cats, selCat);
+  if (daysCostHtml) html += daysCostHtml;
 
   // Budget lines table
   html += _renderLinesTable(trip, cats, filteredLines);
@@ -225,6 +229,79 @@ function _renderDonut(cats, lines) {
         </div>
       </div>
       <div class="dl-grid" style="flex:1;min-width:160px">${legendItems}</div>
+    </div>`;
+}
+
+// ── Days costs (read-only, from planning) ─────────────────────────────────────
+
+function _renderDaysCosts(trip, cats, selCat) {
+  const days = trip.days || [];
+
+  // Collect all events across all days that have a cost > 0
+  const costItems = [];
+  for (const day of days) {
+    for (const ev of (day.events || [])) {
+      if (Number(ev.cost) > 0) {
+        costItems.push({ day, ev });
+      }
+    }
+  }
+
+  if (costItems.length === 0) return '';
+
+  // If in category view, filter by catId if event has one; show all costs in global view
+  const filtered = selCat
+    ? costItems.filter(({ ev }) => ev.catId === selCat.id)
+    : costItems;
+
+  if (filtered.length === 0) return '';
+
+  // Group by day
+  const byDay = new Map();
+  for (const { day, ev } of filtered) {
+    if (!byDay.has(day.id)) byDay.set(day.id, { day, events: [] });
+    byDay.get(day.id).events.push(ev);
+  }
+
+  const totalCost = filtered.reduce((s, { ev }) => s + (Number(ev.cost) || 0), 0);
+
+  let rows = '';
+  for (const { day, events } of byDay.values()) {
+    for (const ev of events) {
+      const cat = cats.find(c => c.id === ev.catId);
+      const catHtml = cat
+        ? `<span style="font-size:9px;font-weight:800;padding:2px 7px;border-radius:999px;background:${_esc(cat.color || '#0d9488')}22;color:${_esc(cat.color || '#0d9488')};border:1px solid ${_esc(cat.color || '#0d9488')}44">${_esc(cat.icon || '')} ${_esc(cat.name)}</span>`
+        : '';
+      rows += `
+        <tr>
+          <td>
+            <div style="font-size:12px;font-weight:600;color:var(--ink)">${_esc(ev.title || ev.name || '—')}</div>
+            ${ev.note ? `<div style="font-size:10px;color:var(--ink4);margin-top:2px">${_esc(ev.note)}</div>` : ''}
+          </td>
+          <td>${catHtml}</td>
+          <td style="font-weight:700;color:var(--ink)">${_fmtEur(ev.cost)}</td>
+          <td><span style="font-size:10px;color:var(--ink4)">Jour ${day.num}</span></td>
+        </tr>`;
+    }
+  }
+
+  return `
+    <div style="margin-bottom:4px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+        <div style="font-size:12px;font-weight:700;color:var(--ink2)">Dépenses planifiées (depuis planning)</div>
+        <div style="font-size:11px;font-weight:700;color:var(--teal)">${_fmtEur(totalCost)}</div>
+      </div>
+      <table class="exp-table" style="opacity:.9">
+        <thead>
+          <tr>
+            <th>Événement</th>
+            <th>Catégorie</th>
+            <th>Coût estimé</th>
+            <th>Jour</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
     </div>`;
 }
 
