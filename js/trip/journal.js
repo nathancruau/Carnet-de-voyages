@@ -39,6 +39,21 @@ function _dayLabel(trip, dayId) {
 
 const _handlers = new WeakMap();
 
+// ── Map state ─────────────────────────────────────────────────────────────────
+
+let _journalMap      = null;
+let _journalMarkers  = {};
+let _journalTripId   = null;
+
+export function destroyJournalMap() {
+  if (_journalMap) {
+    try { _journalMap.remove(); } catch (_) { /* already removed */ }
+    _journalMap = null;
+  }
+  _journalMarkers = {};
+  _journalTripId  = null;
+}
+
 // ── Render ────────────────────────────────────────────────────────────────────
 
 export function renderJournal(tripId) {
@@ -47,6 +62,8 @@ export function renderJournal(tripId) {
 
   const trip = getTrip(tripId);
   if (!trip) return;
+
+  _journalTripId = tripId;
 
   // Remove previous listener before re-rendering
   if (_handlers.has(panel)) {
@@ -58,57 +75,70 @@ export function renderJournal(tripId) {
     return (b.date || '').localeCompare(a.date || '');
   });
 
-  let innerHtml = '';
-
-  if (entries.length === 0) {
-    innerHtml = `
-      <div class="jn-empty">
-        <div class="ei">📔</div>
-        <p>Commencez à documenter votre voyage...</p>
-        <p style="font-size:11px;margin-top:6px;color:var(--ink4)">Chaque journée mérite d'être racontée</p>
-      </div>`;
-  } else {
-    // Group by dayId when available, else by date
-    const groups = new Map();
-    for (const e of entries) {
-      let key, label;
-      if (e.dayId) {
-        key = 'day_' + e.dayId;
-        const dl = _dayLabel(trip, e.dayId);
-        label = dl || (e.date ? fmtDate(e.date) : 'Sans date');
-      } else if (e.date) {
-        key = 'date_' + e.date;
-        label = fmtDate(e.date);
-      } else {
-        key = 'nodate';
-        label = 'Sans date';
-      }
-      if (!groups.has(key)) groups.set(key, { label, entries: [] });
-      groups.get(key).entries.push(e);
-    }
-
-    for (const [, group] of groups) {
-      innerHtml += `<div class="jn-day-group">
-        <div class="jn-day-label">${_esc(group.label)}</div>`;
-      for (const e of group.entries) {
-        innerHtml += _entryCard(trip, e);
-      }
-      innerHtml += `</div>`;
-    }
-  }
-
   panel.innerHTML = `
-    <div class="journal-wrap">
-      <div class="jn-hd">
-        <h2>📔 Carnet de voyage</h2>
-        <button class="btn-new" data-action="add-entry">＋ Nouvelle entrée</button>
+    <div class="mapcal">
+      <div class="left-panel" style="width:290px;min-width:240px;max-width:290px">
+        <div style="padding:12px 14px 8px;flex-shrink:0;display:flex;align-items:center;justify-content:space-between;gap:8px">
+          <h3 style="font-family:var(--sf);font-size:15px;font-weight:700;color:var(--ink);margin:0">📔 Journal</h3>
+          <button class="btn-new" data-action="add-entry" style="font-size:11px;padding:5px 10px;white-space:nowrap">＋ Nouvelle entrée</button>
+        </div>
+        <div class="days-scroll" id="journal-entries-list" style="flex:1;overflow-y:auto;padding:6px 8px">
+          ${_buildEntriesListHtml(trip, entries)}
+        </div>
       </div>
-      ${innerHtml}
+      <div class="map-col" style="flex:1;position:relative">
+        <div id="journal-map" style="width:100%;height:100%"></div>
+        ${entries.length === 0 ? `<div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center;color:var(--ink4);pointer-events:none"><div style="font-size:36px;margin-bottom:8px">🗺️</div><div style="font-size:13px;font-weight:600">Ajoutez des entrées avec une localisation<br>pour les voir sur la carte</div></div>` : ''}
+      </div>
     </div>`;
 
   const handler = e => _handleClick(e, tripId);
   _handlers.set(panel, handler);
   panel.addEventListener('click', handler);
+
+  // Init map
+  _initJournalMap(tripId);
+}
+
+function _buildEntriesListHtml(trip, entries) {
+  if (entries.length === 0) {
+    return `
+      <div class="jn-empty" style="text-align:center;padding:32px 12px;color:var(--ink4)">
+        <div class="ei" style="font-size:36px;margin-bottom:8px">📔</div>
+        <p style="font-size:13px;font-weight:600;color:var(--ink3)">Commencez à documenter votre voyage...</p>
+        <p style="font-size:11px;margin-top:6px;color:var(--ink4)">Chaque journée mérite d'être racontée</p>
+      </div>`;
+  }
+
+  // Group by dayId when available, else by date
+  const groups = new Map();
+  for (const e of entries) {
+    let key, label;
+    if (e.dayId) {
+      key = 'day_' + e.dayId;
+      const dl = _dayLabel(trip, e.dayId);
+      label = dl || (e.date ? fmtDate(e.date) : 'Sans date');
+    } else if (e.date) {
+      key = 'date_' + e.date;
+      label = fmtDate(e.date);
+    } else {
+      key = 'nodate';
+      label = 'Sans date';
+    }
+    if (!groups.has(key)) groups.set(key, { label, entries: [] });
+    groups.get(key).entries.push(e);
+  }
+
+  let html = '';
+  for (const [, group] of groups) {
+    html += `<div class="jn-day-group">
+      <div class="jn-day-label">${_esc(group.label)}</div>`;
+    for (const e of group.entries) {
+      html += _entryCard(trip, e);
+    }
+    html += `</div>`;
+  }
+  return html;
 }
 
 // ── Entry card ────────────────────────────────────────────────────────────────
@@ -122,6 +152,7 @@ function _entryCard(trip, e) {
   if (e.mood)    metaPills += `<span class="jn-meta-pill">${_esc(e.mood)}</span>`;
   if (e.rating)  metaPills += `<span class="jn-meta-pill">${_starsHtml(e.rating)}</span>`;
   if (dayLabel)  metaPills += `<span class="jn-meta-pill" style="background:var(--tl);color:var(--td);border-color:var(--teal)">${_esc(dayLabel)}</span>`;
+  if (e.lat != null && e.lng != null) metaPills += `<span class="jn-meta-pill" style="background:#e0f2fe;color:#0284c7;border-color:#7dd3fc" title="${e.lat.toFixed(4)}, ${e.lng.toFixed(4)}">📍</span>`;
 
   const contentHtml = e.content
     ? `<div class="jn-content" style="display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden">${_esc(e.content)}</div>`
@@ -147,7 +178,7 @@ function _entryCard(trip, e) {
   }
 
   return `
-    <div class="jn-entry" data-entry-id="${_esc(e.id)}">
+    <div class="jn-entry" data-entry-id="${_esc(e.id)}" style="cursor:pointer">
       <div class="jn-entry-hd">
         <div class="jn-title" style="font-style:italic">${_esc(e.title || 'Sans titre')}</div>
         <div style="display:flex;gap:5px;flex-shrink:0">
@@ -160,6 +191,113 @@ function _entryCard(trip, e) {
       ${photosHtml}
       ${tagsHtml}
     </div>`;
+}
+
+// ── Journal Map ───────────────────────────────────────────────────────────────
+
+function _initJournalMap(tripId) {
+  // If a map already exists, just refresh pins
+  if (_journalMap) {
+    setTimeout(() => { if (_journalMap) _journalMap.invalidateSize(); }, 80);
+    _refreshJournalPins(tripId);
+    return;
+  }
+
+  requestAnimationFrame(() => {
+    const el = document.getElementById('journal-map');
+    if (!el) return;
+
+    const trip = getTrip(tripId);
+    // Default center
+    let center = [46.5, 2.5];
+    let zoom   = 5;
+    if (trip) {
+      const entry = (trip.journalEntries || []).find(e => e.lat != null && e.lng != null);
+      if (entry) { center = [entry.lat, entry.lng]; zoom = 7; }
+    }
+
+    _journalMap = L.map('journal-map', { center, zoom, zoomControl: true });
+
+    L.tileLayer('https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png', {
+      attribution: '© OpenStreetMap contributors',
+      maxZoom: 18,
+    }).addTo(_journalMap);
+
+    _journalMap.invalidateSize();
+    _refreshJournalPins(tripId);
+  });
+}
+
+function _refreshJournalPins(tripId) {
+  if (!_journalMap) return;
+  const trip = getTrip(tripId);
+  if (!trip) return;
+
+  // Remove existing markers
+  Object.values(_journalMarkers).forEach(m => { try { _journalMap.removeLayer(m); } catch (_) {} });
+  _journalMarkers = {};
+
+  const entries = (trip.journalEntries || []).filter(e => e.lat != null && e.lng != null);
+
+  entries.forEach(entry => {
+    const dateLabel = entry.date ? fmtDateShort(entry.date) : '—';
+    const icon = L.divIcon({
+      className: '',
+      html: `<div style="background:#0891b2;color:#fff;border:2px solid #0e7490;border-radius:50%;width:32px;height:32px;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;box-shadow:0 2px 6px rgba(0,0,0,.25);text-align:center;line-height:1.1;padding:2px">${_esc(dateLabel)}</div>`,
+      iconSize:   [32, 32],
+      iconAnchor: [16, 16],
+      popupAnchor:[0, -18],
+    });
+
+    const marker = L.marker([entry.lat, entry.lng], { icon });
+
+    const contentSnippet = entry.content
+      ? entry.content.slice(0, 80) + (entry.content.length > 80 ? '…' : '')
+      : '';
+
+    marker.bindPopup(`
+      <div style="padding:4px 2px;min-width:130px">
+        <div style="font-weight:700;font-size:12px;margin-bottom:2px">${_esc(entry.title || 'Sans titre')}</div>
+        ${entry.date ? `<div style="font-size:11px;color:#6b7280">${_esc(fmtDate(entry.date))}</div>` : ''}
+        ${contentSnippet ? `<div style="font-size:11px;margin-top:4px;color:#374151">${_esc(contentSnippet)}</div>` : ''}
+      </div>
+    `, { maxWidth: 200 });
+
+    marker.on('click', () => {
+      _highlightEntry(entry.id);
+    });
+
+    marker.addTo(_journalMap);
+    _journalMarkers[entry.id] = marker;
+  });
+
+  // Fit bounds
+  if (entries.length === 1) {
+    _journalMap.setView([entries[0].lat, entries[0].lng], 10, { animate: true });
+  } else if (entries.length > 1) {
+    const bounds = entries.map(e => [e.lat, e.lng]);
+    _journalMap.fitBounds(bounds, { padding: [40, 40], maxZoom: 12 });
+  }
+}
+
+function _highlightEntry(entryId) {
+  // Remove highlight from all entries
+  document.querySelectorAll('.jn-entry').forEach(el => {
+    el.style.outline = '';
+    el.style.background = '';
+  });
+  // Highlight the target entry
+  const el = document.querySelector(`.jn-entry[data-entry-id="${CSS.escape(entryId)}"]`);
+  if (el) {
+    el.style.outline = '2px solid #0891b2';
+    el.style.background = '#e0f2fe';
+    el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    // Remove highlight after 2.5s
+    setTimeout(() => {
+      el.style.outline = '';
+      el.style.background = '';
+    }, 2500);
+  }
 }
 
 // ── Event delegation ──────────────────────────────────────────────────────────
@@ -206,6 +344,11 @@ function _openEntryModal(tripId, entryId) {
     rating:  entry?.rating  || 0,
     photos:  entry ? [...(entry.photos || [])] : [],
     tags:    entry ? [...(entry.tags   || [])] : [],
+    lat:     entry?.lat     ?? null,
+    lng:     entry?.lng     ?? null,
+    // Nominatim search results
+    _locResults: [],
+    _locQuery:   '',
   };
 
   const days = trip.days || [];
@@ -256,6 +399,27 @@ function _openEntryModal(tripId, entryId) {
     ).join('');
   }
 
+  function locBadge() {
+    if (state.lat != null && state.lng != null) {
+      return `<div style="font-size:11px;color:#0891b2;margin-top:4px;display:flex;align-items:center;gap:4px">
+        <span>📍</span>
+        <span>${state.lat.toFixed(5)}, ${state.lng.toFixed(5)}</span>
+        <button type="button" id="je-loc-clear" style="background:none;border:none;color:var(--coral);cursor:pointer;font-size:11px;padding:0 2px" title="Effacer">✕</button>
+      </div>`;
+    }
+    return '';
+  }
+
+  function locResultsHtml() {
+    if (!state._locResults.length) return '';
+    return `<div id="je-loc-results" style="border:1.5px solid var(--c3);border-radius:7px;background:var(--c);margin-top:4px;max-height:160px;overflow-y:auto">
+      ${state._locResults.map((r, i) =>
+        `<div data-loc-idx="${i}" style="padding:7px 10px;cursor:pointer;font-size:12px;border-bottom:1px solid var(--c2)"
+          onmouseover="this.style.background='var(--c2)'" onmouseout="this.style.background=''">${_esc(r.display_name)}</div>`
+      ).join('')}
+    </div>`;
+  }
+
   function buildHtml() {
     return `
       <button class="mc" onclick="closeModal()">✕</button>
@@ -279,6 +443,20 @@ function _openEntryModal(tripId, entryId) {
       <div class="fg">
         <label>Récit</label>
         <textarea id="je-content" rows="6" placeholder="Racontez votre journée...">${_esc(state.content)}</textarea>
+      </div>
+
+      <div class="fg">
+        <label>Localisation <span style="font-size:10px;color:var(--ink4);font-weight:400">(optionnel — apparaît sur la carte)</span></label>
+        <div style="display:flex;gap:6px">
+          <input type="text" id="je-loc-input" placeholder="Ex : Paris, Reykjavik…" value="${_esc(state._locQuery)}"
+            style="flex:1;background:var(--c);border:1.5px solid var(--c3);border-radius:7px;padding:7px 9px;font-size:12px;font-family:var(--fn);outline:none">
+          <button type="button" id="je-loc-search"
+            style="background:var(--teal);color:#fff;border:none;border-radius:7px;padding:7px 12px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap">
+            🔍 Chercher
+          </button>
+        </div>
+        ${locResultsHtml()}
+        ${locBadge()}
       </div>
 
       <div class="fg">
@@ -366,6 +544,52 @@ function _openEntryModal(tripId, entryId) {
     // Date input
     document.getElementById('je-date')?.addEventListener('change', ev => {
       state.date = ev.target.value;
+    });
+
+    // Location search
+    document.getElementById('je-loc-search')?.addEventListener('click', async () => {
+      const q = (document.getElementById('je-loc-input')?.value || '').trim();
+      if (!q) return;
+      state._locQuery = q;
+      try {
+        const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q)}&limit=5&accept-language=fr`;
+        const res = await fetch(url, { headers: { 'Accept-Language': 'fr' } });
+        const results = await res.json();
+        state._locResults = results;
+        reRenderModal();
+      } catch (err) {
+        notify('Erreur de recherche de localisation', '⚠️');
+      }
+    });
+
+    // Location input — search on Enter
+    document.getElementById('je-loc-input')?.addEventListener('keydown', async ev => {
+      if (ev.key === 'Enter') {
+        ev.preventDefault();
+        document.getElementById('je-loc-search')?.click();
+      }
+    });
+
+    // Location results — click to pick
+    document.getElementById('je-loc-results')?.addEventListener('click', ev => {
+      const row = ev.target.closest('[data-loc-idx]');
+      if (!row) return;
+      const idx = parseInt(row.dataset.locIdx, 10);
+      const r   = state._locResults[idx];
+      if (!r) return;
+      state.lat = parseFloat(r.lat);
+      state.lng = parseFloat(r.lon);
+      state._locResults = [];
+      state._locQuery = r.display_name.split(',')[0].trim();
+      reRenderModal();
+    });
+
+    // Location clear
+    document.getElementById('je-loc-clear')?.addEventListener('click', () => {
+      state.lat = null;
+      state.lng = null;
+      state._locResults = [];
+      reRenderModal();
     });
 
     // Weather picker
@@ -464,6 +688,8 @@ function _openEntryModal(tripId, entryId) {
             rating:  state.rating  || null,
             photos:  state.photos,
             tags:    state.tags,
+            lat:     state.lat,
+            lng:     state.lng,
           };
         }
         notify('Entrée mise à jour', '✓');
@@ -479,6 +705,8 @@ function _openEntryModal(tripId, entryId) {
           rating:  state.rating  || null,
           photos:  state.photos,
           tags:    state.tags,
+          lat:     state.lat,
+          lng:     state.lng,
         });
         notify('Entrée ajoutée', '📔');
       }

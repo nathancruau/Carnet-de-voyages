@@ -44,7 +44,7 @@ export function renderMapCal(tripId) {
     updateTrip(tripId, { days });
   }
 
-  // Inject panel structure
+  // Inject panel structure (no bottom add-day button; + button is in the days-list header)
   panel.innerHTML = `
     <div class="mapcal">
       <div class="left-panel">
@@ -53,10 +53,13 @@ export function renderMapCal(tripId) {
           <p style="font-size:11px;color:var(--ink4);margin-top:2px">Cliquez sur un événement pour les détails</p>
         </div>
         <div class="mini-cal" id="mini-cal"></div>
-        <div class="days-scroll" id="days-list"></div>
-        <div style="padding:8px;flex-shrink:0">
-          <div class="add-evt" id="add-day-btn" data-action="add-day" style="margin-top:0">＋ Ajouter un jour/étape</div>
+        <div class="days-list-header" style="display:flex;align-items:center;justify-content:space-between;padding:4px 14px 2px;flex-shrink:0">
+          <span style="font-size:11px;font-weight:600;color:var(--ink4);text-transform:uppercase;letter-spacing:.04em">Jours</span>
+          <button class="bc" id="add-day-top-btn" data-action="add-day"
+            style="padding:2px 8px;font-size:13px;line-height:1.4;border-radius:8px;font-weight:700"
+            title="Ajouter un jour / étape">＋</button>
         </div>
+        <div class="days-scroll" id="days-list"></div>
       </div>
       <div class="map-col">
         <div id="map" style="width:100%;height:100%"></div>
@@ -397,7 +400,7 @@ function _renderDaysList(tripId) {
       <div style="text-align:center;padding:24px 12px;color:var(--ink4);font-size:12px">
         <div style="font-size:28px;margin-bottom:6px">📅</div>
         <div>Aucun jour planifié</div>
-        <div style="font-size:10px;margin-top:4px">Cliquez sur «&nbsp;Ajouter un jour&nbsp;»</div>
+        <div style="font-size:10px;margin-top:4px">Cliquez sur «&nbsp;＋&nbsp;» pour ajouter un jour</div>
       </div>`;
     return;
   }
@@ -439,13 +442,20 @@ function _dayItemHtml(day) {
       </div>`;
   }
 
+  const titleText = _esc(day.title || `Jour ${day.num}`);
+
   return `
     <div class="day-item${isSelected ? ' sel' : ''}"
          data-action="select-day"
          data-day-id="${day.id}">
       <div class="di-head">
         <div class="di-badge" style="background:${day.color || '#0d9488'}">${day.num}</div>
-        <div class="di-name">${_esc(day.title || `Jour ${day.num}`)}</div>
+        <div class="di-name" style="display:flex;align-items:center;gap:4px;flex:1;min-width:0">
+          <span class="di-title-text" data-day-id="${day.id}">${titleText}</span>
+          <button class="di-edit-title" data-action="edit-day-title" data-day-id="${day.id}"
+            title="Modifier le titre"
+            style="background:none;border:none;cursor:pointer;padding:0 2px;font-size:12px;color:var(--ink4);line-height:1;flex-shrink:0">✎</button>
+        </div>
         ${costStr ? `<span class="di-cost">${costStr}</span>` : ''}
         <span class="di-t" style="margin-left:4px">${isSelected ? '▲' : '▼'}</span>
       </div>
@@ -455,6 +465,59 @@ function _dayItemHtml(day) {
       </div>
       ${eventsHtml}
     </div>`;
+}
+
+// ─── Inline day title editing ─────────────────────────────────────────────────
+
+function _startInlineTitleEdit(dayId, tripId) {
+  const trip = getTrip(tripId);
+  if (!trip) return;
+  const day = (trip.days || []).find(d => d.id === dayId);
+  if (!day) return;
+
+  // Find the title span and pencil button inside the rendered item
+  const titleSpan = document.querySelector(`.di-title-text[data-day-id="${dayId}"]`);
+  const editBtn   = document.querySelector(`.di-edit-title[data-day-id="${dayId}"]`);
+  if (!titleSpan) return;
+
+  const currentTitle = day.title || `Jour ${day.num}`;
+
+  // Replace span with input
+  const input = document.createElement('input');
+  input.type  = 'text';
+  input.value = currentTitle;
+  input.style.cssText = 'flex:1;min-width:0;font-size:13px;font-weight:600;padding:1px 4px;border:1.5px solid var(--teal);border-radius:5px;outline:none;background:var(--bg);color:var(--ink)';
+  input.className = 'di-title-input';
+
+  titleSpan.replaceWith(input);
+  if (editBtn) editBtn.style.display = 'none';
+  input.focus();
+  input.select();
+
+  const save = () => {
+    const newTitle = input.value.trim() || `Jour ${day.num}`;
+    const trip2 = getTrip(tripId);
+    if (trip2) {
+      const day2 = (trip2.days || []).find(d => d.id === dayId);
+      if (day2) {
+        day2.title = newTitle;
+        updateTrip(tripId, { days: trip2.days });
+      }
+    }
+    _renderDaysList(tripId);
+    _renderMiniCal(tripId);
+    _refreshMapPins(tripId);
+  };
+
+  input.addEventListener('blur', save);
+  input.addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
+    if (e.key === 'Escape') {
+      // Restore without saving
+      input.removeEventListener('blur', save);
+      _renderDaysList(tripId);
+    }
+  });
 }
 
 // ─── Event detail panel (EDP) ─────────────────────────────────────────────────
@@ -605,18 +668,28 @@ function _selectDay(dayId, tripId) {
 // ─── Event delegation for left panel ─────────────────────────────────────────
 
 function _attachLeftPanelListeners(panel) {
-  // Use the panel as the delegation root
   panel.addEventListener('click', e => {
+    // Inline title edit — pencil button
+    const editBtn = e.target.closest('[data-action="edit-day-title"]');
+    if (editBtn) {
+      e.stopPropagation();
+      const dayId = editBtn.dataset.dayId;
+      if (dayId) _startInlineTitleEdit(dayId, _tripId);
+      return;
+    }
+
     const target = e.target.closest('[data-action]');
     if (!target) return;
 
     const action = target.dataset.action;
 
     if (action === 'select-day') {
+      // Don't trigger select when clicking edit button (already handled above)
       const dayId = target.dataset.dayId;
       if (dayId) _selectDay(dayId, _tripId);
 
     } else if (action === 'add-day') {
+      e.stopPropagation();
       _openAddDayModal(_tripId);
 
     } else if (action === 'add-event') {
@@ -656,11 +729,99 @@ function _deleteEvent(dayId, evtIdx, tripId) {
   notify('Événement supprimé', '🗑');
 }
 
+// ─── Nominatim address search helper ─────────────────────────────────────────
+
+/**
+ * Renders an address search widget into `container` and returns a getter for
+ * the currently selected { lat, lng, label } (or null if nothing chosen yet).
+ *
+ * @param {HTMLElement} container   - element to inject the widget into
+ * @param {Function}    onSelect    - called with { lat, lng, label } when chosen
+ * @param {Function}    onMapClick  - called when user clicks "📍 Cliquer sur la carte"
+ */
+function _buildLocationSearch(container, onSelect, onMapClick) {
+  container.innerHTML = `
+    <div style="display:flex;gap:6px;align-items:center">
+      <input type="text" id="loc-query" placeholder="Rechercher un lieu…" autocomplete="off" style="flex:1">
+      <button class="bc" id="loc-search-btn" style="white-space:nowrap;padding:8px 10px;font-size:11px">🔍 Chercher</button>
+    </div>
+    <div id="loc-results" style="margin-top:4px"></div>
+    <div style="margin-top:4px">
+      <button class="bc" id="loc-map-click" style="font-size:11px;padding:5px 10px;width:100%">📍 Cliquer sur la carte</button>
+    </div>
+    <div id="loc-selected" style="margin-top:4px;font-size:11px;color:var(--teal);min-height:16px"></div>
+  `;
+
+  const queryInput  = container.querySelector('#loc-query');
+  const searchBtn   = container.querySelector('#loc-search-btn');
+  const resultsEl   = container.querySelector('#loc-results');
+  const selectedEl  = container.querySelector('#loc-selected');
+  const mapClickBtn = container.querySelector('#loc-map-click');
+
+  const doSearch = async () => {
+    const q = (queryInput.value || '').trim();
+    if (!q) return;
+    searchBtn.disabled = true;
+    searchBtn.textContent = '…';
+    resultsEl.innerHTML = '<div style="font-size:11px;color:var(--ink4)">Recherche…</div>';
+    try {
+      const url = `https://nominatim.openstreetmap.org/search?format=json&limit=5&q=${encodeURIComponent(q)}`;
+      const resp = await fetch(url, { headers: { 'Accept-Language': 'fr' } });
+      const data = await resp.json();
+      if (!data.length) {
+        resultsEl.innerHTML = '<div style="font-size:11px;color:var(--ink4)">Aucun résultat</div>';
+      } else {
+        resultsEl.innerHTML = data.map((r, i) =>
+          `<div class="loc-result" data-idx="${i}"
+               style="padding:5px 8px;font-size:12px;cursor:pointer;border-radius:5px;border:1px solid var(--brd);margin-top:3px;background:var(--bg2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis"
+               data-lat="${r.lat}" data-lng="${r.lon}" data-label="${_esc(r.display_name)}">
+            📍 ${_esc(r.display_name)}
+          </div>`
+        ).join('');
+
+        resultsEl.querySelectorAll('.loc-result').forEach(el => {
+          el.addEventListener('mouseenter', () => { el.style.background = 'var(--teal-l, #ccfbf1)'; });
+          el.addEventListener('mouseleave', () => { el.style.background = 'var(--bg2)'; });
+          el.addEventListener('click', () => {
+            const lat   = parseFloat(el.dataset.lat);
+            const lng   = parseFloat(el.dataset.lng);
+            const label = el.dataset.label;
+            selectedEl.textContent = `📍 ${label} (${lat.toFixed(5)}, ${lng.toFixed(5)})`;
+            resultsEl.innerHTML = '';
+            onSelect({ lat, lng, label });
+          });
+        });
+      }
+    } catch (err) {
+      resultsEl.innerHTML = '<div style="font-size:11px;color:var(--err,#dc2626)">Erreur de recherche</div>';
+    }
+    searchBtn.disabled = false;
+    searchBtn.textContent = '🔍 Chercher';
+  };
+
+  searchBtn.addEventListener('click', doSearch);
+  queryInput.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); doSearch(); } });
+
+  mapClickBtn.addEventListener('click', () => {
+    if (onMapClick) onMapClick();
+  });
+
+  // Expose a method to set the selected display (e.g. after map click)
+  return {
+    setSelected(label) {
+      selectedEl.textContent = label;
+      resultsEl.innerHTML    = '';
+    },
+  };
+}
+
 // ─── Add Day Modal ────────────────────────────────────────────────────────────
 
 function _openAddDayModal(tripId) {
   const trip       = getTrip(tripId);
   const dayCount   = (trip?.days || []).length;
+  const colors     = ['#0d9488','#7c3aed','#d97706','#16a34a','#db2777','#0284c7','#e85d3e','#f59e0b','#06b6d4','#8b5cf6'];
+  let   selColor   = colors[dayCount % colors.length];
   let   pickedLat  = null;
   let   pickedLng  = null;
 
@@ -679,20 +840,15 @@ function _openAddDayModal(tripId) {
       <input type="date" id="ad-date" value="${trip?.startDate || ''}">
     </div>
     <div class="fg">
-      <label>Localisation (lat, lng)</label>
-      <div style="display:flex;gap:6px;align-items:center">
-        <input type="text" id="ad-coords" placeholder="Ex : 35.0116, 135.7681" autocomplete="off" style="flex:1">
-        <button class="bc" id="ad-pick-map" style="white-space:nowrap;padding:8px 10px;font-size:11px">🗺 Choisir</button>
-      </div>
-      <div style="font-size:10px;color:var(--ink4);margin-top:3px" id="ad-coords-hint">Saisissez les coordonnées ou cliquez sur «&nbsp;Choisir&nbsp;» pour pointer sur la carte</div>
+      <label>Localisation</label>
+      <div id="ad-location-widget"></div>
     </div>
     <div class="fg">
       <label>Couleur</label>
       <div style="display:flex;gap:7px;flex-wrap:wrap;padding:2px 0" id="ad-colors">
-        ${['#0d9488','#7c3aed','#d97706','#16a34a','#db2777','#0284c7','#e85d3e','#f59e0b','#06b6d4','#8b5cf6']
-          .map((c, i) => `<div class="col-o${i === dayCount % 10 ? ' sel' : ''}"
-                               style="background:${c}"
-                               data-ad-color="${c}"></div>`).join('')}
+        ${colors.map((c, i) => `<div class="col-o${i === dayCount % 10 ? ' sel' : ''}"
+                                     style="background:${c}"
+                                     data-ad-color="${c}"></div>`).join('')}
       </div>
     </div>
     <div class="ma">
@@ -701,10 +857,32 @@ function _openAddDayModal(tripId) {
     </div>
   `);
 
-  // Selected color state
-  const colors = ['#0d9488','#7c3aed','#d97706','#16a34a','#db2777','#0284c7','#e85d3e','#f59e0b','#06b6d4','#8b5cf6'];
-  let selColor  = colors[dayCount % colors.length];
+  // Build location search widget
+  const locWidget = document.getElementById('ad-location-widget');
+  const locCtrl   = _buildLocationSearch(
+    locWidget,
+    ({ lat, lng }) => { pickedLat = lat; pickedLng = lng; },
+    () => {
+      // Map click mode
+      closeModal();
+      if (_map) {
+        _map.getContainer().style.cursor = 'crosshair';
+        const infoEl = document.createElement('div');
+        infoEl.id = 'map-pick-info';
+        infoEl.style.cssText = 'position:absolute;top:10px;left:50%;transform:translateX(-50%);z-index:1000;background:#fff;border:1.5px solid var(--teal);border-radius:20px;padding:6px 16px;font-size:12px;font-weight:700;color:var(--teal);box-shadow:0 2px 8px rgba(0,0,0,.12)';
+        infoEl.textContent = '📍 Cliquez sur la carte pour choisir la localisation';
+        document.querySelector('.map-col')?.appendChild(infoEl);
+      }
+      _pendingMapClick = (lat, lng) => {
+        pickedLat = lat; pickedLng = lng;
+        if (_map) _map.getContainer().style.cursor = '';
+        document.getElementById('map-pick-info')?.remove();
+        _openAddDayModalWithCoords(tripId, lat, lng);
+      };
+    }
+  );
 
+  // Color picker
   document.getElementById('ad-colors')?.addEventListener('click', e => {
     const sw = e.target.closest('[data-ad-color]');
     if (!sw) return;
@@ -714,45 +892,12 @@ function _openAddDayModal(tripId) {
     });
   });
 
-  // Map pick button
-  document.getElementById('ad-pick-map')?.addEventListener('click', () => {
-    closeModal();
-    const hint = document.getElementById('ad-coords-hint');
-    // Show user a visual cue on map
-    if (_map) {
-      _map.getContainer().style.cursor = 'crosshair';
-      const infoEl = document.createElement('div');
-      infoEl.id = 'map-pick-info';
-      infoEl.style.cssText = 'position:absolute;top:10px;left:50%;transform:translateX(-50%);z-index:1000;background:#fff;border:1.5px solid var(--teal);border-radius:20px;padding:6px 16px;font-size:12px;font-weight:700;color:var(--teal);box-shadow:0 2px 8px rgba(0,0,0,.12)';
-      infoEl.textContent = '📍 Cliquez sur la carte pour choisir la localisation';
-      document.querySelector('.map-col')?.appendChild(infoEl);
-    }
-
-    _pendingMapClick = (lat, lng) => {
-      pickedLat = lat;
-      pickedLng = lng;
-      if (_map) _map.getContainer().style.cursor = '';
-      document.getElementById('map-pick-info')?.remove();
-      // Reopen modal with filled coords
-      _openAddDayModalWithCoords(tripId, lat, lng);
-    };
-  });
-
   document.getElementById('ad-cancel')?.addEventListener('click', closeModal);
 
   document.getElementById('ad-save')?.addEventListener('click', () => {
     const title  = (document.getElementById('ad-title')?.value  || '').trim();
     const region = (document.getElementById('ad-region')?.value || '').trim();
     const date   = (document.getElementById('ad-date')?.value   || '').trim() || null;
-    const coordsVal = (document.getElementById('ad-coords')?.value || '').trim();
-
-    let lat = pickedLat, lng = pickedLng;
-    if (coordsVal) {
-      const parts = coordsVal.split(',').map(s => parseFloat(s.trim()));
-      if (parts.length >= 2 && !isNaN(parts[0]) && !isNaN(parts[1])) {
-        lat = parts[0]; lng = parts[1];
-      }
-    }
 
     const trip2  = getTrip(tripId);
     const days   = trip2?.days || [];
@@ -762,8 +907,8 @@ function _openAddDayModal(tripId) {
       date,
       title:  title || `Jour ${days.length + 1}`,
       region,
-      lat:    lat != null ? Number(lat) : null,
-      lng:    lng != null ? Number(lng) : null,
+      lat:    pickedLat != null ? Number(pickedLat) : null,
+      lng:    pickedLng != null ? Number(pickedLng) : null,
       color:  selColor,
       photo:  '',
       items:  [],
@@ -781,11 +926,12 @@ function _openAddDayModal(tripId) {
 }
 
 function _openAddDayModalWithCoords(tripId, lat, lng) {
-  // Small variant — re-open modal pre-filled with coords
   const trip     = getTrip(tripId);
   const dayCount = (trip?.days || []).length;
   const colors   = ['#0d9488','#7c3aed','#d97706','#16a34a','#db2777','#0284c7','#e85d3e','#f59e0b','#06b6d4','#8b5cf6'];
   let   selColor = colors[dayCount % colors.length];
+  let   pickedLat = lat;
+  let   pickedLng = lng;
 
   showModal(`
     <h3>＋ Nouveau jour / étape</h3>
@@ -802,8 +948,8 @@ function _openAddDayModalWithCoords(tripId, lat, lng) {
       <input type="date" id="ad-date" value="${trip?.startDate || ''}">
     </div>
     <div class="fg">
-      <label>Localisation (lat, lng)</label>
-      <input type="text" id="ad-coords" value="${lat.toFixed(5)}, ${lng.toFixed(5)}" autocomplete="off">
+      <label>Localisation</label>
+      <div id="ad-location-widget"></div>
     </div>
     <div class="fg">
       <label>Couleur</label>
@@ -819,6 +965,32 @@ function _openAddDayModalWithCoords(tripId, lat, lng) {
     </div>
   `);
 
+  const locWidget = document.getElementById('ad-location-widget');
+  const locCtrl   = _buildLocationSearch(
+    locWidget,
+    ({ lat: la, lng: lo }) => { pickedLat = la; pickedLng = lo; },
+    () => {
+      closeModal();
+      if (_map) {
+        _map.getContainer().style.cursor = 'crosshair';
+        const infoEl = document.createElement('div');
+        infoEl.id = 'map-pick-info';
+        infoEl.style.cssText = 'position:absolute;top:10px;left:50%;transform:translateX(-50%);z-index:1000;background:#fff;border:1.5px solid var(--teal);border-radius:20px;padding:6px 16px;font-size:12px;font-weight:700;color:var(--teal);box-shadow:0 2px 8px rgba(0,0,0,.12)';
+        infoEl.textContent = '📍 Cliquez sur la carte pour choisir la localisation';
+        document.querySelector('.map-col')?.appendChild(infoEl);
+      }
+      _pendingMapClick = (la, lo) => {
+        pickedLat = la; pickedLng = lo;
+        if (_map) _map.getContainer().style.cursor = '';
+        document.getElementById('map-pick-info')?.remove();
+        _openAddDayModalWithCoords(tripId, la, lo);
+      };
+    }
+  );
+
+  // Pre-fill selected label
+  locCtrl.setSelected(`📍 ${lat.toFixed(5)}, ${lng.toFixed(5)}`);
+
   document.getElementById('ad-colors')?.addEventListener('click', e => {
     const sw = e.target.closest('[data-ad-color]');
     if (!sw) return;
@@ -831,18 +1003,9 @@ function _openAddDayModalWithCoords(tripId, lat, lng) {
   document.getElementById('ad-cancel')?.addEventListener('click', closeModal);
 
   document.getElementById('ad-save')?.addEventListener('click', () => {
-    const title     = (document.getElementById('ad-title')?.value  || '').trim();
-    const region    = (document.getElementById('ad-region')?.value || '').trim();
-    const date      = (document.getElementById('ad-date')?.value   || '').trim() || null;
-    const coordsVal = (document.getElementById('ad-coords')?.value || '').trim();
-
-    let finalLat = lat, finalLng = lng;
-    if (coordsVal) {
-      const parts = coordsVal.split(',').map(s => parseFloat(s.trim()));
-      if (parts.length >= 2 && !isNaN(parts[0]) && !isNaN(parts[1])) {
-        finalLat = parts[0]; finalLng = parts[1];
-      }
-    }
+    const title  = (document.getElementById('ad-title')?.value  || '').trim();
+    const region = (document.getElementById('ad-region')?.value || '').trim();
+    const date   = (document.getElementById('ad-date')?.value   || '').trim() || null;
 
     const trip2  = getTrip(tripId);
     const days   = trip2?.days || [];
@@ -852,8 +1015,8 @@ function _openAddDayModalWithCoords(tripId, lat, lng) {
       date,
       title:  title || `Jour ${days.length + 1}`,
       region,
-      lat:    Number(finalLat),
-      lng:    Number(finalLng),
+      lat:    Number(pickedLat),
+      lng:    Number(pickedLng),
       color:  selColor,
       photo:  '',
       items:  [],
@@ -875,6 +1038,8 @@ function _openAddDayModalWithCoords(tripId, lat, lng) {
 function _openAddEventModal(dayId, tripId) {
   let selType      = 'visit';
   let selTransport = 'car';
+  let pickedLat    = null;
+  let pickedLng    = null;
 
   showModal(`
     <h3>＋ Ajouter un événement</h3>
@@ -918,8 +1083,13 @@ function _openAddEventModal(dayId, tripId) {
     </div>
 
     <div id="ae-dest-row" style="display:none" class="fg">
-      <label>Destination (lat, lng)</label>
-      <input type="text" id="ae-dest" placeholder="Ex : 34.9722, 135.7729" autocomplete="off">
+      <label>Destination</label>
+      <div id="ae-dest-widget"></div>
+    </div>
+
+    <div class="fg">
+      <label>Localisation PIN</label>
+      <div id="ae-location-widget"></div>
     </div>
 
     <div class="fg">
@@ -933,6 +1103,61 @@ function _openAddEventModal(dayId, tripId) {
     </div>
   `);
 
+  // Build main location search widget (updates day PIN)
+  const locWidgetEl = document.getElementById('ae-location-widget');
+  _buildLocationSearch(
+    locWidgetEl,
+    ({ lat, lng }) => { pickedLat = lat; pickedLng = lng; },
+    () => {
+      closeModal();
+      if (_map) {
+        _map.getContainer().style.cursor = 'crosshair';
+        const infoEl = document.createElement('div');
+        infoEl.id = 'map-pick-info';
+        infoEl.style.cssText = 'position:absolute;top:10px;left:50%;transform:translateX(-50%);z-index:1000;background:#fff;border:1.5px solid var(--teal);border-radius:20px;padding:6px 16px;font-size:12px;font-weight:700;color:var(--teal);box-shadow:0 2px 8px rgba(0,0,0,.12)';
+        infoEl.textContent = '📍 Cliquez sur la carte pour définir la localisation';
+        document.querySelector('.map-col')?.appendChild(infoEl);
+      }
+      _pendingMapClick = (lat, lng) => {
+        pickedLat = lat; pickedLng = lng;
+        if (_map) _map.getContainer().style.cursor = '';
+        document.getElementById('map-pick-info')?.remove();
+        // Reopen modal — simplest approach: just notify and re-open
+        _openAddEventModal(dayId, tripId);
+        // Note: pickedLat/pickedLng are local; user may search again after reopen
+        notify(`📍 ${lat.toFixed(5)}, ${lng.toFixed(5)} sélectionné`, '✅');
+      };
+    }
+  );
+
+  // Transport destination widget (shown only for drive)
+  let destLat = null, destLng = null;
+  const destWidgetEl = document.getElementById('ae-dest-widget');
+  if (destWidgetEl) {
+    _buildLocationSearch(
+      destWidgetEl,
+      ({ lat, lng }) => { destLat = lat; destLng = lng; },
+      () => {
+        closeModal();
+        if (_map) {
+          _map.getContainer().style.cursor = 'crosshair';
+          const infoEl = document.createElement('div');
+          infoEl.id = 'map-pick-info';
+          infoEl.style.cssText = 'position:absolute;top:10px;left:50%;transform:translateX(-50%);z-index:1000;background:#fff;border:1.5px solid var(--teal);border-radius:20px;padding:6px 16px;font-size:12px;font-weight:700;color:var(--teal);box-shadow:0 2px 8px rgba(0,0,0,.12)';
+          infoEl.textContent = '📍 Cliquez sur la carte pour choisir la destination';
+          document.querySelector('.map-col')?.appendChild(infoEl);
+        }
+        _pendingMapClick = (lat, lng) => {
+          destLat = lat; destLng = lng;
+          if (_map) _map.getContainer().style.cursor = '';
+          document.getElementById('map-pick-info')?.remove();
+          _openAddEventModal(dayId, tripId);
+          notify(`📍 Destination : ${lat.toFixed(5)}, ${lng.toFixed(5)}`, '✅');
+        };
+      }
+    );
+  }
+
   // Type pill selection
   const typesContainer = document.getElementById('ae-types');
   const transportRow   = document.getElementById('ae-transport-row');
@@ -944,7 +1169,7 @@ function _openAddEventModal(dayId, tripId) {
     selType = pill.dataset.aeType;
 
     typesContainer.querySelectorAll('[data-ae-type]').forEach(p => {
-      const t     = p.dataset.aeType;
+      const t      = p.dataset.aeType;
       const active = t === selType;
       p.classList.toggle('sel', active);
       p.style.background   = active ? tCol(t) : '';
@@ -952,7 +1177,6 @@ function _openAddEventModal(dayId, tripId) {
       p.style.color        = active ? '#fff'  : '';
     });
 
-    // Show transport sub-options
     if (transportRow) transportRow.style.display = selType === 'drive' ? '' : 'none';
     if (destRow)      destRow.style.display       = selType === 'drive' ? '' : 'none';
   });
@@ -977,19 +1201,10 @@ function _openAddEventModal(dayId, tripId) {
   document.getElementById('ae-cancel')?.addEventListener('click', closeModal);
 
   document.getElementById('ae-save')?.addEventListener('click', () => {
-    const text    = (document.getElementById('ae-text')?.value  || '').trim();
-    const time    = (document.getElementById('ae-time')?.value  || '').trim() || null;
-    const cost    = parseFloat(document.getElementById('ae-cost')?.value || '0') || 0;
-    const notes   = (document.getElementById('ae-notes')?.value || '').trim();
-    const destVal = (document.getElementById('ae-dest')?.value  || '').trim();
-
-    let destLat = null, destLng = null;
-    if (destVal) {
-      const parts = destVal.split(',').map(s => parseFloat(s.trim()));
-      if (parts.length >= 2 && !isNaN(parts[0]) && !isNaN(parts[1])) {
-        destLat = parts[0]; destLng = parts[1];
-      }
-    }
+    const text  = (document.getElementById('ae-text')?.value  || '').trim();
+    const time  = (document.getElementById('ae-time')?.value  || '').trim() || null;
+    const cost  = parseFloat(document.getElementById('ae-cost')?.value || '0') || 0;
+    const notes = (document.getElementById('ae-notes')?.value || '').trim();
 
     const event = {
       id:        'e_' + uid(),
@@ -1010,8 +1225,40 @@ function _openAddEventModal(dayId, tripId) {
     const day = (trip2.days || []).find(d => d.id === dayId);
     if (!day) return;
 
+    // Update day PIN if a location was picked
+    if (pickedLat != null && pickedLng != null) {
+      day.lat = pickedLat;
+      day.lng = pickedLng;
+    }
+
     day.items.push(event);
     updateTrip(tripId, { days: trip2.days });
+
+    // ── Cost → Budget sync ────────────────────────────────────────────────
+    if (cost > 0) {
+      const catMap = { drive: 'Transport', visit: 'Activités', activity: 'Activités', sleep: 'Hébergement' };
+      const catName = catMap[selType] || null;
+      if (catName) {
+        const trip3 = getTrip(tripId);
+        const budgetCats  = trip3?.budgetCats  || [];
+        const budgetLines = trip3?.budgetLines || [];
+        const cat = budgetCats.find(c => c.name === catName);
+        if (cat) {
+          const newLine = {
+            id:     'bl_' + uid(),
+            catId:  cat.id,
+            desc:   text,
+            amount: cost,
+            note:   'Via Carte & Planning',
+            dayId,
+            source: 'event',
+            eventId: event.id,
+          };
+          updateTrip(tripId, { budgetLines: [...budgetLines, newLine] });
+        }
+      }
+    }
+    // ─────────────────────────────────────────────────────────────────────
 
     closeModal();
     _renderDaysList(tripId);
