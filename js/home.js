@@ -294,21 +294,20 @@ function _tripCardHtml(trip) {
     ? `<div class="tc-stats">${stats.map(s => `<span class="tc-s">${s}</span>`).join('')}</div>`
     : '';
 
-  // Status badge
-  const isDone = (trip.status || 'done') === 'done';
-  const badgeBg     = isDone ? '#dcfce7' : '#e0f2fe';
-  const badgeColor  = isDone ? '#16a34a' : '#0284c7';
-  const badgeBorder = isDone ? '#86efac' : '#7dd3fc';
-  const badgeLabel  = isDone ? '✅ Réalisé' : '📝 Planification';
-  const statusBadgeHtml = `<span
+  // Status badge — overlaid on image top-right
+  const isDone      = (trip.status || 'done') === 'done';
+  const badgeBg     = isDone ? 'rgba(22,163,74,0.88)' : 'rgba(2,132,199,0.88)';
+  const badgeIcon   = isDone ? '☑' : '☐';
+  const badgeLabel  = isDone ? 'Réalisé' : 'En planification';
+  const statusBadgeHtml = `<div
     data-action="toggle-status"
     data-trip-id="${trip.id}"
-    style="font-size:9px;font-weight:700;padding:2px 8px;border-radius:999px;cursor:pointer;border:1px solid ${badgeBorder};display:inline-block;margin-bottom:6px;background:${badgeBg};color:${badgeColor}"
-  >${badgeLabel}</span>`;
+    style="position:absolute;top:8px;right:8px;z-index:2;cursor:pointer;background:${badgeBg};color:#fff;border-radius:999px;padding:3px 9px;font-size:10px;font-weight:700;display:flex;align-items:center;gap:4px;border:1.5px solid rgba(255,255,255,0.5);box-shadow:0 1px 4px rgba(0,0,0,.25);white-space:nowrap"
+  ><span style="font-size:12px;line-height:1">${badgeIcon}</span>${badgeLabel}</div>`;
 
   return `
     <div class="trip-card" data-action="open-trip" data-trip-id="${trip.id}">
-      ${imgHtml}
+      <div style="position:relative">${imgHtml}${statusBadgeHtml}</div>
       <div class="tc-body">
         <div class="tc-header">
           <div>${typeBadge(trip.type)}</div>
@@ -320,7 +319,6 @@ function _tripCardHtml(trip) {
         <div class="tc-title">${trip.flag || '🌍'} ${_esc(trip.name) || 'Sans titre'}</div>
         <div class="tc-dates">${dateStr}</div>
         <div class="tc-companions">${compsHtml}</div>
-        ${statusBadgeHtml}
         ${statsHtml}
       </div>
     </div>
@@ -407,10 +405,33 @@ function _renderStats() {
   }
 }
 
-// ── Export helper ──────────────────────────────────────────────────────────────
+// ── Export helpers ─────────────────────────────────────────────────────────────
 
-function _downloadJson(data, filename) {
-  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+const _CSV_HEADERS = ['Nom','Destination','Type','Statut','DateDébut','DateFin','Budget€','Compagnons','Drapeau'];
+
+function _tripToCsvRow(t) {
+  const budget = (t.budgetLines || []).reduce((s, b) => s + (Number(b.amount) || 0), 0);
+  return [
+    t.name        || '',
+    t.destination || '',
+    t.type        || '',
+    t.status      || '',
+    t.startDate   || '',
+    t.endDate     || '',
+    budget,
+    (t.companions || []).map(c => c.name).join(';'),
+    t.flag        || '',
+  ];
+}
+
+function _buildCsv(rows) {
+  return [_CSV_HEADERS, ...rows]
+    .map(row => row.map(v => `"${String(v).replace(/"/g, '""')}"`).join(','))
+    .join('\r\n');
+}
+
+function _downloadCsv(csvContent, filename) {
+  const blob = new Blob(['﻿' + csvContent], { type: 'text/csv;charset=utf-8' });
   const url  = URL.createObjectURL(blob);
   const a    = document.createElement('a');
   a.href     = url;
@@ -439,7 +460,7 @@ function _attachListeners(wrap) {
         break;
 
       case 'export-all':
-        _downloadJson(getTrips(), 'carnet-voyages.json');
+        _downloadCsv(_buildCsv(getTrips().map(_tripToCsvRow)), 'carnet-voyages.csv');
         break;
 
       case 'new-trip':
@@ -822,10 +843,10 @@ function _initModalListeners(trip) {
 
   // Export single trip
   document.getElementById('m-export')?.addEventListener('click', () => {
-    const t = getTrips().find(t => t.id === _editingId);
+    const t = getTrips().find(tr => tr.id === _editingId);
     if (!t) return;
     const safeName = (t.name || 'voyage').replace(/[^a-zA-Z0-9À-ɏ_-]/g, '-');
-    _downloadJson(t, `voyage-${safeName}.json`);
+    _downloadCsv(_buildCsv([_tripToCsvRow(t)]), `voyage-${safeName}.csv`);
   });
 }
 

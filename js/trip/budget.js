@@ -134,7 +134,7 @@ function _renderMain(trip, cats, lines) {
   const days = trip.days || [];
   const planningCostItems = [];
   for (const day of days) {
-    for (const ev of (day.events || [])) {
+    for (const ev of (day.items || [])) {
       if (Number(ev.cost) > 0) {
         if (!selCat || ev.catId === selCat.id) {
           planningCostItems.push(ev);
@@ -304,7 +304,7 @@ function _renderDaysCosts(trip, cats, selCat) {
   // Collect all events across all days that have a cost > 0
   const costItems = [];
   for (const day of days) {
-    for (const ev of (day.events || [])) {
+    for (const ev of (day.items || [])) {
       if (Number(ev.cost) > 0) {
         costItems.push({ day, ev });
       }
@@ -575,6 +575,23 @@ function _openLineModal(tripId, lineId) {
     }
 
     updateTrip(tripId, { budgetLines: newLines });
+
+    // Reverse sync: if this line came from an event, update the event's cost too
+    if (isEdit) {
+      const updLine = newLines.find(l => l.id === lineId);
+      if (updLine?.source === 'event' && updLine?.eventId) {
+        const syncTrip = getTrip(tripId);
+        if (syncTrip) {
+          const syncDays = syncTrip.days || [];
+          for (const day of syncDays) {
+            const evt = (day.items || []).find(it => it.id === updLine.eventId);
+            if (evt) { evt.cost = amount; evt.text = desc; break; }
+          }
+          updateTrip(tripId, { days: syncDays });
+        }
+      }
+    }
+
     updateTopStats(tripId);
     closeModal();
     _refresh(tripId);
@@ -592,8 +609,9 @@ function _openCatModal(tripId, catId) {
   const isEdit = !!catId;
   const cat    = isEdit ? cats.find(c => c.id === catId) : null;
 
-  let selColor = cat?.color || _CAT_COLORS[0];
-  let selIcon  = cat?.icon  || '📦';
+  let selColor   = cat?.color   || _CAT_COLORS[0];
+  let selIcon    = cat?.icon    || '📦';
+  let selPlanned = Number(cat?.planned ?? 0);
 
   function buildHtml() {
     return `
@@ -626,7 +644,7 @@ function _openCatModal(tripId, catId) {
 
       <div class="fg">
         <label>Budget alloué (€)</label>
-        <input type="number" id="bc-planned" min="0" step="0.01" placeholder="0" value="${_esc(cat?.planned ?? '')}">
+        <input type="number" id="bc-planned" min="0" step="0.01" placeholder="0" value="${_esc(selPlanned || '')}">
       </div>
 
       <div class="ma">
@@ -638,7 +656,12 @@ function _openCatModal(tripId, catId) {
 
   function reRender() {
     const mbox = document.querySelector('.mbox');
-    if (mbox) { mbox.innerHTML = buildHtml(); attachEvents(); }
+    if (mbox) {
+      const inp = document.getElementById('bc-planned');
+      if (inp) selPlanned = parseFloat(inp.value || '0') || 0;
+      mbox.innerHTML = buildHtml();
+      attachEvents();
+    }
   }
 
   function attachEvents() {

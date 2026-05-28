@@ -437,9 +437,16 @@ window._mmFlyTo = function(lat, lng, tripId) {
 };
 
 window._mmToggleGroup = function(groupId) {
-  const el = document.getElementById(groupId);
-  if (!el) return;
-  el.classList.toggle('collapsed');
+  // Extract tripId from groupId: 'mm-grp-{tripId}'
+  const tripId = groupId.replace('mm-grp-', '');
+  // Toggle: click same trip again to show all
+  _filters.tripId = (_filters.tripId === tripId) ? 'all' : tripId;
+  const sidebar = document.getElementById('mm-sidebar');
+  if (sidebar) {
+    const pins = _visiblePins();
+    sidebar.innerHTML = _sidebarHtml(pins);
+  }
+  _update();
 };
 
 window._mmSetType = function(key) {

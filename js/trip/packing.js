@@ -76,7 +76,7 @@ function _buildHtml(trip) {
                       ${isChecked ? '✓' : ''}
                     </div>
                     <div class="pack-item-info">
-                      <span class="pack-item-name ${isChecked ? 'struck' : ''}">${_esc(item.name)}</span>
+                      <span class="pack-item-name ${isChecked ? 'struck' : ''}" style="max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:block">${_esc(item.name)}</span>
                       ${item.subtitle ? `<span class="pack-item-sub">${_esc(item.subtitle)}</span>` : ''}
                     </div>
                     ${carrierHtml}
@@ -105,7 +105,7 @@ function _buildHtml(trip) {
         </div>
       </div>
       ${progressHtml}
-      <div class="pack-cats" style="display:flex;flex-direction:row;flex-wrap:nowrap;gap:12px;overflow-x:auto;align-items:flex-start;padding-bottom:8px">${catsHtml}</div>
+      <div class="pack-cats" style="display:flex;flex-direction:row;flex-wrap:wrap;gap:12px;align-items:flex-start;padding-bottom:8px">${catsHtml}</div>
     </div>`;
 }
 

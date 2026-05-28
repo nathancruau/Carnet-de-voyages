@@ -167,6 +167,32 @@ function _refreshMapPins(tripId) {
     _markers[day.id] = marker;
   });
 
+  // Add separate event-level markers for events that have their own coordinates
+  for (const day of (trip.days || [])) {
+    for (const item of (day.items || [])) {
+      if (item.lat != null && item.lng != null) {
+        const evtIcon = L.divIcon({
+          className: '',
+          html: `<div style="width:16px;height:16px;border-radius:50%;background:${day.color || '#0d9488'};border:2.5px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4);cursor:pointer"></div>`,
+          iconSize:   [16, 16],
+          iconAnchor: [8, 8],
+          popupAnchor:[0, -14],
+        });
+        const evtMarker = L.marker([item.lat, item.lng], { icon: evtIcon, zIndexOffset: 50 });
+        evtMarker.bindPopup(
+          `<div style="padding:4px 2px;min-width:120px">
+            <div style="font-weight:700;font-size:12px">${_esc(item.text || '—')}</div>
+            <div style="font-size:10px;color:var(--ink4)">Jour ${day.num}${item.time ? ' · ' + item.time : ''}${item.cost ? ' · ' + Number(item.cost).toLocaleString('fr-FR') + ' €' : ''}</div>
+          </div>`,
+          { maxWidth: 200 }
+        );
+        evtMarker.on('click', () => _selectDay(day.id, tripId));
+        evtMarker.addTo(_map);
+        _markers['e_' + item.id] = evtMarker;
+      }
+    }
+  }
+
   // Draw routes
   if (days.length > 1) {
     _drawRoutes(trip, days);
@@ -541,48 +567,65 @@ function _openEDP(dayId, evtIdx, tripId) {
   const mapCol = document.querySelector('.map-col');
   if (!mapCol) return;
 
-  const typeLabel = { drive: 'Transport', visit: 'Visite', activity: 'Activité', sleep: 'Nuit' }[item.type] || item.type;
-  const modeHtml  = item.type === 'drive'
-    ? `<div class="edp-sect">
-        <div class="edp-sect-lbl">Mode</div>
-        <div style="display:flex;align-items:center;gap:6px;font-size:13px">
-          <span style="font-size:16px">${trIc(item.transport || 'car')}</span>
-          <span>${trNm(item.transport || 'car')}</span>
-        </div>
-       </div>`
-    : '';
+  let edpType      = item.type      || 'visit';
+  let edpTransport = item.transport || 'car';
+
+  const inputStyle = 'width:100%;padding:5px 8px;border:1.5px solid var(--c3);border-radius:6px;font-size:12px;background:var(--bg);color:var(--ink);box-sizing:border-box';
+
+  function _typeButtons() {
+    return ['drive','visit','activity','sleep'].map(t => {
+      const active = t === edpType;
+      return `<button type="button" class="tp${active ? ' sel' : ''}" data-edp-type="${t}"
+        style="font-size:11px;padding:3px 8px;${active ? `background:${tCol(t)};border-color:${tCol(t)};color:#fff` : ''}">${tIc(t)} ${{ drive:'Transport', visit:'Visite', activity:'Activité', sleep:'Nuit' }[t]}</button>`;
+    }).join('');
+  }
+
+  function _modeButtons() {
+    return ['car','ferry','plane','bus','foot','bike'].map(m => {
+      const active = m === edpTransport;
+      return `<button type="button" class="tp${active ? ' sel' : ''}" data-edp-mode="${m}"
+        style="font-size:11px;padding:3px 8px;${active ? `background:${trCol(m)};border-color:${trCol(m)};color:#fff` : ''}">${trIc(m)} ${{ car:'Voiture', ferry:'Ferry', plane:'Avion', bus:'Bus', foot:'À pied', bike:'Vélo' }[m]}</button>`;
+    }).join('');
+  }
 
   const edp = document.createElement('div');
   edp.className = 'edp';
   edp.id        = 'edp';
   edp.innerHTML = `
     <div class="edp-hd">
-      <div class="edp-ic">${item.type === 'drive' ? trIc(item.transport || 'car') : tIc(item.type)}</div>
-      <div>
-        <div class="edp-title">${_esc(item.text || '—')}</div>
-        <div class="edp-day">${_esc(day.title || '')} · ${day.date ? fmtDate(day.date) : ''}</div>
+      <div class="edp-ic" id="edp-ic">${item.type === 'drive' ? trIc(item.transport || 'car') : tIc(item.type)}</div>
+      <div style="min-width:0;flex:1">
+        <div class="edp-title">Modifier l'événement</div>
+        <div class="edp-day">${_esc(day.title || 'Jour ' + day.num)} · ${day.date ? fmtDate(day.date) : ''}</div>
       </div>
       <button class="edp-close" id="edp-close">✕</button>
     </div>
     <div class="edp-body">
       <div class="edp-sect">
         <div class="edp-sect-lbl">Type</div>
-        <div style="font-size:13px;font-weight:600;color:${tCol(item.type)}">${typeLabel}</div>
+        <div style="display:flex;gap:4px;flex-wrap:wrap" id="edp-types">${_typeButtons()}</div>
       </div>
-      ${modeHtml}
-      <div class="dr">
+      <div class="edp-sect" id="edp-mode-sect" style="display:${edpType === 'drive' ? '' : 'none'}">
+        <div class="edp-sect-lbl">Mode de transport</div>
+        <div style="display:flex;gap:4px;flex-wrap:wrap" id="edp-modes">${_modeButtons()}</div>
+      </div>
+      <div class="edp-sect">
+        <div class="edp-sect-lbl">Description</div>
+        <input type="text" id="edp-text" value="${_esc(item.text || '')}" placeholder="Description…" style="${inputStyle}">
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 10px">
         <div class="edp-sect">
           <div class="edp-sect-lbl">Heure</div>
-          <div style="font-size:13px">${item.time || '—'}</div>
+          <input type="time" id="edp-time" value="${_esc(item.time || '')}" style="${inputStyle}">
         </div>
         <div class="edp-sect">
-          <div class="edp-sect-lbl">Coût</div>
-          <div style="font-size:13px;font-weight:600;color:var(--amb)">${item.cost ? Number(item.cost).toLocaleString('fr-FR') + ' €' : '—'}</div>
+          <div class="edp-sect-lbl">Coût (€)</div>
+          <input type="number" id="edp-cost" min="0" step="0.01" value="${_esc(item.cost || '')}" placeholder="0" style="${inputStyle}">
         </div>
       </div>
       <div class="edp-sect">
         <div class="edp-sect-lbl">Notes</div>
-        <textarea class="notes-ta" id="edp-notes" placeholder="Vos notes…">${_esc(item.notes || '')}</textarea>
+        <textarea class="notes-ta" id="edp-notes" placeholder="Vos notes…" style="min-height:55px">${_esc(item.notes || '')}</textarea>
       </div>
     </div>
     <div class="edp-actions">
@@ -603,16 +646,87 @@ function _openEDP(dayId, evtIdx, tripId) {
     _renderDaysList(tripId);
   });
 
-  // Save notes
+  // Type pills
+  edp.querySelector('#edp-types').addEventListener('click', ev => {
+    const pill = ev.target.closest('[data-edp-type]');
+    if (!pill) return;
+    edpType = pill.dataset.edpType;
+    edp.querySelectorAll('[data-edp-type]').forEach(p => {
+      const t = p.dataset.edpType;
+      const active = t === edpType;
+      p.classList.toggle('sel', active);
+      p.style.background  = active ? tCol(t) : '';
+      p.style.borderColor = active ? tCol(t) : '';
+      p.style.color       = active ? '#fff'  : '';
+    });
+    const modeSect = edp.querySelector('#edp-mode-sect');
+    if (modeSect) modeSect.style.display = edpType === 'drive' ? '' : 'none';
+    const ic = edp.querySelector('#edp-ic');
+    if (ic) ic.textContent = edpType === 'drive' ? trIc(edpTransport) : tIc(edpType);
+  });
+
+  // Mode pills
+  edp.querySelector('#edp-modes').addEventListener('click', ev => {
+    const pill = ev.target.closest('[data-edp-mode]');
+    if (!pill) return;
+    edpTransport = pill.dataset.edpMode;
+    edp.querySelectorAll('[data-edp-mode]').forEach(p => {
+      const m = p.dataset.edpMode;
+      const active = m === edpTransport;
+      p.classList.toggle('sel', active);
+      p.style.background  = active ? trCol(m) : '';
+      p.style.borderColor = active ? trCol(m) : '';
+      p.style.color       = active ? '#fff'   : '';
+    });
+    const ic = edp.querySelector('#edp-ic');
+    if (ic) ic.textContent = trIc(edpTransport);
+  });
+
+  // Save all fields
   edp.querySelector('#edp-save').addEventListener('click', () => {
-    const notes = document.getElementById('edp-notes')?.value || '';
+    const text  = (document.getElementById('edp-text')?.value  || '').trim();
+    const time  = document.getElementById('edp-time')?.value   || null;
+    const cost  = parseFloat(document.getElementById('edp-cost')?.value  || '0') || 0;
+    const notes = document.getElementById('edp-notes')?.value  || '';
+
     const t2 = getTrip(tripId);
     if (!t2) return;
     const d2 = (t2.days || []).find(dx => dx.id === dayId);
     if (!d2) return;
-    d2.items[evtIdx].notes = notes;
+
+    const oldItem = d2.items[evtIdx];
+    d2.items[evtIdx] = {
+      ...oldItem,
+      type:      edpType,
+      transport: edpType === 'drive' ? edpTransport : oldItem.transport,
+      text,
+      time:  time || null,
+      cost,
+      notes,
+    };
+
     updateTrip(tripId, { days: t2.days });
-    notify('Notes enregistrées', '✅');
+
+    // Sync cost back to budget line if one exists for this event
+    if (oldItem.id) {
+      const t3 = getTrip(tripId);
+      if (t3) {
+        const bl = (t3.budgetLines || []).find(l => l.source === 'event' && l.eventId === oldItem.id);
+        if (bl) {
+          const newBL = (t3.budgetLines || []).map(l =>
+            l.id === bl.id ? { ...l, amount: cost, desc: text } : l
+          );
+          updateTrip(tripId, { budgetLines: newBL });
+        }
+      }
+    }
+
+    notify('Événement mis à jour', '✅');
+    _closeEDP();
+    _activeEvtKey = null;
+    _renderDaysList(tripId);
+    _refreshMapPins(tripId);
+    updateTopStats(tripId);
   });
 
   // Delete
@@ -1225,10 +1339,14 @@ function _openAddEventModal(dayId, tripId) {
     const day = (trip2.days || []).find(d => d.id === dayId);
     if (!day) return;
 
-    // Update day PIN if a location was picked
+    // Store location on the event; update day PIN only if day has none yet
     if (pickedLat != null && pickedLng != null) {
-      day.lat = pickedLat;
-      day.lng = pickedLng;
+      event.lat = pickedLat;
+      event.lng = pickedLng;
+      if (day.lat == null) {
+        day.lat = pickedLat;
+        day.lng = pickedLng;
+      }
     }
 
     day.items.push(event);
