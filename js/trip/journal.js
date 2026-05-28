@@ -5,6 +5,16 @@
 import { getTrip, updateTrip, uid } from '../store.js';
 import { notify, showModal, closeModal, fmtDate, fmtDateShort, isoToDate, dateToIso } from '../utils.js';
 
+// ── PIN type definitions ───────────────────────────────────────────────────────
+
+const PIN_TYPES = {
+  hiker:  '🥾',
+  city:   '🏙️',
+  temple: '⛩️',
+  beach:  '🏖️',
+  park:   '🌲',
+};
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function _esc(s) {
@@ -45,6 +55,10 @@ let _journalMap      = null;
 let _journalMarkers  = {};
 let _journalTripId   = null;
 
+// ── Day filter state ──────────────────────────────────────────────────────────
+
+let _activeDayFilter = null;
+
 export function destroyJournalMap() {
   if (_journalMap) {
     try { _journalMap.remove(); } catch (_) { /* already removed */ }
@@ -71,24 +85,27 @@ export function renderJournal(tripId) {
     _handlers.delete(panel);
   }
 
-  const entries = [...(trip.journalEntries || [])].sort((a, b) => {
+  const allEntries = [...(trip.journalEntries || [])].sort((a, b) => {
     return (b.date || '').localeCompare(a.date || '');
   });
 
   panel.innerHTML = `
     <div class="mapcal">
-      <div class="left-panel" style="width:290px;min-width:240px;max-width:290px">
+      <div class="left-panel" style="width:290px;min-width:240px;max-width:290px;display:flex;flex-direction:column">
         <div style="padding:12px 14px 8px;flex-shrink:0;display:flex;align-items:center;justify-content:space-between;gap:8px">
           <h3 style="font-family:var(--sf);font-size:15px;font-weight:700;color:var(--ink);margin:0">📔 Journal</h3>
-          <button class="btn-new" data-action="add-entry" style="font-size:11px;padding:5px 10px;white-space:nowrap">＋ Nouvelle entrée</button>
+          <button class="btn-new" data-action="add-entry" style="font-size:11px;padding:5px 10px;white-space:nowrap">＋ Nouvelle</button>
+        </div>
+        <div style="flex-shrink:0;padding:0 8px 6px;border-bottom:1px solid var(--c3)">
+          ${_buildDayChipsHtml(trip)}
         </div>
         <div class="days-scroll" id="journal-entries-list" style="flex:1;overflow-y:auto;padding:6px 8px">
-          ${_buildEntriesListHtml(trip, entries)}
+          ${_buildEntriesListHtml(trip, allEntries)}
         </div>
       </div>
       <div class="map-col" style="flex:1;position:relative">
         <div id="journal-map" style="width:100%;height:100%"></div>
-        ${entries.length === 0 ? `<div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center;color:var(--ink4);pointer-events:none"><div style="font-size:36px;margin-bottom:8px">🗺️</div><div style="font-size:13px;font-weight:600">Ajoutez des entrées avec une localisation<br>pour les voir sur la carte</div></div>` : ''}
+        ${allEntries.length === 0 ? `<div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center;color:var(--ink4);pointer-events:none"><div style="font-size:36px;margin-bottom:8px">🗺️</div><div style="font-size:13px;font-weight:600">Ajoutez des entrées avec une localisation<br>pour les voir sur la carte</div></div>` : ''}
       </div>
     </div>`;
 
@@ -100,7 +117,38 @@ export function renderJournal(tripId) {
   _initJournalMap(tripId);
 }
 
-function _buildEntriesListHtml(trip, entries) {
+// ── Day chips ─────────────────────────────────────────────────────────────────
+
+function _buildDayChipsHtml(trip) {
+  const days = trip.days || [];
+  const allActive = _activeDayFilter === null;
+
+  let html = `<div style="display:flex;gap:5px;flex-wrap:nowrap;overflow-x:auto;padding:4px 0;scrollbar-width:none" class="jn-day-chips">`;
+  html += `<button data-action="filter-day" data-day-id=""
+    style="flex-shrink:0;font-size:11px;font-weight:700;padding:3px 10px;border-radius:999px;border:1.5px solid ${allActive ? 'var(--teal)' : 'var(--c3)'};
+    background:${allActive ? 'var(--tl)' : 'var(--c2)'};color:${allActive ? 'var(--td)' : 'var(--ink3)'};cursor:pointer;white-space:nowrap">
+    Tous
+  </button>`;
+
+  for (const day of days) {
+    const active = _activeDayFilter === day.id;
+    const label  = `J${day.num}${day.title ? ' · ' + day.title : ''}`;
+    html += `<button data-action="filter-day" data-day-id="${_esc(day.id)}"
+      style="flex-shrink:0;font-size:11px;font-weight:700;padding:3px 10px;border-radius:999px;border:1.5px solid ${active ? 'var(--teal)' : 'var(--c3)'};
+      background:${active ? 'var(--tl)' : 'var(--c2)'};color:${active ? 'var(--td)' : 'var(--ink3)'};cursor:pointer;white-space:nowrap">
+      ${_esc(label)}
+    </button>`;
+  }
+  html += `</div>`;
+  return html;
+}
+
+function _buildEntriesListHtml(trip, allEntries) {
+  // Filter entries by active day filter
+  const entries = _activeDayFilter
+    ? allEntries.filter(e => e.dayId === _activeDayFilter)
+    : allEntries;
+
   if (entries.length === 0) {
     return `
       <div class="jn-empty" style="text-align:center;padding:32px 12px;color:var(--ink4)">
@@ -148,6 +196,7 @@ function _entryCard(trip, e) {
   const dayLabel  = e.dayId ? _dayLabel(trip, e.dayId) : null;
 
   let metaPills = `<span class="jn-meta-pill">${_esc(dateLabel)}</span>`;
+  if (e.pinType && PIN_TYPES[e.pinType]) metaPills += `<span class="jn-meta-pill" title="${_esc(e.pinType)}">${PIN_TYPES[e.pinType]}</span>`;
   if (e.weather) metaPills += `<span class="jn-meta-pill">${_esc(e.weather)}</span>`;
   if (e.mood)    metaPills += `<span class="jn-meta-pill">${_esc(e.mood)}</span>`;
   if (e.rating)  metaPills += `<span class="jn-meta-pill">${_starsHtml(e.rating)}</span>`;
@@ -240,10 +289,10 @@ function _refreshJournalPins(tripId) {
   const entries = (trip.journalEntries || []).filter(e => e.lat != null && e.lng != null);
 
   entries.forEach(entry => {
-    const dateLabel = entry.date ? fmtDateShort(entry.date) : '—';
+    const emoji = (entry.pinType && PIN_TYPES[entry.pinType]) ? PIN_TYPES[entry.pinType] : '📍';
     const icon = L.divIcon({
       className: '',
-      html: `<div style="background:#0891b2;color:#fff;border:2px solid #0e7490;border-radius:50%;width:32px;height:32px;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;box-shadow:0 2px 6px rgba(0,0,0,.25);text-align:center;line-height:1.1;padding:2px">${_esc(dateLabel)}</div>`,
+      html: `<div style="background:#0891b2;border:2px solid #fff;border-radius:50%;width:32px;height:32px;display:flex;align-items:center;justify-content:center;font-size:14px;box-shadow:0 1px 6px rgba(0,0,0,.4)">${emoji}</div>`,
       iconSize:   [32, 32],
       iconAnchor: [16, 16],
       popupAnchor:[0, -18],
@@ -322,6 +371,21 @@ function _handleClick(e, tripId) {
       notify('Entrée supprimée', '🗑');
       renderJournal(tripId);
     }
+  } else if (action === 'filter-day') {
+    const dayId = btn.dataset.dayId || null;
+    _activeDayFilter = dayId || null;
+    // Re-render just the chips and entries list
+    const trip = getTrip(tripId);
+    if (!trip) return;
+    const allEntries = [...(trip.journalEntries || [])].sort((a, b) =>
+      (b.date || '').localeCompare(a.date || '')
+    );
+    const chipsWrap = btn.closest('[style*="border-bottom"]') || btn.parentElement?.parentElement;
+    if (chipsWrap) {
+      chipsWrap.innerHTML = _buildDayChipsHtml(trip);
+    }
+    const listEl = document.getElementById('journal-entries-list');
+    if (listEl) listEl.innerHTML = _buildEntriesListHtml(trip, allEntries);
   }
 }
 
@@ -335,26 +399,51 @@ function _openEntryModal(tripId, entryId) {
   const entry  = isEdit ? (trip.journalEntries || []).find(e => e.id === entryId) : null;
 
   const state = {
-    dayId:   entry?.dayId   || '',
-    date:    entry?.date    || _today(),
-    title:   entry?.title   || '',
-    content: entry?.content || '',
-    weather: entry?.weather || '',
-    mood:    entry?.mood    || '',
-    rating:  entry?.rating  || 0,
-    photos:  entry ? [...(entry.photos || [])] : [],
-    tags:    entry ? [...(entry.tags   || [])] : [],
-    lat:     entry?.lat     ?? null,
-    lng:     entry?.lng     ?? null,
+    dayId:    entry?.dayId    || (_activeDayFilter || ''),
+    date:     entry?.date     || _today(),
+    title:    entry?.title    || '',
+    content:  entry?.content  || '',
+    weather:  entry?.weather  || '',
+    mood:     entry?.mood     || '',
+    rating:   entry?.rating   || 0,
+    photos:   entry ? [...(entry.photos || [])] : [],
+    tags:     entry ? [...(entry.tags   || [])] : [],
+    lat:      entry?.lat      ?? null,
+    lng:      entry?.lng      ?? null,
+    pinType:  entry?.pinType  ?? null,
     // Nominatim search results
     _locResults: [],
     _locQuery:   '',
   };
 
+  // Pre-fill from day data when creating a new entry with a day selected
+  if (!isEdit && state.dayId) {
+    const day = (trip.days || []).find(d => d.id === state.dayId);
+    if (day) {
+      if (state.title === '' && day.title) {
+        state.title = day.title;
+      }
+      if (state.content === '') {
+        const events = day.events || day.items || [];
+        if (events.length > 0) {
+          state.content = 'Activités du jour :\n' + events.map(ev => `- ${ev.title || ev.name || ev.type || ''}`).join('\n');
+        }
+      }
+    }
+  }
+
   const days = trip.days || [];
 
   const weatherEmojis = ['☀️', '⛅', '🌧️', '⛈️', '🌨️', '🌫️', '🌊', '🏔️'];
   const moodEmojis    = ['😊', '😎', '😍', '🥹', '😴', '🤔', '😤', '🙏'];
+
+  const PIN_TYPE_LABELS = {
+    hiker:  '🥾',
+    city:   '🏙️',
+    temple: '⛩️',
+    beach:  '🏖️',
+    park:   '🌲',
+  };
 
   function daysOptsHtml(selId) {
     return `<option value="">Aucun jour spécifique</option>` +
@@ -368,6 +457,25 @@ function _openEntryModal(tripId, entryId) {
     return `<button type="button" class="emoji-pick-btn${sel ? ' selected' : ''}" data-group="${groupName}" data-val="${_esc(emoji)}"
       style="background:${sel ? 'var(--tl)' : 'var(--c2)'};border:1.5px solid ${sel ? 'var(--teal)' : 'var(--c3)'};
       border-radius:8px;padding:4px 6px;font-size:18px;cursor:pointer;transition:all .1s">${emoji}</button>`;
+  }
+
+  function pinTypeButtons() {
+    const btns = [
+      { val: null,     emoji: '—',    label: 'Aucun' },
+      { val: 'hiker',  emoji: '🥾',   label: 'Randonnée' },
+      { val: 'city',   emoji: '🏙️',  label: 'Ville' },
+      { val: 'temple', emoji: '⛩️',  label: 'Temple' },
+      { val: 'beach',  emoji: '🏖️',  label: 'Plage' },
+      { val: 'park',   emoji: '🌲',   label: 'Parc' },
+    ];
+    return btns.map(({ val, emoji, label }) => {
+      const sel = state.pinType === val;
+      const dataVal = val === null ? '' : val;
+      return `<button type="button" class="emoji-pick-btn${sel ? ' selected' : ''}" data-group="pintype" data-val="${_esc(dataVal)}"
+        title="${_esc(label)}"
+        style="background:${sel ? 'var(--tl)' : 'var(--c2)'};border:1.5px solid ${sel ? 'var(--teal)' : 'var(--c3)'};
+        border-radius:8px;padding:4px 8px;font-size:18px;cursor:pointer;transition:all .1s">${emoji}</button>`;
+    }).join('');
   }
 
   function photosListHtml() {
@@ -443,6 +551,13 @@ function _openEntryModal(tripId, entryId) {
       <div class="fg">
         <label>Récit</label>
         <textarea id="je-content" rows="6" placeholder="Racontez votre journée...">${_esc(state.content)}</textarea>
+      </div>
+
+      <div class="fg">
+        <label>Type de lieu</label>
+        <div style="display:flex;gap:5px;flex-wrap:wrap" id="pintype-row">
+          ${pinTypeButtons()}
+        </div>
       </div>
 
       <div class="fg">
@@ -592,6 +707,15 @@ function _openEntryModal(tripId, entryId) {
       reRenderModal();
     });
 
+    // Pin type picker
+    document.getElementById('pintype-row')?.addEventListener('click', ev => {
+      const btn = ev.target.closest('.emoji-pick-btn[data-group="pintype"]');
+      if (!btn) return;
+      const val = btn.dataset.val || null;
+      state.pinType = state.pinType === val ? null : val;
+      reRenderModal();
+    });
+
     // Weather picker
     document.getElementById('weather-row')?.addEventListener('click', ev => {
       const btn = ev.target.closest('.emoji-pick-btn[data-group="weather"]');
@@ -690,6 +814,7 @@ function _openEntryModal(tripId, entryId) {
             tags:    state.tags,
             lat:     state.lat,
             lng:     state.lng,
+            pinType: state.pinType || null,
           };
         }
         notify('Entrée mise à jour', '✓');
@@ -707,6 +832,7 @@ function _openEntryModal(tripId, entryId) {
           tags:    state.tags,
           lat:     state.lat,
           lng:     state.lng,
+          pinType: state.pinType || null,
         });
         notify('Entrée ajoutée', '📔');
       }
