@@ -1,0 +1,1032 @@
+/**
+ * mapcal.js — Map & Planning tab for Carnet de Voyages
+ *
+ * Exported surface:
+ *   renderMapCal(tripId)  — render the map + calendar + days panel
+ *   destroyMap()          — destroy the Leaflet instance (called on tab leave)
+ */
+
+import { getTrip, updateTrip, saveData, uid } from '../store.js';
+import {
+  notify, showModal, closeModal,
+  fmtDate, fmtDateShort,
+  isoToDate, dateToIso, generateDays,
+  tCol, tIc, trIc, trNm, trCol,
+  MNS, DOW,
+} from '../utils.js';
+import { updateTopStats } from './trip.js';
+
+// ─── Module state ─────────────────────────────────────────────────────────────
+
+let _map          = null;          // Leaflet map instance
+let _tripId       = null;
+let _activeDayId  = null;          // currently selected day id
+let _activeEvtKey = null;          // { dayId, idx } or null
+let _markers      = {};            // dayId → L.Marker
+let _routeLayers  = [];            // polylines / dashed lines on map
+let _routeLoading = false;
+let _pendingMapClick = null;       // callback when user clicks map to pick coords
+
+// ─── Public API ───────────────────────────────────────────────────────────────
+
+export function renderMapCal(tripId) {
+  _tripId = tripId;
+
+  const panel = document.getElementById('panel-mapcal');
+  if (!panel) return;
+
+  const trip = getTrip(tripId);
+  if (!trip) return;
+
+  // Generate days if trip has dates but no days yet
+  if (trip.startDate && trip.endDate && (!trip.days || trip.days.length === 0)) {
+    const days = generateDays(trip);
+    updateTrip(tripId, { days });
+  }
+
+  // Inject panel structure
+  panel.innerHTML = `
+    <div class="mapcal">
+      <div class="left-panel">
+        <div class="lp-top" style="padding:12px 14px 8px;flex-shrink:0">
+          <h3 id="lp-title" style="font-family:var(--sf);font-size:15px;font-weight:700;color:var(--ink)">Planning</h3>
+          <p style="font-size:11px;color:var(--ink4);margin-top:2px">Cliquez sur un événement pour les détails</p>
+        </div>
+        <div class="mini-cal" id="mini-cal"></div>
+        <div class="days-scroll" id="days-list"></div>
+        <div style="padding:8px;flex-shrink:0">
+          <div class="add-evt" id="add-day-btn" data-action="add-day" style="margin-top:0">＋ Ajouter un jour/étape</div>
+        </div>
+      </div>
+      <div class="map-col">
+        <div id="map" style="width:100%;height:100%"></div>
+        <div class="route-loading" id="route-loading" style="display:none">Calcul des itinéraires…</div>
+      </div>
+    </div>
+  `;
+
+  // Attach event delegation for left panel
+  _attachLeftPanelListeners(panel);
+
+  // Init or re-init Leaflet map
+  _initMap(tripId);
+
+  // Render days list + mini-cal
+  _renderDaysList(tripId);
+  _renderMiniCal(tripId);
+}
+
+export function destroyMap() {
+  if (_map) {
+    try { _map.remove(); } catch (_) { /* already removed */ }
+    _map = null;
+  }
+  _markers      = {};
+  _routeLayers  = [];
+  _activeDayId  = null;
+  _activeEvtKey = null;
+  _pendingMapClick = null;
+}
+
+// ─── Map initialization ───────────────────────────────────────────────────────
+
+function _initMap(tripId) {
+  // If a map already exists for this trip, just invalidate size
+  if (_map) {
+    setTimeout(() => { if (_map) _map.invalidateSize(); }, 80);
+    _refreshMapPins(tripId);
+    return;
+  }
+
+  requestAnimationFrame(() => {
+    const el = document.getElementById('map');
+    if (!el) return;
+
+    const trip = getTrip(tripId);
+    // Pick a sensible default center
+    let center = [46.5, 2.5];
+    let zoom   = 5;
+    if (trip && trip.days) {
+      const geo = trip.days.find(d => d.lat != null && d.lng != null);
+      if (geo) { center = [geo.lat, geo.lng]; zoom = 7; }
+    }
+
+    _map = L.map('map', { center, zoom, zoomControl: true });
+
+    L.tileLayer('https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png', {
+      attribution: '© OpenStreetMap contributors',
+      maxZoom: 18,
+    }).addTo(_map);
+
+    // Map click handler
+    _map.on('click', e => {
+      if (_pendingMapClick) {
+        _pendingMapClick(e.latlng.lat, e.latlng.lng);
+        _pendingMapClick = null;
+      }
+    });
+
+    _map.invalidateSize();
+
+    _refreshMapPins(tripId);
+  });
+}
+
+// ─── Map pins & routes ────────────────────────────────────────────────────────
+
+function _refreshMapPins(tripId) {
+  if (!_map) return;
+  const trip = getTrip(tripId);
+  if (!trip) return;
+
+  // Remove existing markers
+  Object.values(_markers).forEach(m => { try { _map.removeLayer(m); } catch (_) {} });
+  _markers = {};
+
+  // Remove existing route layers
+  _routeLayers.forEach(l => { try { _map.removeLayer(l); } catch (_) {} });
+  _routeLayers = [];
+
+  const days = (trip.days || []).filter(d => d.lat != null && d.lng != null);
+
+  days.forEach(day => {
+    const marker = L.marker([day.lat, day.lng], {
+      icon: _makeDayIcon(day),
+    });
+
+    marker.bindPopup(_dayPopupHtml(day), { maxWidth: 220 });
+
+    marker.on('click', () => {
+      _selectDay(day.id, tripId);
+    });
+
+    marker.addTo(_map);
+    _markers[day.id] = marker;
+  });
+
+  // Draw routes
+  if (days.length > 1) {
+    _drawRoutes(trip, days);
+  }
+
+  // Fit bounds if we have pins
+  if (days.length === 1) {
+    _map.setView([days[0].lat, days[0].lng], 10, { animate: true });
+  } else if (days.length > 1) {
+    const bounds = days.map(d => [d.lat, d.lng]);
+    _map.fitBounds(bounds, { padding: [40, 40], maxZoom: 12 });
+  }
+}
+
+function _makeDayIcon(day) {
+  const color = day.color || '#0d9488';
+  const label = day.num != null ? String(day.num) : '•';
+  return L.divIcon({
+    className: '',
+    html: `<div class="wp-pin">
+      <div class="pin-c" style="background:${color};">${label}</div>
+      <div class="pin-tail" style="background:${color};"></div>
+    </div>`,
+    iconSize:   [28, 36],
+    iconAnchor: [14, 36],
+    popupAnchor:[0, -38],
+  });
+}
+
+function _dayPopupHtml(day) {
+  const items  = (day.items || []).slice(0, 3);
+  const rows   = items.map(it => `<div class="lp-row">${tIc(it.type)} ${_esc(it.text || '')}</div>`).join('');
+  const more   = (day.items || []).length > 3
+    ? `<div class="lp-row" style="color:var(--ink4)">…et ${day.items.length - 3} de plus</div>`
+    : '';
+  return `
+    <div style="padding:6px 2px;min-width:140px">
+      <div class="lp-title" style="display:flex;align-items:center;gap:6px">
+        <div style="width:12px;height:12px;border-radius:50%;background:${day.color || '#0d9488'};flex-shrink:0"></div>
+        Jour ${day.num} · ${_esc(day.title || '')}
+      </div>
+      ${day.date ? `<div class="lp-row">${fmtDate(day.date)}</div>` : ''}
+      ${day.region ? `<div class="lp-row" style="color:var(--ink4)">${_esc(day.region)}</div>` : ''}
+      ${rows}${more}
+    </div>
+  `;
+}
+
+async function _drawRoutes(trip, days) {
+  if (!_map) return;
+
+  // Show loading
+  const loadEl = document.getElementById('route-loading');
+  if (loadEl) loadEl.style.display = 'block';
+  _routeLoading = true;
+
+  for (let i = 0; i < days.length - 1; i++) {
+    const from = days[i];
+    const to   = days[i + 1];
+
+    // Find transport mode from the first transport item in the FROM day
+    const transport = (from.items || []).find(it => it.type === 'drive');
+    const mode      = transport ? (transport.transport || 'car') : 'car';
+
+    if (mode === 'plane' || mode === 'ferry') {
+      // Draw dashed direct line
+      const line = L.polyline([[from.lat, from.lng], [to.lat, to.lng]], {
+        color:     mode === 'plane' ? '#7c3aed' : '#0d9488',
+        weight:    2,
+        opacity:   0.6,
+        dashArray: '6 6',
+      });
+      line.addTo(_map);
+      _routeLayers.push(line);
+    } else {
+      // Fetch OSRM route
+      try {
+        const profile  = _osrmProfile(mode);
+        const url = `https://router.project-osrm.org/route/v1/${profile}/`
+          + `${from.lng},${from.lat};${to.lng},${to.lat}?overview=simplified&geometries=geojson`;
+
+        const resp   = await fetch(url);
+        const data   = await resp.json();
+        const coords = data.routes?.[0]?.geometry?.coordinates;
+        if (coords && coords.length) {
+          const latlngs = coords.map(([lng, lat]) => [lat, lng]);
+          const line = L.polyline(latlngs, {
+            color:   trCol(mode),
+            weight:  3,
+            opacity: 0.7,
+          });
+          line.addTo(_map);
+          _routeLayers.push(line);
+        }
+      } catch (err) {
+        // Fallback: straight line
+        const line = L.polyline([[from.lat, from.lng], [to.lat, to.lng]], {
+          color:     '#9c9890',
+          weight:    2,
+          opacity:   0.4,
+          dashArray: '4 4',
+        });
+        line.addTo(_map);
+        _routeLayers.push(line);
+      }
+    }
+  }
+
+  if (loadEl) loadEl.style.display = 'none';
+  _routeLoading = false;
+}
+
+function _osrmProfile(mode) {
+  const map = { car: 'driving', bus: 'driving', foot: 'foot', bike: 'cycling' };
+  return map[mode] || 'driving';
+}
+
+// ─── Mini calendar ────────────────────────────────────────────────────────────
+
+function _renderMiniCal(tripId) {
+  const container = document.getElementById('mini-cal');
+  if (!container) return;
+
+  const trip = getTrip(tripId);
+  if (!trip) return;
+
+  const days = trip.days || [];
+  if (days.length === 0) {
+    container.innerHTML = '<div style="font-size:11px;color:var(--ink4);padding:4px 2px;text-align:center">Aucun jour planifié</div>';
+    return;
+  }
+
+  // Build a map of ISO date → day
+  const byDate = {};
+  days.forEach(d => { if (d.date) byDate[d.date] = d; });
+
+  // Determine months to show
+  const months = _getCalMonths(days);
+  if (!months.length) return;
+
+  let html = '';
+
+  months.forEach(({ year, month }) => {
+    const firstDay  = new Date(year, month, 1);
+    const daysInMo  = new Date(year, month + 1, 0).getDate();
+    const offset    = (firstDay.getDay() + 6) % 7; // Mon-based
+
+    const today = new Date();
+    const isoToday = dateToIso(today);
+
+    let cells = '';
+    for (let i = 0; i < offset; i++) {
+      cells += '<div class="mc-cell empty"></div>';
+    }
+    for (let d = 1; d <= daysInMo; d++) {
+      const iso  = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+      const day  = byDate[iso];
+      const isToday = iso === isoToday;
+
+      let cls  = 'mc-cell';
+      let style = '';
+      if (isToday) cls += ' td';
+
+      if (day) {
+        cls   += ' sd';
+        style  = `background:${day.color || 'var(--teal)'};color:#fff;font-weight:700`;
+        if (day.id === _activeDayId) {
+          style += ';outline:2px solid var(--ink);outline-offset:1px';
+        }
+      }
+
+      cells += `<div class="${cls}" style="${style}"
+                     data-action="cal-day" data-date="${iso}">${d}</div>`;
+    }
+
+    const dowHtml = DOW.map(d => `<div class="mc-dow">${d}</div>`).join('');
+
+    html += `
+      <div class="mc-nav">
+        <span class="mc-mn">${MNS[month].slice(0, 3)}. ${year}</span>
+      </div>
+      <div class="mc-grid">
+        ${dowHtml}
+        ${cells}
+      </div>
+    `;
+  });
+
+  container.innerHTML = html;
+
+  // Event delegation
+  container.addEventListener('click', e => {
+    const cell = e.target.closest('[data-action="cal-day"]');
+    if (!cell) return;
+    const iso = cell.dataset.date;
+    const trip2 = getTrip(_tripId);
+    const day   = (trip2?.days || []).find(d => d.date === iso);
+    if (day) _selectDay(day.id, _tripId);
+  });
+}
+
+function _getCalMonths(days) {
+  const seen = new Set();
+  const months = [];
+  days.forEach(d => {
+    if (!d.date) return;
+    const dt = isoToDate(d.date);
+    if (!dt) return;
+    const key = `${dt.getFullYear()}-${dt.getMonth()}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      months.push({ year: dt.getFullYear(), month: dt.getMonth() });
+    }
+  });
+  return months;
+}
+
+// ─── Days list ────────────────────────────────────────────────────────────────
+
+function _renderDaysList(tripId) {
+  const container = document.getElementById('days-list');
+  if (!container) return;
+
+  const trip = getTrip(tripId);
+  if (!trip) return;
+
+  const days = trip.days || [];
+
+  if (days.length === 0) {
+    container.innerHTML = `
+      <div style="text-align:center;padding:24px 12px;color:var(--ink4);font-size:12px">
+        <div style="font-size:28px;margin-bottom:6px">📅</div>
+        <div>Aucun jour planifié</div>
+        <div style="font-size:10px;margin-top:4px">Cliquez sur «&nbsp;Ajouter un jour&nbsp;»</div>
+      </div>`;
+    return;
+  }
+
+  const html = days.map(day => _dayItemHtml(day)).join('');
+  container.innerHTML = html;
+}
+
+function _dayItemHtml(day) {
+  const isSelected = day.id === _activeDayId;
+  const items = day.items || [];
+
+  // Cost total
+  const cost = items.reduce((s, it) => s + (Number(it.cost) || 0), 0);
+  const costStr = cost > 0 ? `${cost.toLocaleString('fr-FR')} €` : '';
+
+  let eventsHtml = '';
+  if (isSelected) {
+    const evtRows = items.map((it, idx) => {
+      const isSelEvt = _activeEvtKey && _activeEvtKey.dayId === day.id && _activeEvtKey.idx === idx;
+      return `
+        <div class="evt-row${isSelEvt ? ' sel-evt' : ''}"
+             data-action="open-event"
+             data-day-id="${day.id}"
+             data-event-idx="${idx}">
+          <span class="evt-ic" style="color:${tCol(it.type)}">${it.type === 'drive' ? trIc(it.transport || 'car') : tIc(it.type)}</span>
+          <div class="evt-info">
+            <div class="evt-txt">${_esc(it.text || '—')}</div>
+            <div class="evt-tm">${it.time ? it.time : ''}${it.cost ? (it.time ? ' · ' : '') + Number(it.cost).toLocaleString('fr-FR') + ' €' : ''}</div>
+          </div>
+          <button class="evt-del" data-action="delete-event" data-day-id="${day.id}" data-event-idx="${idx}" title="Supprimer">✕</button>
+        </div>`;
+    }).join('');
+
+    eventsHtml = `
+      <div class="di-body">
+        <div class="evt-list">${evtRows}</div>
+        <div class="add-evt" data-action="add-event" data-day-id="${day.id}">＋ Ajouter</div>
+      </div>`;
+  }
+
+  return `
+    <div class="day-item${isSelected ? ' sel' : ''}"
+         data-action="select-day"
+         data-day-id="${day.id}">
+      <div class="di-head">
+        <div class="di-badge" style="background:${day.color || '#0d9488'}">${day.num}</div>
+        <div class="di-name">${_esc(day.title || `Jour ${day.num}`)}</div>
+        ${costStr ? `<span class="di-cost">${costStr}</span>` : ''}
+        <span class="di-t" style="margin-left:4px">${isSelected ? '▲' : '▼'}</span>
+      </div>
+      <div class="di-s">
+        ${day.date ? fmtDateShort(day.date) : ''}
+        ${day.region ? `<span style="color:var(--ink4)"> · ${_esc(day.region)}</span>` : ''}
+      </div>
+      ${eventsHtml}
+    </div>`;
+}
+
+// ─── Event detail panel (EDP) ─────────────────────────────────────────────────
+
+function _openEDP(dayId, evtIdx, tripId) {
+  _activeEvtKey = { dayId, idx: evtIdx };
+  _renderDaysList(tripId);
+
+  const trip = getTrip(tripId);
+  if (!trip) return;
+
+  const day = (trip.days || []).find(d => d.id === dayId);
+  if (!day) return;
+
+  const item = day.items[evtIdx];
+  if (!item) return;
+
+  // Remove existing EDP
+  _closeEDP();
+
+  const mapCol = document.querySelector('.map-col');
+  if (!mapCol) return;
+
+  const typeLabel = { drive: 'Transport', visit: 'Visite', activity: 'Activité', sleep: 'Nuit' }[item.type] || item.type;
+  const modeHtml  = item.type === 'drive'
+    ? `<div class="edp-sect">
+        <div class="edp-sect-lbl">Mode</div>
+        <div style="display:flex;align-items:center;gap:6px;font-size:13px">
+          <span style="font-size:16px">${trIc(item.transport || 'car')}</span>
+          <span>${trNm(item.transport || 'car')}</span>
+        </div>
+       </div>`
+    : '';
+
+  const edp = document.createElement('div');
+  edp.className = 'edp';
+  edp.id        = 'edp';
+  edp.innerHTML = `
+    <div class="edp-hd">
+      <div class="edp-ic">${item.type === 'drive' ? trIc(item.transport || 'car') : tIc(item.type)}</div>
+      <div>
+        <div class="edp-title">${_esc(item.text || '—')}</div>
+        <div class="edp-day">${_esc(day.title || '')} · ${day.date ? fmtDate(day.date) : ''}</div>
+      </div>
+      <button class="edp-close" id="edp-close">✕</button>
+    </div>
+    <div class="edp-body">
+      <div class="edp-sect">
+        <div class="edp-sect-lbl">Type</div>
+        <div style="font-size:13px;font-weight:600;color:${tCol(item.type)}">${typeLabel}</div>
+      </div>
+      ${modeHtml}
+      <div class="dr">
+        <div class="edp-sect">
+          <div class="edp-sect-lbl">Heure</div>
+          <div style="font-size:13px">${item.time || '—'}</div>
+        </div>
+        <div class="edp-sect">
+          <div class="edp-sect-lbl">Coût</div>
+          <div style="font-size:13px;font-weight:600;color:var(--amb)">${item.cost ? Number(item.cost).toLocaleString('fr-FR') + ' €' : '—'}</div>
+        </div>
+      </div>
+      <div class="edp-sect">
+        <div class="edp-sect-lbl">Notes</div>
+        <textarea class="notes-ta" id="edp-notes" placeholder="Vos notes…">${_esc(item.notes || '')}</textarea>
+      </div>
+    </div>
+    <div class="edp-actions">
+      <button class="edp-del" id="edp-del">🗑 Supprimer</button>
+      <button class="edp-save" id="edp-save">Enregistrer</button>
+    </div>
+  `;
+
+  mapCol.appendChild(edp);
+
+  // Animate in
+  requestAnimationFrame(() => { edp.classList.add('open'); });
+
+  // Close
+  edp.querySelector('#edp-close').addEventListener('click', () => {
+    _closeEDP();
+    _activeEvtKey = null;
+    _renderDaysList(tripId);
+  });
+
+  // Save notes
+  edp.querySelector('#edp-save').addEventListener('click', () => {
+    const notes = document.getElementById('edp-notes')?.value || '';
+    const t2 = getTrip(tripId);
+    if (!t2) return;
+    const d2 = (t2.days || []).find(dx => dx.id === dayId);
+    if (!d2) return;
+    d2.items[evtIdx].notes = notes;
+    updateTrip(tripId, { days: t2.days });
+    notify('Notes enregistrées', '✅');
+  });
+
+  // Delete
+  edp.querySelector('#edp-del').addEventListener('click', () => {
+    _deleteEvent(dayId, evtIdx, tripId);
+  });
+}
+
+function _closeEDP() {
+  const edp = document.getElementById('edp');
+  if (edp) {
+    edp.classList.remove('open');
+    setTimeout(() => { try { edp.remove(); } catch (_) {} }, 280);
+  }
+}
+
+// ─── Select day ───────────────────────────────────────────────────────────────
+
+function _selectDay(dayId, tripId) {
+  if (_activeDayId === dayId) {
+    // Toggle off
+    _activeDayId = null;
+    _activeEvtKey = null;
+    _closeEDP();
+    _renderDaysList(tripId);
+    _renderMiniCal(tripId);
+    return;
+  }
+
+  _activeDayId  = dayId;
+  _activeEvtKey = null;
+  _closeEDP();
+
+  _renderDaysList(tripId);
+  _renderMiniCal(tripId);
+
+  // Scroll day into view
+  const dayEl = document.querySelector(`[data-day-id="${dayId}"][data-action="select-day"]`);
+  if (dayEl) dayEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
+  // Fly map to day coords
+  const trip = getTrip(tripId);
+  if (trip) {
+    const day = (trip.days || []).find(d => d.id === dayId);
+    if (day && day.lat != null && day.lng != null && _map) {
+      _map.flyTo([day.lat, day.lng], Math.max(_map.getZoom(), 10), { duration: 1 });
+      const marker = _markers[dayId];
+      if (marker) setTimeout(() => marker.openPopup(), 800);
+    }
+  }
+}
+
+// ─── Event delegation for left panel ─────────────────────────────────────────
+
+function _attachLeftPanelListeners(panel) {
+  // Use the panel as the delegation root
+  panel.addEventListener('click', e => {
+    const target = e.target.closest('[data-action]');
+    if (!target) return;
+
+    const action = target.dataset.action;
+
+    if (action === 'select-day') {
+      const dayId = target.dataset.dayId;
+      if (dayId) _selectDay(dayId, _tripId);
+
+    } else if (action === 'add-day') {
+      _openAddDayModal(_tripId);
+
+    } else if (action === 'add-event') {
+      e.stopPropagation();
+      const dayId = target.dataset.dayId;
+      if (dayId) _openAddEventModal(dayId, _tripId);
+
+    } else if (action === 'open-event') {
+      e.stopPropagation();
+      const dayId = target.dataset.dayId;
+      const idx   = parseInt(target.dataset.eventIdx, 10);
+      if (dayId && !isNaN(idx)) _openEDP(dayId, idx, _tripId);
+
+    } else if (action === 'delete-event') {
+      e.stopPropagation();
+      const dayId = target.dataset.dayId;
+      const idx   = parseInt(target.dataset.eventIdx, 10);
+      if (dayId && !isNaN(idx)) _deleteEvent(dayId, idx, _tripId);
+    }
+  });
+}
+
+// ─── Delete event ─────────────────────────────────────────────────────────────
+
+function _deleteEvent(dayId, evtIdx, tripId) {
+  const trip = getTrip(tripId);
+  if (!trip) return;
+  const day = (trip.days || []).find(d => d.id === dayId);
+  if (!day) return;
+  day.items.splice(evtIdx, 1);
+  updateTrip(tripId, { days: trip.days });
+  _activeEvtKey = null;
+  _closeEDP();
+  _renderDaysList(tripId);
+  _refreshMapPins(tripId);
+  updateTopStats(tripId);
+  notify('Événement supprimé', '🗑');
+}
+
+// ─── Add Day Modal ────────────────────────────────────────────────────────────
+
+function _openAddDayModal(tripId) {
+  const trip       = getTrip(tripId);
+  const dayCount   = (trip?.days || []).length;
+  let   pickedLat  = null;
+  let   pickedLng  = null;
+
+  showModal(`
+    <h3>＋ Nouveau jour / étape</h3>
+    <div class="fg">
+      <label>Titre</label>
+      <input type="text" id="ad-title" placeholder="Ex : Arrivée à Kyoto…" autocomplete="off">
+    </div>
+    <div class="fg">
+      <label>Région / Ville</label>
+      <input type="text" id="ad-region" value="${_esc(trip?.destination || '')}" placeholder="Ex : Kyoto, Japon" autocomplete="off">
+    </div>
+    <div class="fg">
+      <label>Date</label>
+      <input type="date" id="ad-date" value="${trip?.startDate || ''}">
+    </div>
+    <div class="fg">
+      <label>Localisation (lat, lng)</label>
+      <div style="display:flex;gap:6px;align-items:center">
+        <input type="text" id="ad-coords" placeholder="Ex : 35.0116, 135.7681" autocomplete="off" style="flex:1">
+        <button class="bc" id="ad-pick-map" style="white-space:nowrap;padding:8px 10px;font-size:11px">🗺 Choisir</button>
+      </div>
+      <div style="font-size:10px;color:var(--ink4);margin-top:3px" id="ad-coords-hint">Saisissez les coordonnées ou cliquez sur «&nbsp;Choisir&nbsp;» pour pointer sur la carte</div>
+    </div>
+    <div class="fg">
+      <label>Couleur</label>
+      <div style="display:flex;gap:7px;flex-wrap:wrap;padding:2px 0" id="ad-colors">
+        ${['#0d9488','#7c3aed','#d97706','#16a34a','#db2777','#0284c7','#e85d3e','#f59e0b','#06b6d4','#8b5cf6']
+          .map((c, i) => `<div class="col-o${i === dayCount % 10 ? ' sel' : ''}"
+                               style="background:${c}"
+                               data-ad-color="${c}"></div>`).join('')}
+      </div>
+    </div>
+    <div class="ma">
+      <button class="bc" id="ad-cancel">Annuler</button>
+      <button class="bs" id="ad-save">Ajouter</button>
+    </div>
+  `);
+
+  // Selected color state
+  const colors = ['#0d9488','#7c3aed','#d97706','#16a34a','#db2777','#0284c7','#e85d3e','#f59e0b','#06b6d4','#8b5cf6'];
+  let selColor  = colors[dayCount % colors.length];
+
+  document.getElementById('ad-colors')?.addEventListener('click', e => {
+    const sw = e.target.closest('[data-ad-color]');
+    if (!sw) return;
+    selColor = sw.dataset.adColor;
+    document.querySelectorAll('[data-ad-color]').forEach(s => {
+      s.classList.toggle('sel', s.dataset.adColor === selColor);
+    });
+  });
+
+  // Map pick button
+  document.getElementById('ad-pick-map')?.addEventListener('click', () => {
+    closeModal();
+    const hint = document.getElementById('ad-coords-hint');
+    // Show user a visual cue on map
+    if (_map) {
+      _map.getContainer().style.cursor = 'crosshair';
+      const infoEl = document.createElement('div');
+      infoEl.id = 'map-pick-info';
+      infoEl.style.cssText = 'position:absolute;top:10px;left:50%;transform:translateX(-50%);z-index:1000;background:#fff;border:1.5px solid var(--teal);border-radius:20px;padding:6px 16px;font-size:12px;font-weight:700;color:var(--teal);box-shadow:0 2px 8px rgba(0,0,0,.12)';
+      infoEl.textContent = '📍 Cliquez sur la carte pour choisir la localisation';
+      document.querySelector('.map-col')?.appendChild(infoEl);
+    }
+
+    _pendingMapClick = (lat, lng) => {
+      pickedLat = lat;
+      pickedLng = lng;
+      if (_map) _map.getContainer().style.cursor = '';
+      document.getElementById('map-pick-info')?.remove();
+      // Reopen modal with filled coords
+      _openAddDayModalWithCoords(tripId, lat, lng);
+    };
+  });
+
+  document.getElementById('ad-cancel')?.addEventListener('click', closeModal);
+
+  document.getElementById('ad-save')?.addEventListener('click', () => {
+    const title  = (document.getElementById('ad-title')?.value  || '').trim();
+    const region = (document.getElementById('ad-region')?.value || '').trim();
+    const date   = (document.getElementById('ad-date')?.value   || '').trim() || null;
+    const coordsVal = (document.getElementById('ad-coords')?.value || '').trim();
+
+    let lat = pickedLat, lng = pickedLng;
+    if (coordsVal) {
+      const parts = coordsVal.split(',').map(s => parseFloat(s.trim()));
+      if (parts.length >= 2 && !isNaN(parts[0]) && !isNaN(parts[1])) {
+        lat = parts[0]; lng = parts[1];
+      }
+    }
+
+    const trip2  = getTrip(tripId);
+    const days   = trip2?.days || [];
+    const newDay = {
+      id:     'd_' + uid(),
+      num:    days.length + 1,
+      date,
+      title:  title || `Jour ${days.length + 1}`,
+      region,
+      lat:    lat != null ? Number(lat) : null,
+      lng:    lng != null ? Number(lng) : null,
+      color:  selColor,
+      photo:  '',
+      items:  [],
+    };
+
+    days.push(newDay);
+    updateTrip(tripId, { days });
+    closeModal();
+    _activeDayId = newDay.id;
+    _renderDaysList(tripId);
+    _renderMiniCal(tripId);
+    _refreshMapPins(tripId);
+    notify('Jour ajouté !', '✅');
+  });
+}
+
+function _openAddDayModalWithCoords(tripId, lat, lng) {
+  // Small variant — re-open modal pre-filled with coords
+  const trip     = getTrip(tripId);
+  const dayCount = (trip?.days || []).length;
+  const colors   = ['#0d9488','#7c3aed','#d97706','#16a34a','#db2777','#0284c7','#e85d3e','#f59e0b','#06b6d4','#8b5cf6'];
+  let   selColor = colors[dayCount % colors.length];
+
+  showModal(`
+    <h3>＋ Nouveau jour / étape</h3>
+    <div class="fg">
+      <label>Titre</label>
+      <input type="text" id="ad-title" placeholder="Ex : Arrivée à Kyoto…" autocomplete="off">
+    </div>
+    <div class="fg">
+      <label>Région / Ville</label>
+      <input type="text" id="ad-region" value="${_esc(trip?.destination || '')}" placeholder="Ex : Kyoto, Japon" autocomplete="off">
+    </div>
+    <div class="fg">
+      <label>Date</label>
+      <input type="date" id="ad-date" value="${trip?.startDate || ''}">
+    </div>
+    <div class="fg">
+      <label>Localisation (lat, lng)</label>
+      <input type="text" id="ad-coords" value="${lat.toFixed(5)}, ${lng.toFixed(5)}" autocomplete="off">
+    </div>
+    <div class="fg">
+      <label>Couleur</label>
+      <div style="display:flex;gap:7px;flex-wrap:wrap;padding:2px 0" id="ad-colors">
+        ${colors.map((c, i) => `<div class="col-o${i === dayCount % 10 ? ' sel' : ''}"
+                                     style="background:${c}"
+                                     data-ad-color="${c}"></div>`).join('')}
+      </div>
+    </div>
+    <div class="ma">
+      <button class="bc" id="ad-cancel">Annuler</button>
+      <button class="bs" id="ad-save">Ajouter</button>
+    </div>
+  `);
+
+  document.getElementById('ad-colors')?.addEventListener('click', e => {
+    const sw = e.target.closest('[data-ad-color]');
+    if (!sw) return;
+    selColor = sw.dataset.adColor;
+    document.querySelectorAll('[data-ad-color]').forEach(s => {
+      s.classList.toggle('sel', s.dataset.adColor === selColor);
+    });
+  });
+
+  document.getElementById('ad-cancel')?.addEventListener('click', closeModal);
+
+  document.getElementById('ad-save')?.addEventListener('click', () => {
+    const title     = (document.getElementById('ad-title')?.value  || '').trim();
+    const region    = (document.getElementById('ad-region')?.value || '').trim();
+    const date      = (document.getElementById('ad-date')?.value   || '').trim() || null;
+    const coordsVal = (document.getElementById('ad-coords')?.value || '').trim();
+
+    let finalLat = lat, finalLng = lng;
+    if (coordsVal) {
+      const parts = coordsVal.split(',').map(s => parseFloat(s.trim()));
+      if (parts.length >= 2 && !isNaN(parts[0]) && !isNaN(parts[1])) {
+        finalLat = parts[0]; finalLng = parts[1];
+      }
+    }
+
+    const trip2  = getTrip(tripId);
+    const days   = trip2?.days || [];
+    const newDay = {
+      id:     'd_' + uid(),
+      num:    days.length + 1,
+      date,
+      title:  title || `Jour ${days.length + 1}`,
+      region,
+      lat:    Number(finalLat),
+      lng:    Number(finalLng),
+      color:  selColor,
+      photo:  '',
+      items:  [],
+    };
+
+    days.push(newDay);
+    updateTrip(tripId, { days });
+    closeModal();
+    _activeDayId = newDay.id;
+    _renderDaysList(tripId);
+    _renderMiniCal(tripId);
+    _refreshMapPins(tripId);
+    notify('Jour ajouté !', '✅');
+  });
+}
+
+// ─── Add Event Modal ──────────────────────────────────────────────────────────
+
+function _openAddEventModal(dayId, tripId) {
+  let selType      = 'visit';
+  let selTransport = 'car';
+
+  showModal(`
+    <h3>＋ Ajouter un événement</h3>
+
+    <div class="fg">
+      <label>Type</label>
+      <div style="display:flex;gap:6px;flex-wrap:wrap" id="ae-types">
+        <button class="tp" data-ae-type="drive"    style="">🚐 Transport</button>
+        <button class="tp sel" data-ae-type="visit" style="background:${tCol('visit')};border-color:${tCol('visit')};color:#fff">📍 Visite</button>
+        <button class="tp" data-ae-type="activity">⚡ Activité</button>
+        <button class="tp" data-ae-type="sleep"    >🌙 Nuit</button>
+      </div>
+    </div>
+
+    <div id="ae-transport-row" style="display:none" class="fg">
+      <label>Mode de transport</label>
+      <div style="display:flex;gap:6px;flex-wrap:wrap" id="ae-modes">
+        <button class="tp sel" data-ae-mode="car"   style="background:${trCol('car')};border-color:${trCol('car')};color:#fff">🚗 Voiture</button>
+        <button class="tp" data-ae-mode="ferry"  >⛴ Ferry</button>
+        <button class="tp" data-ae-mode="plane"  >✈ Avion</button>
+        <button class="tp" data-ae-mode="bus"    >🚌 Bus</button>
+        <button class="tp" data-ae-mode="foot"   >🚶 À pied</button>
+        <button class="tp" data-ae-mode="bike"   >🚲 Vélo</button>
+      </div>
+    </div>
+
+    <div class="fg">
+      <label>Description</label>
+      <input type="text" id="ae-text" placeholder="Ex : Visite du temple Fushimi Inari…" autocomplete="off">
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 12px">
+      <div class="fg">
+        <label>Heure</label>
+        <input type="time" id="ae-time">
+      </div>
+      <div class="fg">
+        <label>Coût (€)</label>
+        <input type="number" id="ae-cost" min="0" step="0.01" placeholder="0">
+      </div>
+    </div>
+
+    <div id="ae-dest-row" style="display:none" class="fg">
+      <label>Destination (lat, lng)</label>
+      <input type="text" id="ae-dest" placeholder="Ex : 34.9722, 135.7729" autocomplete="off">
+    </div>
+
+    <div class="fg">
+      <label>Notes</label>
+      <textarea id="ae-notes" class="notes-ta" placeholder="Infos utiles, réservation…" style="min-height:55px"></textarea>
+    </div>
+
+    <div class="ma">
+      <button class="bc" id="ae-cancel">Annuler</button>
+      <button class="bs" id="ae-save">Ajouter</button>
+    </div>
+  `);
+
+  // Type pill selection
+  const typesContainer = document.getElementById('ae-types');
+  const transportRow   = document.getElementById('ae-transport-row');
+  const destRow        = document.getElementById('ae-dest-row');
+
+  typesContainer?.addEventListener('click', e => {
+    const pill = e.target.closest('[data-ae-type]');
+    if (!pill) return;
+    selType = pill.dataset.aeType;
+
+    typesContainer.querySelectorAll('[data-ae-type]').forEach(p => {
+      const t     = p.dataset.aeType;
+      const active = t === selType;
+      p.classList.toggle('sel', active);
+      p.style.background   = active ? tCol(t) : '';
+      p.style.borderColor  = active ? tCol(t) : '';
+      p.style.color        = active ? '#fff'  : '';
+    });
+
+    // Show transport sub-options
+    if (transportRow) transportRow.style.display = selType === 'drive' ? '' : 'none';
+    if (destRow)      destRow.style.display       = selType === 'drive' ? '' : 'none';
+  });
+
+  // Mode pill selection
+  const modesContainer = document.getElementById('ae-modes');
+  modesContainer?.addEventListener('click', e => {
+    const pill = e.target.closest('[data-ae-mode]');
+    if (!pill) return;
+    selTransport = pill.dataset.aeMode;
+
+    modesContainer.querySelectorAll('[data-ae-mode]').forEach(p => {
+      const m      = p.dataset.aeMode;
+      const active = m === selTransport;
+      p.classList.toggle('sel', active);
+      p.style.background  = active ? trCol(m) : '';
+      p.style.borderColor = active ? trCol(m) : '';
+      p.style.color       = active ? '#fff'   : '';
+    });
+  });
+
+  document.getElementById('ae-cancel')?.addEventListener('click', closeModal);
+
+  document.getElementById('ae-save')?.addEventListener('click', () => {
+    const text    = (document.getElementById('ae-text')?.value  || '').trim();
+    const time    = (document.getElementById('ae-time')?.value  || '').trim() || null;
+    const cost    = parseFloat(document.getElementById('ae-cost')?.value || '0') || 0;
+    const notes   = (document.getElementById('ae-notes')?.value || '').trim();
+    const destVal = (document.getElementById('ae-dest')?.value  || '').trim();
+
+    let destLat = null, destLng = null;
+    if (destVal) {
+      const parts = destVal.split(',').map(s => parseFloat(s.trim()));
+      if (parts.length >= 2 && !isNaN(parts[0]) && !isNaN(parts[1])) {
+        destLat = parts[0]; destLng = parts[1];
+      }
+    }
+
+    const event = {
+      id:        'e_' + uid(),
+      type:      selType,
+      text,
+      time,
+      cost,
+      notes,
+      ...(selType === 'drive' ? {
+        transport: selTransport,
+        destLat,
+        destLng,
+      } : {}),
+    };
+
+    const trip2 = getTrip(tripId);
+    if (!trip2) return;
+    const day = (trip2.days || []).find(d => d.id === dayId);
+    if (!day) return;
+
+    day.items.push(event);
+    updateTrip(tripId, { days: trip2.days });
+
+    closeModal();
+    _renderDaysList(tripId);
+    _refreshMapPins(tripId);
+    updateTopStats(tripId);
+    notify('Événement ajouté !', '✅');
+  });
+}
+
+// ─── HTML escape ──────────────────────────────────────────────────────────────
+
+function _esc(s) {
+  return String(s ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
