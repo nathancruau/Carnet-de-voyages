@@ -8,7 +8,7 @@ import { updateTopStats } from './trip.js';
 
 // ── Module state ──────────────────────────────────────────────────────────────
 
-let _activeTab = 'depenses'; // 'depenses' | 'bilans'
+let _activeTab = 'depenses'; // 'depenses' | 'bilans' | 'budgetvsdep'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -119,25 +119,6 @@ export function renderTricount(tripId) {
   }
 
   const participants = getParticipants(trip);
-
-  if (!trip.companions || trip.companions.length === 0) {
-    panel.innerHTML = `
-      <div class="tri-layout" style="align-items:center;justify-content:center">
-        <div class="no-participants">
-          <div style="font-size:40px;margin-bottom:14px">&#x1F465;</div>
-          <div style="font-size:13px;font-weight:700;color:var(--ink2);margin-bottom:8px">Aucun participant</div>
-          <div style="font-size:12px;color:var(--ink4);max-width:340px;line-height:1.6">
-            Ajoutez des participants dans les param&egrave;tres du voyage (ic&ocirc;ne &#x270F; sur la carte du voyage) pour utiliser le partage de d&eacute;penses.
-          </div>
-        </div>
-      </div>`;
-
-    const handler = e => _handleClick(e, tripId);
-    _handlers.set(panel, handler);
-    panel.addEventListener('click', handler);
-    return;
-  }
-
   const balances    = computeBalances(trip);
   const settlements = computeSettlements(balances);
 
@@ -192,29 +173,38 @@ function _renderSide(trip, participants, balances) {
 // ── Main panel ────────────────────────────────────────────────────────────────
 
 function _renderMain(trip, participants, balances, settlements) {
-  const depensesActive = _activeTab === 'depenses';
+  const isDepenses   = _activeTab === 'depenses';
+  const isBilans     = _activeTab === 'bilans';
+  const isBudgetVsDep = _activeTab === 'budgetvsdep';
+
+  function tabStyle(active) {
+    return `padding:5px 16px;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer;
+            background:${active ? '#fff' : 'transparent'};
+            color:${active ? 'var(--teal)' : 'var(--ink3)'};
+            box-shadow:${active ? 'var(--sh)' : 'none'};transition:all .15s`;
+  }
 
   const tabs = `
     <div style="display:flex;gap:3px;background:var(--c2);border-radius:8px;padding:3px;border:1px solid var(--c3);margin-bottom:16px;width:fit-content">
-      <div data-action="switch-tab" data-tab="depenses"
-        style="padding:5px 16px;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer;
-               background:${depensesActive ? '#fff' : 'transparent'};
-               color:${depensesActive ? 'var(--teal)' : 'var(--ink3)'};
-               box-shadow:${depensesActive ? 'var(--sh)' : 'none'};transition:all .15s">
+      <div data-action="switch-tab" data-tab="depenses" style="${tabStyle(isDepenses)}">
         D&eacute;penses
       </div>
-      <div data-action="switch-tab" data-tab="bilans"
-        style="padding:5px 16px;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer;
-               background:${!depensesActive ? '#fff' : 'transparent'};
-               color:${!depensesActive ? 'var(--teal)' : 'var(--ink3)'};
-               box-shadow:${!depensesActive ? 'var(--sh)' : 'none'};transition:all .15s">
+      <div data-action="switch-tab" data-tab="bilans" style="${tabStyle(isBilans)}">
         Bilans
+      </div>
+      <div data-action="switch-tab" data-tab="budgetvsdep" style="${tabStyle(isBudgetVsDep)}">
+        Budget vs D&eacute;p.
       </div>
     </div>`;
 
-  const content = depensesActive
-    ? _renderDepenses(trip, participants)
-    : _renderBilans(trip, participants, balances, settlements);
+  let content;
+  if (isDepenses) {
+    content = _renderDepenses(trip, participants);
+  } else if (isBilans) {
+    content = _renderBilans(trip, participants, balances, settlements);
+  } else {
+    content = _renderBudgetVsDep(trip);
+  }
 
   return tabs + content;
 }
@@ -420,10 +410,10 @@ function _renderBilans(trip, participants, balances, settlements) {
     const display  = Math.abs(bal) < 0.01 ? '0,00 €' : _fmtEur(Math.abs(bal));
 
     balCards += `
-      <div class="balance-card">
-        <div class="bc-name">${_esc(p.name)}</div>
+      <div class="balance-card" style="max-width:100%">
+        <div class="bc-name" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_esc(p.name)}</div>
         <div class="bc-amt ${balClass}">${display}</div>
-        <div class="bc-label">${label}</div>
+        <div class="bc-label" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${label}</div>
       </div>`;
   }
 
@@ -460,6 +450,110 @@ function _renderBilans(trip, participants, balances, settlements) {
     <div style="font-family:var(--sf);font-size:16px;font-weight:700;margin-bottom:14px">Bilans</div>
     <div class="balance-cards">${balCards}</div>
     ${settleHtml}`;
+}
+
+// ── Budget vs Dépenses tab ────────────────────────────────────────────────────
+
+function _renderBudgetVsDep(trip) {
+  const cats     = trip.budgetCats    || [];
+  const expenses = trip.realExpenses  || [];
+
+  if (cats.length === 0) {
+    return `
+      <div style="text-align:center;padding:40px 20px;color:var(--ink4)">
+        <div style="font-size:32px;margin-bottom:10px">&#x1F4CA;</div>
+        <div style="font-size:13px">Aucune cat&eacute;gorie de budget d&eacute;finie</div>
+        <div style="font-size:11px;margin-top:4px">Ajoutez des cat&eacute;gories dans le budget pr&eacute;visionnel du voyage</div>
+      </div>`;
+  }
+
+  // Sum real expenses by category
+  const spentByCat = {};
+  for (const exp of expenses) {
+    if (exp.catId) {
+      spentByCat[exp.catId] = (spentByCat[exp.catId] || 0) + (Number(exp.amount) || 0);
+    }
+  }
+
+  let totalPlanned = 0;
+  let totalSpent   = 0;
+  let rows = '';
+
+  for (const cat of cats) {
+    const planned = Number(cat.planned) || 0;
+    const spent   = spentByCat[cat.id]  || 0;
+    const diff    = planned - spent;
+    const isOver  = diff < -0.01;
+    const isUnder = diff > 0.01;
+    const diffColor = isOver ? 'var(--coral)' : isUnder ? 'var(--grn)' : 'var(--ink4)';
+    const diffSign  = isOver ? '+' : '';
+    const pct       = planned > 0 ? Math.min(100, Math.round((spent / planned) * 100)) : (spent > 0 ? 100 : 0);
+    const barColor  = isOver ? 'var(--coral)' : (cat.color || '#0d9488');
+
+    totalPlanned += planned;
+    totalSpent   += spent;
+
+    rows += `
+      <tr>
+        <td>
+          <div style="display:flex;align-items:center;gap:6px">
+            <span style="font-size:15px">${_esc(cat.icon || '📦')}</span>
+            <span style="font-size:12px;font-weight:600;color:var(--ink)">${_esc(cat.name)}</span>
+          </div>
+        </td>
+        <td style="font-weight:600;color:var(--ink2)">${_fmtEur(planned)}</td>
+        <td style="font-weight:700;color:var(--ink)">${_fmtEur(spent)}</td>
+        <td style="font-weight:700;color:${diffColor}">${diffSign}${_fmtEur(Math.abs(diff))}${isOver ? ' &#x26A0;' : ''}</td>
+        <td style="min-width:100px">
+          <div style="display:flex;align-items:center;gap:6px">
+            <div style="flex:1;background:var(--c3);border-radius:4px;height:10px;overflow:hidden;min-width:60px">
+              <div style="width:${pct}%;height:100%;background:${barColor};border-radius:4px;transition:width .3s"></div>
+            </div>
+            <span style="font-size:10px;color:var(--ink4);white-space:nowrap">${pct}%</span>
+          </div>
+        </td>
+      </tr>`;
+  }
+
+  const totalDiff   = totalPlanned - totalSpent;
+  const isOverTotal = totalDiff < -0.01;
+  const totalPct    = totalPlanned > 0 ? Math.min(100, Math.round((totalSpent / totalPlanned) * 100)) : 0;
+  const totalDiffColor = isOverTotal ? 'var(--coral)' : 'var(--grn)';
+  const totalDiffSign  = isOverTotal ? '+' : '';
+  const totalBarColor  = isOverTotal ? 'var(--coral)' : 'var(--grn)';
+
+  return `
+    <div style="font-family:var(--sf);font-size:16px;font-weight:700;margin-bottom:14px">Budget vs D&eacute;penses</div>
+    <div style="overflow-x:auto">
+      <table class="tri-exp-table">
+        <thead>
+          <tr>
+            <th>Cat&eacute;gorie</th>
+            <th>Budget pr&eacute;vu</th>
+            <th>D&eacute;penses r&eacute;elles</th>
+            <th>&Eacute;cart</th>
+            <th>Progression</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows}
+          <tr style="border-top:2px solid var(--c3);font-weight:800">
+            <td><span style="font-size:12px;font-weight:800;color:var(--ink)">TOTAL</span></td>
+            <td style="font-weight:800;color:var(--ink)">${_fmtEur(totalPlanned)}</td>
+            <td style="font-weight:800;color:var(--ink)">${_fmtEur(totalSpent)}</td>
+            <td style="font-weight:800;color:${totalDiffColor}">${totalDiffSign}${_fmtEur(Math.abs(totalDiff))}${isOverTotal ? ' &#x26A0;' : ''}</td>
+            <td>
+              <div style="display:flex;align-items:center;gap:6px">
+                <div style="flex:1;background:var(--c3);border-radius:4px;height:10px;overflow:hidden;min-width:60px">
+                  <div style="width:${totalPct}%;height:100%;background:${totalBarColor};border-radius:4px;transition:width .3s"></div>
+                </div>
+                <span style="font-size:10px;color:var(--ink4);white-space:nowrap">${totalPct}%</span>
+              </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>`;
 }
 
 // ── Event delegation ──────────────────────────────────────────────────────────

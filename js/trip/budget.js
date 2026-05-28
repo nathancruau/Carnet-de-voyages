@@ -129,8 +129,20 @@ function _renderMain(trip, cats, lines) {
     : lines;
 
   const totalPlanned = selCat ? (Number(selCat.planned) || 0) : _totalPlanned(cats);
-  const totalSpent   = filteredLines.reduce((s, l) => s + (Number(l.amount) || 0), 0);
-  const diff         = totalPlanned - totalSpent;
+
+  // Sum costs from planning events
+  const days = trip.days || [];
+  const planningCostItems = [];
+  for (const day of days) {
+    for (const ev of (day.events || [])) {
+      if (Number(ev.cost) > 0) {
+        if (!selCat || ev.catId === selCat.id) {
+          planningCostItems.push(ev);
+        }
+      }
+    }
+  }
+  const totalPlannedCosts = planningCostItems.reduce((s, ev) => s + (Number(ev.cost) || 0), 0);
 
   let html = `
     <div class="bud-section-hd">
@@ -144,12 +156,8 @@ function _renderMain(trip, cats, lines) {
         <div class="bud-sm-l">Budget prévu</div>
       </div>
       <div class="bud-sm-card">
-        <div class="bud-sm-v" style="color:${totalSpent > totalPlanned ? 'var(--coral)' : 'var(--grn)'}">${_fmtEur(totalSpent)}</div>
-        <div class="bud-sm-l">Lignes saisies</div>
-      </div>
-      <div class="bud-sm-card">
-        <div class="bud-sm-v" style="color:${diff < 0 ? 'var(--coral)' : 'var(--ink)'}">${_fmtEur(Math.abs(diff))}</div>
-        <div class="bud-sm-l">${diff >= 0 ? 'Disponible' : 'Dépassement'}</div>
+        <div class="bud-sm-v" style="color:var(--teal)">${_fmtEur(totalPlannedCosts)}</div>
+        <div class="bud-sm-l">Dépenses planifiées</div>
       </div>
     </div>`;
 
@@ -158,11 +166,21 @@ function _renderMain(trip, cats, lines) {
     html += _renderDonut(cats, lines);
   }
 
+  // Bar chart of real expenses by category (global view only)
+  if (!selCat) {
+    const realExpenses = trip.realExpenses || [];
+    if (realExpenses.length > 0) {
+      html += `<h4 style="margin:20px 0 6px;font-size:13px;font-weight:700;color:var(--ink)">💳 Dépenses réelles par catégorie</h4>`;
+      html += _renderRealExpensesBarChart(trip, cats, realExpenses);
+    }
+  }
+
   // Planned costs from trip days (read-only)
   const daysCostHtml = _renderDaysCosts(trip, cats, selCat);
   if (daysCostHtml) html += daysCostHtml;
 
   // Budget lines table
+  html += `<h4 style="margin:20px 0 6px;font-size:13px;font-weight:700;color:var(--ink)">📋 Lignes budgétaires manuelles</h4>`;
   html += _renderLinesTable(trip, cats, filteredLines);
 
   return html;
@@ -229,6 +247,52 @@ function _renderDonut(cats, lines) {
         </div>
       </div>
       <div class="dl-grid" style="flex:1;min-width:160px">${legendItems}</div>
+    </div>`;
+}
+
+// ── Real expenses bar chart by category ──────────────────────────────────────
+
+function _renderRealExpensesBarChart(trip, cats, realExpenses) {
+  if (cats.length === 0 || realExpenses.length === 0) return '';
+
+  // Sum real expenses by category
+  const spentByCat = {};
+  for (const exp of realExpenses) {
+    if (exp.catId) {
+      spentByCat[exp.catId] = (spentByCat[exp.catId] || 0) + (Number(exp.amount) || 0);
+    }
+  }
+
+  // Only show cats that have real expenses
+  const activeCats = cats.filter(c => spentByCat[c.id] > 0);
+  if (activeCats.length === 0) return '';
+
+  const maxSpent = Math.max(...activeCats.map(c => spentByCat[c.id] || 0));
+
+  let bars = '';
+  for (const cat of activeCats) {
+    const spent      = spentByCat[cat.id] || 0;
+    const planned    = Number(cat.planned) || 0;
+    const pct        = maxSpent > 0 ? Math.round((spent / maxSpent) * 100) : 0;
+    const overBudget = planned > 0 && spent > planned;
+    const barColor   = overBudget ? 'var(--coral)' : (cat.color || '#0d9488');
+
+    bars += `
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+        <div style="width:28px;text-align:center;font-size:15px">${_esc(cat.icon || '📦')}</div>
+        <div style="width:90px;font-size:11px;font-weight:600;color:var(--ink2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${_esc(cat.name)}</div>
+        <div style="flex:1;background:var(--c3);border-radius:4px;height:12px;overflow:hidden">
+          <div style="width:${pct}%;height:100%;background:${barColor};border-radius:4px;transition:width .3s"></div>
+        </div>
+        <div style="width:80px;text-align:right;font-size:11px;font-weight:700;color:${overBudget ? 'var(--coral)' : 'var(--ink)'}">
+          ${_fmtEur(spent)}${planned > 0 ? `<span style="font-weight:400;color:var(--ink4)"> / ${_fmtEur(planned)}</span>` : ''}
+        </div>
+      </div>`;
+  }
+
+  return `
+    <div style="background:var(--c);border:1.5px solid var(--c3);border-radius:10px;padding:14px 16px;margin-bottom:4px">
+      ${bars}
     </div>`;
 }
 
