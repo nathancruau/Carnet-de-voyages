@@ -2,7 +2,7 @@
    CARNET DE VOYAGES — Utilities
    ============================================================ */
 
-import { TRIP_TYPES, COMP_COLORS } from './store.js';
+import { TRIP_TYPES, COMP_COLORS, getEventTypes } from './store.js';
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 export const MNS = [
@@ -141,9 +141,13 @@ export function generateDays(trip) {
 // ── Event type helpers ─────────────────────────────────────────────────────────
 
 export function tCol(t) {
+  const found = getEventTypes().find(et => et.key === t);
+  if (found) return found.color;
   return { drive: '#0284c7', visit: '#16a34a', activity: '#d97706', sleep: '#7c3aed' }[t] || '#888';
 }
 export function tIc(t) {
+  const found = getEventTypes().find(et => et.key === t);
+  if (found) return found.emoji;
   return { drive: '🚐', visit: '📍', activity: '⚡', sleep: '🌙' }[t] || '•';
 }
 export function trIc(m) {

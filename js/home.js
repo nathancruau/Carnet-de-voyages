@@ -6,6 +6,7 @@ import {
   getTrips, addTrip, updateTrip, deleteTrip,
   TRIP_TYPES, COMP_COLORS, uid,
   getSettings, updateSettings, getPinTypes, DEFAULT_PIN_TYPES,
+  getEventTypes, DEFAULT_EVENT_TYPES,
 } from './store.js';
 import {
   notify, showModal, closeModal,
@@ -447,30 +448,60 @@ function _downloadCsv(csvContent, filename) {
 // ── Settings Modal ─────────────────────────────────────────────────────────────
 
 function _openSettingsModal() {
-  const settings = getSettings();
-  const pinTypes = getPinTypes();
+  const pinTypes   = getPinTypes();
+  const eventTypes = getEventTypes();
 
-  function buildPinTypeRows() {
-    return pinTypes.map((pt, i) => `
+  // ── PIN type rows ──────────────────────────────────────────────────────────
+
+  function _ptRowHtml(pt, i) {
+    return `
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px" data-pt-row="${i}">
         <input type="text" data-pt-emoji="${i}" value="${_esc(pt.emoji)}"
           style="width:48px;text-align:center;font-size:18px;padding:4px;border:1.5px solid var(--c3);border-radius:7px;background:var(--bg)">
         <input type="text" data-pt-label="${i}" value="${_esc(pt.label)}" placeholder="Nom du type"
           style="flex:1;padding:5px 8px;border:1.5px solid var(--c3);border-radius:7px;font-size:12px;background:var(--bg)">
         <button type="button" data-pt-del="${i}" style="background:var(--crl,#fee2e2);color:var(--coral,#e85d3e);border:none;border-radius:6px;padding:4px 8px;font-size:12px;cursor:pointer">✕</button>
-      </div>`).join('');
+      </div>`;
   }
 
-  function buildHtml() {
+  // ── Event type rows ────────────────────────────────────────────────────────
+
+  function _etRowHtml(et, i) {
+    return `
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px" data-et-row="${i}">
+        <input type="hidden" data-et-key="${i}" value="${_esc(et.key)}">
+        <input type="text" data-et-emoji="${i}" value="${_esc(et.emoji)}"
+          style="width:48px;text-align:center;font-size:18px;padding:4px;border:1.5px solid var(--c3);border-radius:7px;background:var(--bg)">
+        <input type="text" data-et-label="${i}" value="${_esc(et.label)}" placeholder="Nom du type"
+          style="flex:1;padding:5px 8px;border:1.5px solid var(--c3);border-radius:7px;font-size:12px;background:var(--bg)">
+        <input type="color" data-et-color="${i}" value="${_esc(et.color || '#0d9488')}"
+          style="width:34px;height:30px;padding:2px;border:1.5px solid var(--c3);border-radius:7px;cursor:pointer;background:var(--bg)">
+        <button type="button" data-et-del="${i}" style="background:var(--crl,#fee2e2);color:var(--coral,#e85d3e);border:none;border-radius:6px;padding:4px 8px;font-size:12px;cursor:pointer">✕</button>
+      </div>`;
+  }
+
+  function buildHtml(curPinTypes, curEventTypes) {
     return `
       <button class="mc" onclick="closeModal()">✕</button>
       <h3 style="font-family:'Lora',serif;font-size:17px;font-weight:700;margin-bottom:4px">⚙️ Paramètres</h3>
 
       <div class="fg" style="margin-top:14px">
         <label style="font-size:12px;font-weight:700;color:var(--ink2)">Types de PIN (carnet & MyMap)</label>
-        <div style="font-size:11px;color:var(--ink4);margin-bottom:8px">Personnalisez les icônes disponibles pour les entrées de journal.</div>
-        <div id="pt-rows">${buildPinTypeRows()}</div>
+        <div style="font-size:11px;color:var(--ink4);margin-bottom:8px">Icônes disponibles pour les entrées de journal.</div>
+        <div id="pt-rows">${curPinTypes.map(_ptRowHtml).join('')}</div>
         <button type="button" id="pt-add"
+          style="margin-top:6px;background:var(--c2);border:1.5px solid var(--c3);border-radius:7px;padding:5px 12px;font-size:12px;font-weight:700;cursor:pointer;color:var(--ink3)">
+          ＋ Ajouter un type
+        </button>
+      </div>
+
+      <hr style="border:none;border-top:1px solid var(--c3);margin:16px 0">
+
+      <div class="fg">
+        <label style="font-size:12px;font-weight:700;color:var(--ink2)">Types d'événements (planning)</label>
+        <div style="font-size:11px;color:var(--ink4);margin-bottom:8px">Types disponibles pour les événements dans le planning.</div>
+        <div id="et-rows">${curEventTypes.map(_etRowHtml).join('')}</div>
+        <button type="button" id="et-add"
           style="margin-top:6px;background:var(--c2);border:1.5px solid var(--c3);border-radius:7px;padding:5px 12px;font-size:12px;font-weight:700;cursor:pointer;color:var(--ink3)">
           ＋ Ajouter un type
         </button>
@@ -498,12 +529,13 @@ function _openSettingsModal() {
       </div>`;
   }
 
-  showModal(buildHtml());
+  showModal(buildHtml(pinTypes, eventTypes));
+
+  // ── Collect helpers ──────────────────────────────────────────────────────────
 
   function collectPinTypes() {
-    const rows = document.querySelectorAll('[data-pt-row]');
     const result = [];
-    rows.forEach((_, i) => {
+    document.querySelectorAll('[data-pt-row]').forEach((_, i) => {
       const emoji = document.querySelector(`[data-pt-emoji="${i}"]`)?.value?.trim() || '';
       const label = document.querySelector(`[data-pt-label="${i}"]`)?.value?.trim() || '';
       if (emoji && label) {
@@ -514,47 +546,70 @@ function _openSettingsModal() {
     return result;
   }
 
-  document.getElementById('pt-add')?.addEventListener('click', () => {
-    const newTypes = collectPinTypes();
-    newTypes.push({ key: 'new_' + uid(), emoji: '📌', label: 'Nouveau type' });
-    const rowsEl = document.getElementById('pt-rows');
-    if (rowsEl) {
-      // Re-render with updated list using temp pinTypes
-      const tempPinTypes = newTypes;
-      rowsEl.innerHTML = tempPinTypes.map((pt, i) => `
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px" data-pt-row="${i}">
-          <input type="text" data-pt-emoji="${i}" value="${_esc(pt.emoji)}"
-            style="width:48px;text-align:center;font-size:18px;padding:4px;border:1.5px solid var(--c3);border-radius:7px;background:var(--bg)">
-          <input type="text" data-pt-label="${i}" value="${_esc(pt.label)}" placeholder="Nom du type"
-            style="flex:1;padding:5px 8px;border:1.5px solid var(--c3);border-radius:7px;font-size:12px;background:var(--bg)">
-          <button type="button" data-pt-del="${i}" style="background:var(--crl,#fee2e2);color:var(--coral,#e85d3e);border:none;border-radius:6px;padding:4px 8px;font-size:12px;cursor:pointer">✕</button>
-        </div>`).join('');
-      reAttach();
-    }
-  });
-
-  function reAttach() {
-    document.getElementById('pt-rows')?.addEventListener('click', e => {
-      const delBtn = e.target.closest('[data-pt-del]');
-      if (!delBtn) return;
-      const idx = parseInt(delBtn.dataset.ptDel, 10);
-      const types = collectPinTypes();
-      types.splice(idx, 1);
-      const rowsEl = document.getElementById('pt-rows');
-      if (rowsEl) {
-        rowsEl.innerHTML = types.map((pt, i) => `
-          <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px" data-pt-row="${i}">
-            <input type="text" data-pt-emoji="${i}" value="${_esc(pt.emoji)}"
-              style="width:48px;text-align:center;font-size:18px;padding:4px;border:1.5px solid var(--c3);border-radius:7px;background:var(--bg)">
-            <input type="text" data-pt-label="${i}" value="${_esc(pt.label)}" placeholder="Nom du type"
-              style="flex:1;padding:5px 8px;border:1.5px solid var(--c3);border-radius:7px;font-size:12px;background:var(--bg)">
-            <button type="button" data-pt-del="${i}" style="background:var(--crl,#fee2e2);color:var(--coral,#e85d3e);border:none;border-radius:6px;padding:4px 8px;font-size:12px;cursor:pointer">✕</button>
-          </div>`).join('');
-        reAttach();
+  function collectEventTypes() {
+    const result = [];
+    document.querySelectorAll('[data-et-row]').forEach((_, i) => {
+      const key   = document.querySelector(`[data-et-key="${i}"]`)?.value?.trim() || '';
+      const emoji = document.querySelector(`[data-et-emoji="${i}"]`)?.value?.trim() || '';
+      const label = document.querySelector(`[data-et-label="${i}"]`)?.value?.trim() || '';
+      const color = document.querySelector(`[data-et-color="${i}"]`)?.value?.trim() || '#0d9488';
+      if (emoji && label) {
+        const resolvedKey = key || label.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '') || 'type_' + i;
+        result.push({ key: resolvedKey, emoji, label, color });
       }
     });
+    return result;
   }
-  reAttach();
+
+  // ── PIN type add/delete ──────────────────────────────────────────────────────
+
+  function reRenderPtRows(types) {
+    const el = document.getElementById('pt-rows');
+    if (el) { el.innerHTML = types.map(_ptRowHtml).join(''); attachPtDelete(); }
+  }
+
+  function attachPtDelete() {
+    document.getElementById('pt-rows')?.addEventListener('click', e => {
+      const btn = e.target.closest('[data-pt-del]');
+      if (!btn) return;
+      const types = collectPinTypes();
+      types.splice(parseInt(btn.dataset.ptDel, 10), 1);
+      reRenderPtRows(types);
+    });
+  }
+  attachPtDelete();
+
+  document.getElementById('pt-add')?.addEventListener('click', () => {
+    const types = collectPinTypes();
+    types.push({ key: 'new_' + uid(), emoji: '📌', label: 'Nouveau type' });
+    reRenderPtRows(types);
+  });
+
+  // ── Event type add/delete ────────────────────────────────────────────────────
+
+  function reRenderEtRows(types) {
+    const el = document.getElementById('et-rows');
+    if (el) { el.innerHTML = types.map(_etRowHtml).join(''); attachEtDelete(); }
+  }
+
+  function attachEtDelete() {
+    document.getElementById('et-rows')?.addEventListener('click', e => {
+      const btn = e.target.closest('[data-et-del]');
+      if (!btn) return;
+      const types = collectEventTypes();
+      types.splice(parseInt(btn.dataset.etDel, 10), 1);
+      reRenderEtRows(types);
+    });
+  }
+  attachEtDelete();
+
+  document.getElementById('et-add')?.addEventListener('click', () => {
+    const types = collectEventTypes();
+    types.push({ key: 'evt_' + uid(), emoji: '📌', label: 'Nouveau type', color: '#0d9488' });
+    reRenderEtRows(types);
+  });
+
+  // ── Clear / save ─────────────────────────────────────────────────────────────
 
   document.getElementById('settings-clear-data')?.addEventListener('click', () => {
     if (confirm('Effacer TOUTES les données (voyages, journal, bagages) ? Cette action est irréversible.')) {
@@ -564,8 +619,12 @@ function _openSettingsModal() {
   });
 
   document.getElementById('settings-save')?.addEventListener('click', () => {
-    const newPinTypes = collectPinTypes();
-    updateSettings({ pinTypes: newPinTypes.length > 0 ? newPinTypes : DEFAULT_PIN_TYPES });
+    const newPinTypes   = collectPinTypes();
+    const newEventTypes = collectEventTypes();
+    updateSettings({
+      pinTypes:   newPinTypes.length   > 0 ? newPinTypes   : DEFAULT_PIN_TYPES,
+      eventTypes: newEventTypes.length > 0 ? newEventTypes : DEFAULT_EVENT_TYPES,
+    });
     notify('Paramètres enregistrés', '✅');
     closeModal();
   });

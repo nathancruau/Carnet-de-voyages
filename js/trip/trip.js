@@ -76,13 +76,12 @@ export function updateTopStats(tripId) {
   const trip = getTrip(tripId);
   if (!trip) return;
 
-  // ── Planned budget: sum budgetCats planned amounts ──────────────────────────
+  // ── Planned budget: sum of budget lines ─────────────────────────────────────
   let planned = 0;
-  const cats = trip.budgetCats || [];
-  cats.forEach(c => { planned += Number(c.planned || c.amount || 0); });
+  (trip.budgetLines || []).forEach(l => { planned += Number(l.amount || 0); });
 
-  // Also fall back to legacy trip.budget array if budgetCats is absent
-  if (cats.length === 0 && Array.isArray(trip.budget)) {
+  // Legacy fallback
+  if (planned === 0 && Array.isArray(trip.budget)) {
     trip.budget.forEach(b => { planned += Number(b.amount || 0); });
   }
 

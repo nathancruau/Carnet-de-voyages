@@ -90,6 +90,13 @@ export const DEFAULT_PIN_TYPES = [
   { key: 'park',   emoji: '🌲', label: 'Parc / Nature' },
 ];
 
+export const DEFAULT_EVENT_TYPES = [
+  { key: 'drive',    emoji: '🚐', label: 'Transport', color: '#0284c7' },
+  { key: 'visit',    emoji: '📍', label: 'Visite',    color: '#16a34a' },
+  { key: 'activity', emoji: '⚡', label: 'Activité',  color: '#d97706' },
+  { key: 'sleep',    emoji: '🌙', label: 'Nuit',      color: '#7c3aed' },
+];
+
 export function getSettings() {
   return state.settings || {};
 }
@@ -103,6 +110,11 @@ export function updateSettings(updates) {
 export function getPinTypes() {
   const s = state.settings || {};
   return Array.isArray(s.pinTypes) && s.pinTypes.length > 0 ? s.pinTypes : DEFAULT_PIN_TYPES;
+}
+
+export function getEventTypes() {
+  const s = state.settings || {};
+  return Array.isArray(s.eventTypes) && s.eventTypes.length > 0 ? s.eventTypes : DEFAULT_EVENT_TYPES;
 }
 
 /* ── Internal state ── */

@@ -6,7 +6,7 @@
  *   destroyMap()          — destroy the Leaflet instance (called on tab leave)
  */
 
-import { getTrip, updateTrip, saveData, uid } from '../store.js';
+import { getTrip, updateTrip, saveData, uid, getEventTypes } from '../store.js';
 import {
   notify, showModal, closeModal,
   fmtDate, fmtDateShort,
@@ -582,10 +582,11 @@ function _openEDP(dayId, evtIdx, tripId) {
   const inputStyle = 'width:100%;padding:5px 8px;border:1.5px solid var(--c3);border-radius:6px;font-size:12px;background:var(--bg);color:var(--ink);box-sizing:border-box';
 
   function _typeButtons() {
-    return ['drive','visit','activity','sleep'].map(t => {
-      const active = t === edpType;
-      return `<button type="button" class="tp${active ? ' sel' : ''}" data-edp-type="${t}"
-        style="font-size:11px;padding:3px 8px;${active ? `background:${tCol(t)};border-color:${tCol(t)};color:#fff` : ''}">${tIc(t)} ${{ drive:'Transport', visit:'Visite', activity:'Activité', sleep:'Nuit' }[t]}</button>`;
+    const evtTypesEdp = getEventTypes();
+    return evtTypesEdp.map(et => {
+      const active = et.key === edpType;
+      return `<button type="button" class="tp${active ? ' sel' : ''}" data-edp-type="${_esc(et.key)}"
+        style="font-size:11px;padding:3px 8px;${active ? `background:${et.color};border-color:${et.color};color:#fff` : ''}">${et.emoji} ${et.label}</button>`;
     }).join('');
   }
 
@@ -660,13 +661,15 @@ function _openEDP(dayId, evtIdx, tripId) {
     const pill = ev.target.closest('[data-edp-type]');
     if (!pill) return;
     edpType = pill.dataset.edpType;
+    const curEvtTypes = getEventTypes();
     edp.querySelectorAll('[data-edp-type]').forEach(p => {
-      const t = p.dataset.edpType;
-      const active = t === edpType;
+      const tKey   = p.dataset.edpType;
+      const etInfo = curEvtTypes.find(t => t.key === tKey);
+      const active = tKey === edpType;
       p.classList.toggle('sel', active);
-      p.style.background  = active ? tCol(t) : '';
-      p.style.borderColor = active ? tCol(t) : '';
-      p.style.color       = active ? '#fff'  : '';
+      p.style.background  = active ? (etInfo?.color || tCol(tKey)) : '';
+      p.style.borderColor = active ? (etInfo?.color || tCol(tKey)) : '';
+      p.style.color       = active ? '#fff' : '';
     });
     const modeSect = edp.querySelector('#edp-mode-sect');
     if (modeSect) modeSect.style.display = edpType === 'drive' ? '' : 'none';
@@ -1167,10 +1170,19 @@ function _openAddDayModalWithCoords(tripId, lat, lng) {
 // ─── Add Event Modal ──────────────────────────────────────────────────────────
 
 function _openAddEventModal(dayId, tripId) {
-  let selType      = 'visit';
+  const evtTypes   = getEventTypes();
+  let selType      = evtTypes.find(t => t.key === 'visit') ? 'visit' : (evtTypes[0]?.key || 'visit');
   let selTransport = 'car';
   let pickedLat    = null;
   let pickedLng    = null;
+
+  function _aeTypeBtnsHtml() {
+    return evtTypes.map(et => {
+      const active = et.key === selType;
+      return `<button class="tp${active ? ' sel' : ''}" data-ae-type="${_esc(et.key)}"
+        style="${active ? `background:${et.color};border-color:${et.color};color:#fff` : ''}">${et.emoji} ${et.label}</button>`;
+    }).join('');
+  }
 
   showModal(`
     <h3>＋ Ajouter un événement</h3>
@@ -1178,10 +1190,7 @@ function _openAddEventModal(dayId, tripId) {
     <div class="fg">
       <label>Type</label>
       <div style="display:flex;gap:6px;flex-wrap:wrap" id="ae-types">
-        <button class="tp" data-ae-type="drive"    style="">🚐 Transport</button>
-        <button class="tp sel" data-ae-type="visit" style="background:${tCol('visit')};border-color:${tCol('visit')};color:#fff">📍 Visite</button>
-        <button class="tp" data-ae-type="activity">⚡ Activité</button>
-        <button class="tp" data-ae-type="sleep"    >🌙 Nuit</button>
+        ${_aeTypeBtnsHtml()}
       </div>
     </div>
 
@@ -1298,14 +1307,16 @@ function _openAddEventModal(dayId, tripId) {
     const pill = e.target.closest('[data-ae-type]');
     if (!pill) return;
     selType = pill.dataset.aeType;
+    const selEt = evtTypes.find(t => t.key === selType);
 
     typesContainer.querySelectorAll('[data-ae-type]').forEach(p => {
-      const t      = p.dataset.aeType;
-      const active = t === selType;
+      const tKey   = p.dataset.aeType;
+      const etInfo = evtTypes.find(t => t.key === tKey);
+      const active = tKey === selType;
       p.classList.toggle('sel', active);
-      p.style.background   = active ? tCol(t) : '';
-      p.style.borderColor  = active ? tCol(t) : '';
-      p.style.color        = active ? '#fff'  : '';
+      p.style.background  = active ? (etInfo?.color || tCol(tKey)) : '';
+      p.style.borderColor = active ? (etInfo?.color || tCol(tKey)) : '';
+      p.style.color       = active ? '#fff' : '';
     });
 
     if (transportRow) transportRow.style.display = selType === 'drive' ? '' : 'none';

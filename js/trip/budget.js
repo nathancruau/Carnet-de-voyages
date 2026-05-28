@@ -31,10 +31,6 @@ function _catLinesTotal(lines, catId) {
     .reduce((s, l) => s + (Number(l.amount) || 0), 0);
 }
 
-function _totalPlanned(cats) {
-  return cats.reduce((s, c) => s + (Number(c.planned) || 0), 0);
-}
-
 function _totalLines(lines) {
   return lines.reduce((s, l) => s + (Number(l.amount) || 0), 0);
 }
@@ -80,23 +76,21 @@ export function renderBudget(tripId) {
 // ── Side panel ────────────────────────────────────────────────────────────────
 
 function _renderSide(cats, lines) {
-  const totalPlanned = _totalPlanned(cats);
-
+  const totalLines   = _totalLines(lines);
   const globalActive = _selectedCatId === null;
+
   let html = `
     <div class="glob-btn${globalActive ? ' active' : ''}" data-action="select-cat" data-cat-id="">
       <span style="font-size:15px">💰</span>
       <div style="flex:1;min-width:0">
         <div style="font-size:11px;font-weight:700;color:var(--ink)">Vue globale</div>
-        <div class="ci-cnt">${_fmtEur(totalPlanned)} prévu</div>
+        <div class="ci-cnt">${_fmtEur(totalLines)} planifié</div>
       </div>
     </div>
     <div class="bs-lbl" style="padding:8px 2px 4px">Catégories</div>`;
 
   for (const cat of cats) {
-    const planned  = Number(cat.planned) || 0;
-    const spent    = _catLinesTotal(lines, cat.id);
-    const pct      = totalPlanned > 0 ? Math.min(100, Math.round((planned / totalPlanned) * 100)) : 0;
+    const catTotal = _catLinesTotal(lines, cat.id);
     const linesCnt = lines.filter(l => l.catId === cat.id).length;
     const isActive = _selectedCatId === cat.id;
 
@@ -105,10 +99,8 @@ function _renderSide(cats, lines) {
         <div class="ci-ic">${_esc(cat.icon || '📦')}</div>
         <div class="ci-info">
           <div class="ci-nm">${_esc(cat.name)}</div>
-          <div class="ci-cnt">${linesCnt} ligne${linesCnt !== 1 ? 's' : ''} · ${_fmtEur(spent)}</div>
-          <div class="ci-bar"><div class="ci-fill" style="width:${pct}%;background:${_esc(cat.color || '#0d9488')}"></div></div>
+          <div class="ci-cnt">${linesCnt} ligne${linesCnt !== 1 ? 's' : ''} · ${_fmtEur(catTotal)}</div>
         </div>
-        <div class="ci-amt">${_fmtEur(planned)}</div>
       </div>`;
   }
 
@@ -123,26 +115,23 @@ function _renderSide(cats, lines) {
 // ── Main panel ────────────────────────────────────────────────────────────────
 
 function _renderMain(trip, cats, lines) {
-  const selCat     = _selectedCatId ? cats.find(c => c.id === _selectedCatId) : null;
+  const selCat        = _selectedCatId ? cats.find(c => c.id === _selectedCatId) : null;
   const filteredLines = _selectedCatId
     ? lines.filter(l => l.catId === _selectedCatId)
     : lines;
 
-  const totalPlanned = selCat ? (Number(selCat.planned) || 0) : _totalPlanned(cats);
-
   // Sum costs from planning events
   const days = trip.days || [];
-  const planningCostItems = [];
+  let totalPlannedCosts = 0;
   for (const day of days) {
     for (const ev of (day.items || [])) {
       if (Number(ev.cost) > 0) {
         if (!selCat || ev.catId === selCat.id) {
-          planningCostItems.push(ev);
+          totalPlannedCosts += Number(ev.cost) || 0;
         }
       }
     }
   }
-  const totalPlannedCosts = planningCostItems.reduce((s, ev) => s + (Number(ev.cost) || 0), 0);
 
   let html = `
     <div class="bud-section-hd">
@@ -152,26 +141,17 @@ function _renderMain(trip, cats, lines) {
 
     <div class="bud-summary-cards">
       <div class="bud-sm-card">
-        <div class="bud-sm-v">${_fmtEur(totalPlanned)}</div>
-        <div class="bud-sm-l">Budget prévu</div>
-      </div>
-      <div class="bud-sm-card">
         <div class="bud-sm-v" style="color:var(--teal)">${_fmtEur(totalPlannedCosts)}</div>
         <div class="bud-sm-l">Dépenses planifiées</div>
       </div>
     </div>`;
-
-  // Donut chart only on global view when there are categories with planned amounts
-  if (!selCat && cats.length > 0 && _totalPlanned(cats) > 0) {
-    html += _renderDonut(cats, lines);
-  }
 
   // Bar chart of real expenses by category (global view only)
   if (!selCat) {
     const realExpenses = trip.realExpenses || [];
     if (realExpenses.length > 0) {
       html += `<h4 style="margin:20px 0 6px;font-size:13px;font-weight:700;color:var(--ink)">💳 Dépenses réelles par catégorie</h4>`;
-      html += _renderRealExpensesBarChart(trip, cats, realExpenses);
+      html += _renderRealExpensesBarChart(cats, realExpenses);
     }
   }
 
@@ -186,76 +166,11 @@ function _renderMain(trip, cats, lines) {
   return html;
 }
 
-// ── Donut chart ───────────────────────────────────────────────────────────────
-
-function _renderDonut(cats, lines) {
-  const catsWithPlanned = cats.filter(c => Number(c.planned) > 0);
-  if (catsWithPlanned.length === 0) return '';
-
-  const total   = _totalPlanned(catsWithPlanned);
-  const radius  = 54;
-  const cx      = 70;
-  const cy      = 70;
-  const circum  = 2 * Math.PI * radius;
-
-  let offset = 0;
-  let circles = '';
-  let legendItems = '';
-
-  for (const cat of catsWithPlanned) {
-    const planned = Number(cat.planned) || 0;
-    const pct     = planned / total;
-    const dash    = pct * circum;
-    const gap     = circum - dash;
-    const rotation = -90 + (offset / total) * 360;
-
-    circles += `<circle
-      cx="${cx}" cy="${cy}" r="${radius}"
-      fill="none"
-      stroke="${_esc(cat.color || '#0d9488')}"
-      stroke-width="18"
-      stroke-dasharray="${dash.toFixed(2)} ${gap.toFixed(2)}"
-      transform="rotate(${rotation.toFixed(2)} ${cx} ${cy})"
-      style="cursor:pointer"
-      data-action="select-cat"
-      data-cat-id="${_esc(cat.id)}"
-      title="${_esc(cat.name + ' : ' + _fmtEur(planned))}">
-    </circle>`;
-
-    legendItems += `
-      <div class="dl-it" style="cursor:pointer" data-action="select-cat" data-cat-id="${_esc(cat.id)}">
-        <div class="dl-dot" style="background:${_esc(cat.color || '#0d9488')}"></div>
-        <span style="flex:1;color:var(--ink2)">${_esc(cat.name)}</span>
-        <span style="font-weight:700;color:var(--ink)">${_fmtEur(planned)}</span>
-      </div>`;
-
-    offset += planned;
-  }
-
-  const totalLines = _totalLines(lines);
-
-  return `
-    <div class="donut-row">
-      <div class="donut-wrap">
-        <svg width="140" height="140" viewBox="0 0 140 140">
-          <circle cx="${cx}" cy="${cy}" r="${radius}" fill="none" stroke="var(--c3)" stroke-width="18"/>
-          ${circles}
-        </svg>
-        <div class="donut-cnt">
-          <div class="dc-v">${_fmtEur(total)}</div>
-          <div class="dc-l">Prévu</div>
-        </div>
-      </div>
-      <div class="dl-grid" style="flex:1;min-width:160px">${legendItems}</div>
-    </div>`;
-}
-
 // ── Real expenses bar chart by category ──────────────────────────────────────
 
-function _renderRealExpensesBarChart(trip, cats, realExpenses) {
+function _renderRealExpensesBarChart(cats, realExpenses) {
   if (cats.length === 0 || realExpenses.length === 0) return '';
 
-  // Sum real expenses by category
   const spentByCat = {};
   for (const exp of realExpenses) {
     if (exp.catId) {
@@ -263,7 +178,6 @@ function _renderRealExpensesBarChart(trip, cats, realExpenses) {
     }
   }
 
-  // Only show cats that have real expenses
   const activeCats = cats.filter(c => spentByCat[c.id] > 0);
   if (activeCats.length === 0) return '';
 
@@ -271,22 +185,17 @@ function _renderRealExpensesBarChart(trip, cats, realExpenses) {
 
   let bars = '';
   for (const cat of activeCats) {
-    const spent      = spentByCat[cat.id] || 0;
-    const planned    = Number(cat.planned) || 0;
-    const pct        = maxSpent > 0 ? Math.round((spent / maxSpent) * 100) : 0;
-    const overBudget = planned > 0 && spent > planned;
-    const barColor   = overBudget ? 'var(--coral)' : (cat.color || '#0d9488');
+    const spent = spentByCat[cat.id] || 0;
+    const pct   = maxSpent > 0 ? Math.round((spent / maxSpent) * 100) : 0;
 
     bars += `
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
         <div style="width:28px;text-align:center;font-size:15px">${_esc(cat.icon || '📦')}</div>
         <div style="width:90px;font-size:11px;font-weight:600;color:var(--ink2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${_esc(cat.name)}</div>
         <div style="flex:1;background:var(--c3);border-radius:4px;height:12px;overflow:hidden">
-          <div style="width:${pct}%;height:100%;background:${barColor};border-radius:4px;transition:width .3s"></div>
+          <div style="width:${pct}%;height:100%;background:${_esc(cat.color || '#0d9488')};border-radius:4px;transition:width .3s"></div>
         </div>
-        <div style="width:80px;text-align:right;font-size:11px;font-weight:700;color:${overBudget ? 'var(--coral)' : 'var(--ink)'}">
-          ${_fmtEur(spent)}${planned > 0 ? `<span style="font-weight:400;color:var(--ink4)"> / ${_fmtEur(planned)}</span>` : ''}
-        </div>
+        <div style="width:80px;text-align:right;font-size:11px;font-weight:700;color:var(--ink)">${_fmtEur(spent)}</div>
       </div>`;
   }
 
@@ -609,9 +518,8 @@ function _openCatModal(tripId, catId) {
   const isEdit = !!catId;
   const cat    = isEdit ? cats.find(c => c.id === catId) : null;
 
-  let selColor   = cat?.color   || _CAT_COLORS[0];
-  let selIcon    = cat?.icon    || '📦';
-  let selPlanned = Number(cat?.planned ?? 0);
+  let selColor = cat?.color || _CAT_COLORS[0];
+  let selIcon  = cat?.icon  || '📦';
 
   function buildHtml() {
     return `
@@ -642,11 +550,6 @@ function _openCatModal(tripId, catId) {
         </div>
       </div>
 
-      <div class="fg">
-        <label>Budget alloué (€)</label>
-        <input type="number" id="bc-planned" min="0" step="0.01" placeholder="0" value="${_esc(selPlanned || '')}">
-      </div>
-
       <div class="ma">
         <button class="bc" onclick="closeModal()">Annuler</button>
         ${isEdit ? `<button class="bd" id="bc-delete">Supprimer</button>` : ''}
@@ -657,8 +560,6 @@ function _openCatModal(tripId, catId) {
   function reRender() {
     const mbox = document.querySelector('.mbox');
     if (mbox) {
-      const inp = document.getElementById('bc-planned');
-      if (inp) selPlanned = parseFloat(inp.value || '0') || 0;
       mbox.innerHTML = buildHtml();
       attachEvents();
     }
@@ -695,22 +596,21 @@ function _openCatModal(tripId, catId) {
     });
 
     document.getElementById('bc-save')?.addEventListener('click', () => {
-      const name    = document.getElementById('bc-name')?.value?.trim() || '';
-      const planned = parseFloat(document.getElementById('bc-planned')?.value || '0') || 0;
+      const name = document.getElementById('bc-name')?.value?.trim() || '';
 
       if (!name) { notify('Veuillez saisir un nom', '⚠️'); return; }
 
-      const ft   = getTrip(tripId);
+      const ft      = getTrip(tripId);
       const newCats = [...(ft.budgetCats || [])];
 
       if (isEdit) {
         const idx = newCats.findIndex(c => c.id === catId);
         if (idx !== -1) {
-          newCats[idx] = { ...newCats[idx], name, icon: selIcon, color: selColor, planned };
+          newCats[idx] = { ...newCats[idx], name, icon: selIcon, color: selColor };
         }
         notify('Catégorie mise à jour', '✓');
       } else {
-        newCats.push({ id: 'bc_' + uid(), name, icon: selIcon, color: selColor, planned });
+        newCats.push({ id: 'bc_' + uid(), name, icon: selIcon, color: selColor });
         notify('Catégorie ajoutée', '✓');
       }
 
