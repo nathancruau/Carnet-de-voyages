@@ -182,7 +182,17 @@ html,body{height:100%;font-family:var(--fn);background:var(--c);color:var(--ink)
   width:292px;display:flex;flex-direction:column;
   background:#fff;border-right:1px solid var(--c3);
   flex-shrink:0;overflow:hidden;
+  transition:width .25s;
 }
+.left-panel.collapsed{width:0;min-width:0;border-right:none}
+.lp-toggle-btn{
+  position:absolute;top:50%;left:6px;transform:translateY(-50%);
+  z-index:1001;background:#fff;border:1.5px solid var(--c3);border-radius:6px;
+  width:22px;height:36px;cursor:pointer;font-size:11px;color:var(--ink3);
+  display:flex;align-items:center;justify-content:center;padding:0;
+  box-shadow:0 2px 6px rgba(0,0,0,.12);transition:all .15s;
+}
+.lp-toggle-btn:hover{background:var(--c2);color:var(--ink)}
 
 /* Mini calendar */
 .mini-cal{padding:12px;border-bottom:1px solid var(--c3);flex-shrink:0}
@@ -623,6 +633,8 @@ html,body{height:100%;font-family:var(--fn);background:var(--c);color:var(--ink)
   font-size:12px;font-weight:700;color:var(--ink2);
   flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
 }
+.mm-trip-name:hover{color:var(--teal)}
+.mm-trip-name.mm-trip-focused{color:var(--teal);text-decoration:underline}
 .mm-pin-count{
   font-size:10px;font-weight:700;background:var(--c3);color:var(--ink3);
   border-radius:999px;padding:1px 7px;flex-shrink:0;

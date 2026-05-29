@@ -20,7 +20,7 @@ import { updateTopStats } from './trip.js';
 
 let _map          = null;          // Leaflet map instance
 let _tripId       = null;
-let _activeDayId  = null;          // currently selected day id
+let _openDayIds   = new Set();     // set of open day ids (multiple allowed)
 let _activeEvtKey = null;          // { dayId, idx } or null
 let _markers      = {};            // dayId → L.Marker
 let _routeLayers  = [];            // polylines / dashed lines on map
@@ -65,6 +65,7 @@ export function renderMapCal(tripId) {
         <div class="days-scroll" id="days-list"></div>
       </div>
       <div class="map-col">
+        <button class="lp-toggle-btn" id="lp-toggle" title="Masquer / afficher le panneau">◀</button>
         <div id="map" style="width:100%;height:100%"></div>
         <div class="route-loading" id="route-loading" style="display:none">Calcul des itinéraires…</div>
         <div id="map-srch" style="position:absolute;top:10px;left:50%;transform:translateX(-50%);z-index:1002;width:320px;max-width:calc(100% - 100px);pointer-events:all">
@@ -95,6 +96,18 @@ export function renderMapCal(tripId) {
   _renderDaysList(tripId);
   _renderMiniCal(tripId);
 
+  // Wire left panel toggle button
+  const lpToggle = panel.querySelector('#lp-toggle');
+  if (lpToggle) {
+    lpToggle.addEventListener('click', () => {
+      const lp = panel.querySelector('.left-panel');
+      if (!lp) return;
+      const collapsed = lp.classList.toggle('collapsed');
+      lpToggle.textContent = collapsed ? '▶' : '◀';
+      setTimeout(() => { if (_map) _map.invalidateSize(); }, 280);
+    });
+  }
+
   // Wire map search bar
   _initMapSearch(tripId);
 }
@@ -107,7 +120,7 @@ export function destroyMap() {
   }
   _markers      = {};
   _routeLayers  = [];
-  _activeDayId  = null;
+  _openDayIds   = new Set();
   _activeEvtKey = null;
   _pendingMapClick = null;
   _dragEvt      = null;
@@ -204,7 +217,7 @@ function _refreshMapPins(tripId) {
 
   // Add separate event-level markers for events that have their own coordinates
   for (const day of (trip.days || [])) {
-    for (const item of (day.items || [])) {
+    (day.items || []).forEach((item, itemIdx) => {
       if (item.lat != null && item.lng != null) {
         const evtIcon = L.divIcon({
           className: '',
@@ -221,11 +234,14 @@ function _refreshMapPins(tripId) {
           </div>`,
           { maxWidth: 200 }
         );
-        evtMarker.on('click', () => _selectDay(day.id, tripId));
+        evtMarker.on('click', () => {
+          _openDayIds.add(day.id);
+          _openEDP(day.id, itemIdx, tripId);
+        });
         evtMarker.addTo(_map);
         _markers['e_' + item.id] = evtMarker;
       }
-    }
+    });
   }
 
   // Draw routes through all georeferenced waypoints
@@ -462,7 +478,7 @@ function _renderMiniCal(tripId) {
       if (day) {
         cls   += ' sd';
         style  = `background:${day.color || 'var(--teal)'};color:#fff;font-weight:700`;
-        if (day.id === _activeDayId) {
+        if (_openDayIds.has(day.id)) {
           style += ';outline:2px solid var(--ink);outline-offset:1px';
         }
       }
@@ -539,7 +555,7 @@ function _renderDaysList(tripId) {
 }
 
 function _dayItemHtml(day) {
-  const isSelected = day.id === _activeDayId;
+  const isSelected = _openDayIds.has(day.id);
   const items = day.items || [];
 
   // Cost total
@@ -854,9 +870,8 @@ function _closeEDP() {
 // ─── Select day ───────────────────────────────────────────────────────────────
 
 function _selectDay(dayId, tripId) {
-  if (_activeDayId === dayId) {
-    // Toggle off
-    _activeDayId = null;
+  if (_openDayIds.has(dayId)) {
+    _openDayIds.delete(dayId);
     _activeEvtKey = null;
     _closeEDP();
     _renderDaysList(tripId);
@@ -864,7 +879,7 @@ function _selectDay(dayId, tripId) {
     return;
   }
 
-  _activeDayId  = dayId;
+  _openDayIds.add(dayId);
   _activeEvtKey = null;
   _closeEDP();
 

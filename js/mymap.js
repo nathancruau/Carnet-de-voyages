@@ -17,10 +17,11 @@ function _pinTypeMap() {
 }
 
 // ── Module-level state ─────────────────────────────────────────────────────────
-let _map          = null;   // Leaflet map instance
-let _markers      = [];     // { marker, trip, entry } objects currently on the map
-let _allPins      = [];     // All { trip, entry, lat, lng } built from store
-let _filters      = { type: 'all', country: 'all', status: 'done', pinType: 'all', tripId: 'all' };
+let _map             = null;   // Leaflet map instance
+let _markers         = [];     // { marker, trip, entry } objects currently on the map
+let _allPins         = [];     // All { trip, entry, lat, lng } built from store
+let _filters         = { type: 'all', pinType: 'all', tripId: 'all' };
+let _collapsedGroups = new Set();  // trip ids whose sidebar group is folded
 
 // ── Country color mapping ──────────────────────────────────────────────────────
 
@@ -68,7 +69,7 @@ function _makeIcon(color, size = 13, emoji = null) {
   if (emoji) {
     return L.divIcon({
       className: '',
-      html: `<div style="background:${color};border:2px solid #fff;border-radius:50%;width:28px;height:28px;display:flex;align-items:center;justify-content:center;font-size:16px;box-shadow:0 1px 6px rgba(0,0,0,.4)"><span style="filter:grayscale(1) brightness(2)">${emoji}</span></div>`,
+      html: `<div style="background:${color};border:2px solid #fff;border-radius:50%;width:28px;height:28px;display:flex;align-items:center;justify-content:center;font-size:16px;box-shadow:0 1px 6px rgba(0,0,0,.4)">${emoji}</div>`,
       iconSize:    [28, 28],
       iconAnchor:  [14, 14],
       popupAnchor: [0, -20],
@@ -177,38 +178,12 @@ function _buildAllPins() {
 function _visiblePins() {
   return _allPins.filter(({ trip, entry }) => {
     if (_filters.type !== 'all' && trip.type !== _filters.type) return false;
-    if (_filters.country !== 'all') {
-      const iso = _isoFromFlag(trip.flag);
-      if (iso !== _filters.country) return false;
-    }
-    if (_filters.status === 'done' && trip.status !== 'done') return false;
     if (_filters.pinType !== 'all') {
       if (entry?.pinType !== _filters.pinType) return false;
     }
     if (_filters.tripId !== 'all' && trip.id !== _filters.tripId) return false;
     return true;
   });
-}
-
-/** Unique sorted list of { iso, flag } for country dropdown. */
-function _countryOptions() {
-  const seen = new Map();
-  for (const { trip } of _allPins) {
-    const iso = _isoFromFlag(trip.flag);
-    if (iso && !seen.has(iso)) {
-      seen.set(iso, trip.flag);
-    }
-  }
-  return [...seen.entries()].map(([iso, flag]) => ({ iso, flag }));
-}
-
-/** Unique trips that have at least one pin. */
-function _tripsWithPins() {
-  const seen = new Map();
-  for (const { trip } of _allPins) {
-    if (!seen.has(trip.id)) seen.set(trip.id, trip);
-  }
-  return [...seen.values()];
 }
 
 // ── Sidebar tree ───────────────────────────────────────────────────────────────
@@ -223,16 +198,35 @@ function _buildSidebarTree(pins) {
   }
 
   if (tripMap.size === 0) {
-    return `<div style="padding:24px 16px;text-align:center;color:var(--ink4);font-size:12px">
-      Aucun voyage à afficher.<br>Ajoutez des entrées de journal avec des coordonnées GPS.
-    </div>`;
+    // Show all trips even if no visible pins (so user can click to filter)
+    const allTrips = new Map();
+    for (const { trip } of _allPins) {
+      if (!allTrips.has(trip.id)) allTrips.set(trip.id, { trip, pins: [] });
+      allTrips.get(trip.id).pins.push(..._allPins.filter(p => p.trip.id === trip.id));
+    }
+    if (allTrips.size === 0) {
+      return `<div style="padding:24px 16px;text-align:center;color:var(--ink4);font-size:12px">
+        Aucun voyage à afficher.<br>Ajoutez des entrées de journal avec des coordonnées GPS.
+      </div>`;
+    }
+  }
+
+  // Merge: always show all trips in sidebar (use allPins to build trip list), but pin rows show only visible pins
+  const allTripMap = new Map();
+  for (const { trip } of _allPins) {
+    if (!allTripMap.has(trip.id)) allTripMap.set(trip.id, { trip, pins: [] });
+  }
+  for (const pin of pins) {
+    allTripMap.get(pin.trip.id)?.pins.push(pin);
   }
 
   let html = '';
-  for (const { trip, pins: tPins } of tripMap.values()) {
-    const typeInfo  = TRIP_TYPES[trip.type] || TRIP_TYPES.voyage;
-    const color     = _colorForFlag(trip.flag);
-    const groupId   = 'mm-grp-' + trip.id;
+  for (const { trip, pins: tPins } of allTripMap.values()) {
+    const typeInfo    = TRIP_TYPES[trip.type] || TRIP_TYPES.voyage;
+    const color       = _colorForFlag(trip.flag);
+    const groupId     = 'mm-grp-' + trip.id;
+    const isCollapsed = _collapsedGroups.has(trip.id);
+    const isFocused   = _filters.tripId === trip.id;
 
     const pinsHtml = tPins.map(pin => {
       const _ptm = _pinTypeMap();
@@ -240,49 +234,32 @@ function _buildSidebarTree(pins) {
         ? _ptm[pin.entry.pinType]
         : '📍';
       const label = pin.entry.title || (pin.entry.date ? fmtDateShort(pin.entry.date) : 'Sans titre');
+      const dateStr = pin.entry.date ? fmtDateShort(pin.entry.date) : '';
       return `
         <div class="mm-pin-row"
              data-lat="${pin.lat}" data-lng="${pin.lng}" data-tripid="${trip.id}"
              onclick="_mmFlyTo(${pin.lat}, ${pin.lng}, '${trip.id}')">
           <span style="color:${color};flex-shrink:0">${pinEmoji}</span>
           <span class="mm-pin-label">${label}</span>
+          ${dateStr ? `<span style="font-size:9px;color:var(--ink4);flex-shrink:0;white-space:nowrap">${dateStr}</span>` : ''}
         </div>`;
     }).join('');
 
     html += `
-      <div class="mm-trip-group" id="${groupId}">
-        <div class="mm-trip-header" onclick="_mmToggleGroup('${groupId}')">
-          <span class="mm-trip-chevron">▼</span>
+      <div class="mm-trip-group${isCollapsed ? ' collapsed' : ''}" id="${groupId}">
+        <div class="mm-trip-header">
+          <span class="mm-trip-chevron" onclick="_mmFoldGroup('${trip.id}')" title="Plier/déplier">▼</span>
           <span style="font-size:15px">${typeInfo.icon}</span>
-          <span class="mm-trip-name">${trip.flag || ''} ${trip.name}</span>
+          <span class="mm-trip-name${isFocused ? ' mm-trip-focused' : ''}"
+                onclick="_mmFocusTrip('${trip.id}')"
+                title="${isFocused ? 'Voir tous les voyages' : 'Filtrer sur ce voyage'}"
+                style="cursor:pointer">${trip.flag || ''} ${trip.name}</span>
           <span class="mm-pin-count">${tPins.length}</span>
         </div>
-        <div class="mm-trip-body">${pinsHtml}</div>
+        <div class="mm-trip-body">${pinsHtml || '<div style="padding:4px 12px 4px 28px;font-size:10px;color:var(--ink4)">Aucun PIN visible</div>'}</div>
       </div>`;
   }
   return html;
-}
-
-// ── Sidebar country dropdown ───────────────────────────────────────────────────
-
-function _countryDropdownHtml() {
-  const opts = _countryOptions();
-  const options = `<option value="all">Tous pays</option>` +
-    opts.map(({ iso, flag }) =>
-      `<option value="${iso}"${_filters.country === iso ? ' selected' : ''}>${flag} ${iso}</option>`
-    ).join('');
-  return `<select class="mm-select" onchange="_mmSetCountry(this.value)">${options}</select>`;
-}
-
-// ── Sidebar trip dropdown ──────────────────────────────────────────────────────
-
-function _tripDropdownHtml() {
-  const trips = _tripsWithPins();
-  const options = `<option value="all">Tous les voyages</option>` +
-    trips.map(t =>
-      `<option value="${t.id}"${_filters.tripId === t.id ? ' selected' : ''}>${t.flag || ''} ${t.name}</option>`
-    ).join('');
-  return `<select class="mm-select" onchange="_mmSetTrip(this.value)">${options}</select>`;
 }
 
 // ── Full sidebar HTML ──────────────────────────────────────────────────────────
@@ -297,12 +274,6 @@ function _sidebarHtml(pins) {
     `<button class="mm-type-btn${_filters.type === key ? ' active' : ''}"
              onclick="_mmSetType('${key}')">${label}</button>`
   ).join('');
-
-  const statusToggle = `
-    <div class="mm-status-toggle">
-      <button class="mm-st-btn${_filters.status === 'all'  ? ' active' : ''}" onclick="_mmSetStatus('all')">Tous</button>
-      <button class="mm-st-btn${_filters.status === 'done' ? ' active' : ''}" onclick="_mmSetStatus('done')">Réalisés</button>
-    </div>`;
 
   const pinTypeFilters = [
     { val: 'all', label: 'Tous' },
@@ -323,11 +294,6 @@ function _sidebarHtml(pins) {
 
     <div class="mm-filter-row">
       <div class="mm-type-group">${typeButtons}</div>
-    </div>
-    <div class="mm-filter-row" style="gap:6px">
-      ${_tripDropdownHtml()}
-      ${_countryDropdownHtml()}
-      ${statusToggle}
     </div>
     <div class="mm-filter-row">
       <div style="font-size:11px;color:var(--ink4);font-weight:600;margin-right:4px;flex-shrink:0">Lieu :</div>
@@ -386,21 +352,12 @@ function _redrawMarkers(pins) {
 function _update() {
   const pins = _visiblePins();
 
-  // Update sidebar tree
+  // Update sidebar tree only
   const treeEl = document.getElementById('mm-tree');
   if (treeEl) treeEl.innerHTML = _buildSidebarTree(pins);
 
-  // Update filter buttons — type
-  document.querySelectorAll('.mm-type-btn').forEach(btn => {
-    btn.classList.toggle('active', btn.textContent.trim() === _filterTypeLabel(_filters.type));
-  });
-
   // Redraw markers
   _redrawMarkers(pins);
-}
-
-function _filterTypeLabel(key) {
-  return { all: 'Tous', voyage: 'Voyages', weekend: 'Week-ends', sortie: 'Sorties' }[key] || 'Tous';
 }
 
 // ── KML export ─────────────────────────────────────────────────────────────────
@@ -458,10 +415,21 @@ window._mmFlyTo = function(lat, lng, tripId) {
   }
 };
 
-window._mmToggleGroup = function(groupId) {
-  // Extract tripId from groupId: 'mm-grp-{tripId}'
-  const tripId = groupId.replace('mm-grp-', '');
-  // Toggle: click same trip again to show all
+/** Toggle fold/unfold of a trip group in the sidebar (no filter change). */
+window._mmFoldGroup = function(tripId) {
+  if (_collapsedGroups.has(tripId)) {
+    _collapsedGroups.delete(tripId);
+  } else {
+    _collapsedGroups.add(tripId);
+  }
+  const groupEl = document.getElementById('mm-grp-' + tripId);
+  if (groupEl) {
+    groupEl.classList.toggle('collapsed', _collapsedGroups.has(tripId));
+  }
+};
+
+/** Toggle map filter to show only this trip (click again to show all). */
+window._mmFocusTrip = function(tripId) {
   _filters.tripId = (_filters.tripId === tripId) ? 'all' : tripId;
   const sidebar = document.getElementById('mm-sidebar');
   if (sidebar) {
@@ -473,23 +441,6 @@ window._mmToggleGroup = function(groupId) {
 
 window._mmSetType = function(key) {
   _filters.type = key;
-  // Refresh entire sidebar to update button states
-  const sidebar = document.getElementById('mm-sidebar');
-  if (sidebar) {
-    const pins = _visiblePins();
-    sidebar.innerHTML = _sidebarHtml(pins);
-  }
-  _update();
-};
-
-window._mmSetCountry = function(val) {
-  _filters.country = val;
-  _update();
-};
-
-window._mmSetStatus = function(val) {
-  _filters.status = val;
-  // Refresh sidebar for button states
   const sidebar = document.getElementById('mm-sidebar');
   if (sidebar) {
     const pins = _visiblePins();
@@ -500,11 +451,11 @@ window._mmSetStatus = function(val) {
 
 window._mmSetPinType = function(val) {
   _filters.pinType = val;
-  _update();
-};
-
-window._mmSetTrip = function(val) {
-  _filters.tripId = val;
+  const sidebar = document.getElementById('mm-sidebar');
+  if (sidebar) {
+    const pins = _visiblePins();
+    sidebar.innerHTML = _sidebarHtml(pins);
+  }
   _update();
 };
 
@@ -517,7 +468,8 @@ export function renderMyMap() {
   if (!wrap) return;
 
   // Reset filters to default
-  _filters = { type: 'all', country: 'all', status: 'done', pinType: 'all', tripId: 'all' };
+  _filters         = { type: 'all', pinType: 'all', tripId: 'all' };
+  _collapsedGroups = new Set();
 
   // Build pin data
   _buildAllPins();

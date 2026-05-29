@@ -66,6 +66,8 @@ function _haversineKm(lat1, lng1, lat2, lng2) {
   return 2 * R * Math.asin(Math.sqrt(a));
 }
 
+const _ROAD_FACTOR = { car: 1.3, bus: 1.3, bike: 1.2, foot: 1.15, plane: 1.05, ferry: 1.1 };
+
 function _calcKmByMode(trips) {
   const km = {};
   for (const trip of trips) {
@@ -84,7 +86,8 @@ function _calcKmByMode(trips) {
     }
     for (let i = 0; i < wps.length - 1; i++) {
       const m = wps[i + 1].mode || 'car';
-      km[m] = (km[m] || 0) + _haversineKm(wps[i].lat, wps[i].lng, wps[i + 1].lat, wps[i + 1].lng);
+      const factor = _ROAD_FACTOR[m] || 1.2;
+      km[m] = (km[m] || 0) + _haversineKm(wps[i].lat, wps[i].lng, wps[i + 1].lat, wps[i + 1].lng) * factor;
     }
   }
   return km;
@@ -219,24 +222,24 @@ function _statsViewHtml(trips) {
 
   const spendBars = spendMonths.map(m => {
     const val  = spendByMonth[m];
-    const pct  = Math.round((val / maxSpend) * 100);
+    const barH = Math.max(Math.round((val / maxSpend) * 60), 4);
     const [yr, mo] = m.split('-');
     const label = new Date(Number(yr), Number(mo) - 1, 1).toLocaleDateString('fr-FR', { month: 'short' }) + ' ' + yr.slice(2);
     return `
       <div style="display:flex;flex-direction:column;align-items:center;gap:3px;min-width:32px">
         <div style="font-size:9px;font-weight:700;color:var(--ink3)">${Math.round(val)}</div>
-        <div style="width:22px;background:var(--amb,#d97706);border-radius:3px 3px 0 0;height:${Math.max(pct * 0.7, 4)}px"></div>
+        <div style="width:22px;background:var(--amb,#d97706);border-radius:3px 3px 0 0;height:${barH}px"></div>
         <div style="font-size:8px;color:var(--ink4);writing-mode:vertical-rl;transform:rotate(180deg);white-space:nowrap">${label}</div>
       </div>`;
   }).join('');
 
   const perYearBars = years.map(y => {
     const count = perYear[y];
-    const pct   = Math.round((count / maxPerYear) * 100);
+    const barH  = Math.max(Math.round((count / maxPerYear) * 80), 8);
     return `
       <div style="display:flex;flex-direction:column;align-items:center;gap:4px;min-width:36px">
         <div style="font-size:10px;font-weight:700;color:var(--ink3)">${count}</div>
-        <div style="width:28px;background:var(--teal);border-radius:4px 4px 0 0;height:${Math.max(pct, 6)}px;transition:height .3s"></div>
+        <div style="width:28px;background:var(--teal);border-radius:4px 4px 0 0;height:${barH}px;transition:height .3s"></div>
         <div style="font-size:10px;color:var(--ink4);transform:rotate(-45deg);white-space:nowrap;transform-origin:center;margin-top:2px">${y}</div>
       </div>`;
   }).join('');
@@ -249,18 +252,22 @@ function _statsViewHtml(trips) {
         </div>`).join('')
     : `<div style="font-size:12px;color:var(--ink4)">Aucune destination renseignée</div>`;
 
+  const _sc = 'background:var(--c2);border-radius:10px;padding:9px 14px;text-align:center;min-width:68px';
+  const _sv = 'font-family:var(--sf);font-size:20px;font-weight:700;color:var(--ink)';
+  const _sl = 'font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--ink3);margin-top:2px';
+
   return `
     <div style="max-width:700px;margin:0 auto;padding:8px 0">
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:10px;margin-bottom:24px">
-        <div class="hs-card"><div class="hs-v">${trips.length}</div><div class="hs-l">Voyages total</div></div>
-        <div class="hs-card"><div class="hs-v">${s.weekendCount}</div><div class="hs-l">Week-ends</div></div>
-        <div class="hs-card"><div class="hs-v">${s.sortieCount}</div><div class="hs-l">Sorties</div></div>
-        <div class="hs-card"><div class="hs-v">${s.totalDays}</div><div class="hs-l">Jours voyagés</div></div>
-        <div class="hs-card"><div class="hs-v">${s.countries}</div><div class="hs-l">Destinations</div></div>
-        <div class="hs-card"><div class="hs-v">${avgDays}</div><div class="hs-l">Durée moy. (j)</div></div>
-        ${totalBudget > 0 ? `<div class="hs-card"><div class="hs-v">${totalBudget.toLocaleString('fr-FR')} €</div><div class="hs-l">Budget prévu</div></div>` : ''}
-        ${s.totalSpent > 0 ? `<div class="hs-card"><div class="hs-v">${Math.round(s.totalSpent).toLocaleString('fr-FR')} €</div><div class="hs-l">Dépensé réel</div></div>` : ''}
-        ${totalKm > 0 ? `<div class="hs-card"><div class="hs-v">${Math.round(totalKm).toLocaleString('fr-FR')}</div><div class="hs-l">km parcourus</div></div>` : ''}
+        <div style="${_sc}"><div style="${_sv}">${trips.length}</div><div style="${_sl}">Voyages total</div></div>
+        <div style="${_sc}"><div style="${_sv}">${s.weekendCount}</div><div style="${_sl}">Week-ends</div></div>
+        <div style="${_sc}"><div style="${_sv}">${s.sortieCount}</div><div style="${_sl}">Sorties</div></div>
+        <div style="${_sc}"><div style="${_sv}">${s.totalDays}</div><div style="${_sl}">Jours voyagés</div></div>
+        <div style="${_sc}"><div style="${_sv}">${s.countries}</div><div style="${_sl}">Destinations</div></div>
+        <div style="${_sc}"><div style="${_sv}">${avgDays}</div><div style="${_sl}">Durée moy. (j)</div></div>
+        ${totalBudget > 0 ? `<div style="${_sc}"><div style="${_sv}">${totalBudget.toLocaleString('fr-FR')} €</div><div style="${_sl}">Budget prévu</div></div>` : ''}
+        ${s.totalSpent > 0 ? `<div style="${_sc}"><div style="${_sv}">${Math.round(s.totalSpent).toLocaleString('fr-FR')} €</div><div style="${_sl}">Dépensé réel</div></div>` : ''}
+        ${totalKm > 0 ? `<div style="${_sc}"><div style="${_sv}">${Math.round(totalKm).toLocaleString('fr-FR')}</div><div style="${_sl}">km parcourus</div></div>` : ''}
       </div>
 
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
@@ -272,7 +279,7 @@ function _statsViewHtml(trips) {
         <div style="background:var(--c2);border-radius:12px;padding:16px">
           <h4 style="font-size:13px;font-weight:700;color:var(--ink3);margin-bottom:12px">📅 Voyages par année</h4>
           ${years.length > 0
-            ? `<div style="display:flex;align-items:flex-end;gap:6px;height:90px;padding-bottom:20px">${perYearBars}</div>`
+            ? `<div style="display:flex;align-items:flex-end;gap:6px;height:130px;padding-bottom:26px;overflow-x:auto">${perYearBars}</div>`
             : `<div style="font-size:12px;color:var(--ink4)">Aucune date renseignée</div>`
           }
         </div>
@@ -283,13 +290,13 @@ function _statsViewHtml(trips) {
         <div style="background:var(--c2);border-radius:12px;padding:16px">
           <h4 style="font-size:13px;font-weight:700;color:var(--ink3);margin-bottom:12px">🛣️ Distances par mode (estimation)</h4>
           ${kmRows || '<div style="font-size:12px;color:var(--ink4)">Aucune donnée</div>'}
-          <div style="font-size:10px;color:var(--ink4);margin-top:8px">Total : ${Math.round(totalKm).toLocaleString('fr-FR')} km · distances à vol d'oiseau</div>
+          <div style="font-size:10px;color:var(--ink4);margin-top:8px">Total : ${Math.round(totalKm).toLocaleString('fr-FR')} km · coeff. routier appliqué</div>
         </div>` : ''}
 
         ${spendMonths.length > 0 ? `
         <div style="background:var(--c2);border-radius:12px;padding:16px">
           <h4 style="font-size:13px;font-weight:700;color:var(--ink3);margin-bottom:12px">💶 Dépenses par mois</h4>
-          <div style="display:flex;align-items:flex-end;gap:4px;height:80px;padding-bottom:20px;overflow-x:auto">${spendBars}</div>
+          <div style="display:flex;align-items:flex-end;gap:4px;height:100px;padding-bottom:22px;overflow-x:auto">${spendBars}</div>
           <div style="font-size:10px;color:var(--ink4);margin-top:4px">Total dépensé : ${Math.round(s.totalSpent).toLocaleString('fr-FR')} €</div>
         </div>` : ''}
       </div>
