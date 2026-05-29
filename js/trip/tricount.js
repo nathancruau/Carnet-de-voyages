@@ -42,6 +42,13 @@ function computeBalances(trip) {
   participants.forEach(p => { balances[p.id] = 0; });
 
   for (const exp of (trip.realExpenses || [])) {
+    // Transfer: fromId pays toId → fromId's balance increases, toId's decreases
+    if (exp.type === 'transfer') {
+      if (balances[exp.fromId] !== undefined) balances[exp.fromId] += Number(exp.amount) || 0;
+      if (balances[exp.toId]   !== undefined) balances[exp.toId]   -= Number(exp.amount) || 0;
+      continue;
+    }
+
     const splitCount = (exp.sharedWith || []).length;
     if (splitCount === 0) continue;
 
@@ -161,9 +168,12 @@ function _renderSide(trip, participants, balances) {
   }
 
   html += `
-    <div style="padding:8px 4px;margin-top:4px">
+    <div style="padding:8px 4px;margin-top:4px;display:flex;flex-direction:column;gap:5px">
       <button class="btn-new" style="width:100%;justify-content:center;font-size:11px" data-action="add-expense">
         &#xFE0F; Ajouter une d&eacute;pense
+      </button>
+      <button class="btn-new" style="width:100%;justify-content:center;font-size:11px;background:var(--c2);color:var(--ink3);border-color:var(--c3)" data-action="add-transfer">
+        💸 Virement / remboursement
       </button>
     </div>`;
 
@@ -228,6 +238,38 @@ function _renderDepenses(trip, participants) {
 
   let rows = '';
   for (const exp of [...expenses].reverse()) {
+    // Transfer row
+    if (exp.type === 'transfer') {
+      const fromP = participants.find(p => p.id === exp.fromId);
+      const toP   = participants.find(p => p.id === exp.toId);
+      rows += `
+        <tr style="background:var(--c2)">
+          <td>
+            <div style="display:flex;align-items:center;gap:5px">
+              <span style="font-size:14px">💸</span>
+              <div>
+                <div style="font-weight:600;color:var(--ink)">Virement</div>
+                ${exp.note ? `<div style="font-size:10px;color:var(--ink4)">${_esc(exp.note)}</div>` : ''}
+              </div>
+            </div>
+          </td>
+          <td style="font-weight:700">${_fmtEur(exp.amount)}</td>
+          <td colspan="2">
+            <span class="payer-chip" style="background:${_esc(fromP?.color || '#888')}">${_esc(fromP?.name || exp.fromId)}</span>
+            <span style="font-size:11px;color:var(--ink4);margin:0 3px">→</span>
+            <span class="payer-chip" style="background:${_esc(toP?.color || '#888')}">${_esc(toP?.name || exp.toId)}</span>
+          </td>
+          <td></td>
+          <td style="font-size:10px;color:var(--ink4);white-space:nowrap">${exp.date ? fmtDateShort(exp.date) : ''}</td>
+          <td>
+            <div style="display:flex;gap:4px">
+              <button class="tc-edit-btn" data-action="delete-expense" data-exp-id="${_esc(exp.id)}" title="Supprimer" style="color:var(--coral)">&#x1F5D1;</button>
+            </div>
+          </td>
+        </tr>`;
+      continue;
+    }
+
     const payer = participants.find(p => p.id === exp.paidById);
     const cat   = cats.find(c => c.id === exp.catId);
     const day   = days.find(d => d.id === exp.dayId);
@@ -594,6 +636,9 @@ function _handleClick(e, tripId) {
   if (action === 'add-expense') {
     _openExpenseModal(tripId, null);
 
+  } else if (action === 'add-transfer') {
+    _openTransferModal(tripId);
+
   } else if (action === 'edit-expense') {
     _openExpenseModal(tripId, btn.dataset.expId);
 
@@ -877,4 +922,100 @@ function _openExpenseModal(tripId, expId) {
 
   showModal(buildHtml());
   attachEvents();
+}
+
+// ── Transfer Modal ────────────────────────────────────────────────────────────
+
+function _openTransferModal(tripId) {
+  const trip = getTrip(tripId);
+  if (!trip) return;
+
+  const participants = getParticipants(trip);
+  if (participants.length < 2) {
+    notify('Ajoutez au moins 2 participants pour enregistrer un virement', '⚠️');
+    return;
+  }
+
+  const today = new Date().toISOString().slice(0, 10);
+
+  const fromOpts = participants.map(p =>
+    `<option value="${_esc(p.id)}">${_esc(p.name)}</option>`
+  ).join('');
+
+  const toOpts = participants.map(p =>
+    `<option value="${_esc(p.id)}">${_esc(p.name)}</option>`
+  ).join('');
+
+  showModal(`
+    <button class="mc" onclick="closeModal()">✕</button>
+    <h3>💸 Virement / remboursement</h3>
+    <p style="font-size:12px;color:var(--ink4);margin-bottom:14px">
+      Enregistrez un remboursement direct entre participants. Cela ajuste les soldes.
+    </p>
+
+    <div class="fg">
+      <label>De (qui paie)</label>
+      <select id="tr-from">${fromOpts}</select>
+    </div>
+
+    <div class="fg">
+      <label>À (qui reçoit)</label>
+      <select id="tr-to">${toOpts}</select>
+    </div>
+
+    <div class="fg">
+      <label>Montant (€)</label>
+      <input type="number" id="tr-amount" min="0.01" step="0.01" placeholder="0">
+    </div>
+
+    <div class="fg">
+      <label>Date</label>
+      <input type="date" id="tr-date" value="${today}">
+    </div>
+
+    <div class="fg">
+      <label>Note (optionnel)</label>
+      <input type="text" id="tr-note" placeholder="Ex : remboursement dîner…">
+    </div>
+
+    <div class="ma">
+      <button class="bc" onclick="closeModal()">Annuler</button>
+      <button class="bs" id="tr-save">Enregistrer</button>
+    </div>`);
+
+  // Default to/from to be different
+  const toSel = document.getElementById('tr-to');
+  if (toSel && participants.length >= 2) {
+    toSel.selectedIndex = 1;
+  }
+
+  document.getElementById('tr-save')?.addEventListener('click', () => {
+    const fromId = document.getElementById('tr-from')?.value || '';
+    const toId   = document.getElementById('tr-to')?.value   || '';
+    const amount = parseFloat(document.getElementById('tr-amount')?.value || '0') || 0;
+    const date   = document.getElementById('tr-date')?.value  || today;
+    const note   = document.getElementById('tr-note')?.value?.trim() || '';
+
+    if (!fromId || !toId)  { notify('Sélectionnez les participants', '⚠️'); return; }
+    if (fromId === toId)   { notify('Le payeur et le destinataire doivent être différents', '⚠️'); return; }
+    if (amount <= 0)       { notify('Montant invalide', '⚠️'); return; }
+
+    const freshTrip = getTrip(tripId);
+    const newExp    = [...(freshTrip.realExpenses || [])];
+    newExp.push({
+      id:     'ex_' + uid(),
+      type:   'transfer',
+      fromId,
+      toId,
+      amount,
+      date,
+      note,
+    });
+
+    updateTrip(tripId, { realExpenses: newExp });
+    updateTopStats(tripId);
+    notify('Virement enregistré', '💸');
+    closeModal();
+    renderTricount(tripId);
+  });
 }

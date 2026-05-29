@@ -4,6 +4,7 @@
 
 import { getTrip, updateTrip, uid, getEventTypes, getLanguage } from '../store.js';
 import { notify, showModal, closeModal, fmtDate, fmtDateShort, isoToDate, dateToIso } from '../utils.js';
+import { updateTopStats } from './trip.js';
 
 // ── Event type emoji map ──────────────────────────────────────────────────────
 
@@ -49,9 +50,10 @@ const _handlers = new WeakMap();
 
 // ── Map state ─────────────────────────────────────────────────────────────────
 
-let _journalMap      = null;
-let _journalMarkers  = {};
-let _journalTripId   = null;
+let _journalMap          = null;
+let _journalMarkers      = {};
+let _journalRouteLayers  = [];
+let _journalTripId       = null;
 
 // ── Day filter state ──────────────────────────────────────────────────────────
 
@@ -62,8 +64,84 @@ export function destroyJournalMap() {
     try { _journalMap.remove(); } catch (_) { /* already removed */ }
     _journalMap = null;
   }
-  _journalMarkers = {};
-  _journalTripId  = null;
+  _journalMarkers     = {};
+  _journalRouteLayers = [];
+  _journalTripId      = null;
+}
+
+// ── Route helpers (mirrors mapcal logic) ──────────────────────────────────────
+
+function _jCollectWaypoints(trip) {
+  const wps = [];
+  for (const day of (trip.days || [])) {
+    const itemPins = (day.items || []).filter(it => it.lat != null && it.lng != null);
+    if (itemPins.length > 0) {
+      for (const item of itemPins) {
+        let mode = item.routeMode || 'car';
+        if (item.type === 'drive' && item.transport) mode = item.transport;
+        wps.push({ lat: item.lat, lng: item.lng, mode });
+      }
+    } else if (day.lat != null && day.lng != null) {
+      wps.push({ lat: day.lat, lng: day.lng, mode: day.routeMode || 'car' });
+    }
+  }
+  return wps;
+}
+
+function _jOsrmProfile(mode) {
+  return { car: 'driving', bus: 'driving', foot: 'foot', bike: 'cycling' }[mode] || 'driving';
+}
+
+function _jModeColor(mode) {
+  return { car: '#0284c7', foot: '#16a34a', bike: '#d97706', bus: '#7c3aed', plane: '#7c3aed', ferry: '#0d9488' }[mode] || '#9c9890';
+}
+
+async function _drawJournalRoutes(tripId) {
+  if (!_journalMap) return;
+  const trip = getTrip(tripId);
+  if (!trip) return;
+
+  _journalRouteLayers.forEach(l => { try { _journalMap.removeLayer(l); } catch (_) {} });
+  _journalRouteLayers = [];
+
+  const wps = _jCollectWaypoints(trip);
+  if (wps.length < 2) return;
+
+  for (let i = 0; i < wps.length - 1; i++) {
+    const from = wps[i];
+    const to   = wps[i + 1];
+    const mode = to.mode || 'car';
+    let line   = null;
+
+    if (mode === 'plane' || mode === 'ferry') {
+      line = L.polyline([[from.lat, from.lng], [to.lat, to.lng]], {
+        color: mode === 'plane' ? '#7c3aed' : '#0d9488', weight: 2, opacity: 0.6, dashArray: '6 6',
+      });
+    } else {
+      try {
+        const url = `https://router.project-osrm.org/route/v1/${_jOsrmProfile(mode)}/`
+          + `${from.lng},${from.lat};${to.lng},${to.lat}?overview=full&geometries=geojson`;
+        const resp   = await fetch(url);
+        const data   = await resp.json();
+        const coords = data.routes?.[0]?.geometry?.coordinates;
+        if (coords && coords.length) {
+          line = L.polyline(coords.map(([lng, lat]) => [lat, lng]), {
+            color: _jModeColor(mode), weight: 3, opacity: 0.7,
+          });
+        }
+      } catch (_) {}
+      if (!line) {
+        line = L.polyline([[from.lat, from.lng], [to.lat, to.lng]], {
+          color: '#9c9890', weight: 2, opacity: 0.4, dashArray: '4 4',
+        });
+      }
+    }
+
+    if (line) {
+      line.addTo(_journalMap);
+      _journalRouteLayers.push(line);
+    }
+  }
 }
 
 // ── Render ────────────────────────────────────────────────────────────────────
@@ -283,6 +361,7 @@ function _initJournalMap(tripId) {
 
     _journalMap.invalidateSize();
     _refreshJournalPins(tripId);
+    _drawJournalRoutes(tripId);
   });
 }
 
@@ -621,6 +700,7 @@ function _openValidateModal(tripId, dayId, itemIdx) {
       else expenses.push(newExp);
 
       updateTrip(tripId, { realExpenses: expenses });
+      updateTopStats(tripId);
       notify('Activité validée · dépense créée', '✓');
     } else {
       notify('Activité validée', '✓');

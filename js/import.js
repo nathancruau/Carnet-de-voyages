@@ -194,12 +194,34 @@ export function importPlacemarks(placemarks, defaultType = 'voyage') {
 
 /**
  * Handle a file input change event — reads the file and imports it.
+ * Supports .json (full trip export), .kml, .csv
  * @param {File} file
- * @param {string} type — 'voyage' | 'weekend' | 'sortie'
+ * @param {string} type — 'voyage' | 'weekend' | 'sortie' (for KML/CSV)
  * @param {Function} onDone — called when import is complete
  */
 export async function importFile(file, type, onDone) {
   if (!file) return;
+
+  // JSON full-trip import
+  if (file.name.toLowerCase().endsWith('.json')) {
+    try {
+      const text = await file.text();
+      const data = JSON.parse(text);
+      const trips = Array.isArray(data) ? data : [data];
+      let count = 0;
+      for (const tripData of trips) {
+        if (tripData && typeof tripData === 'object' && tripData.name) {
+          addTrip(tripData); // createTrip() inside will assign fresh id/createdAt
+          count++;
+        }
+      }
+      notify(`${count} voyage(s) importé(s)`, '✅');
+      if (onDone) onDone(count);
+    } catch (err) {
+      notify(`Erreur JSON : ${err.message}`, '⚠');
+    }
+    return;
+  }
 
   const text = await file.text();
   let placemarks = [];
@@ -210,7 +232,7 @@ export async function importFile(file, type, onDone) {
     } else if (file.name.toLowerCase().endsWith('.csv')) {
       placemarks = parseCSV(text);
     } else {
-      notify('Format non supporté. Utilisez .kml ou .csv', '⚠');
+      notify('Format non supporté. Utilisez .json, .kml ou .csv', '⚠');
       return;
     }
   } catch (err) {

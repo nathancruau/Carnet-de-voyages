@@ -103,7 +103,7 @@ function _popupHtml(trip, entry) {
   const entryTitle = entry.title || 'Sans titre';
   const entryDate  = entry.date ? `<span style="color:var(--ink4)">${fmtDate(entry.date)}</span>` : '';
 
-  const contentSnippet = entry.content ? entry.content.slice(0, 100) : '';
+  const contentSnippet = (entry.content || '').slice(0, 100);
   const contentHtml = contentSnippet
     ? `<div style="font-size:10px;color:var(--ink3);margin:4px 0 5px;white-space:pre-wrap;overflow:hidden">${contentSnippet}${entry.content.length > 100 ? '…' : ''}</div>`
     : '';
@@ -115,12 +115,17 @@ function _popupHtml(trip, entry) {
        </div>`
     : '';
 
+  const validatedBadge = entry._validated
+    ? `<div style="font-size:9px;font-weight:700;color:#16a34a;margin-bottom:4px">✓ Validé</div>`
+    : '';
+
   return `
     <div style="padding:10px 12px;min-width:185px;max-width:230px;font-family:'Nunito',sans-serif">
       ${photoHtml}
       <div class="mymap-popup-title">${trip.flag || '🌍'} ${trip.name || 'Sans titre'}</div>
       <div style="font-size:11px;font-weight:600;color:var(--ink2);margin-bottom:2px">${entryTitle}</div>
       ${entryDate ? `<div class="mymap-popup-meta">${entryDate}</div>` : ''}
+      ${validatedBadge}
       ${contentHtml}
       ${tagsHtml}
       <button class="mymap-popup-btn"
@@ -134,12 +139,34 @@ function _popupHtml(trip, entry) {
 function _buildAllPins() {
   _allPins = [];
   for (const trip of getTrips()) {
-    const entries = Array.isArray(trip.journalEntries) ? trip.journalEntries : [];
-    for (const entry of entries) {
+    // Planning item pins (source of truth for journal/carnet)
+    for (const day of (trip.days || [])) {
+      for (const item of (day.items || [])) {
+        const lat = parseFloat(item.lat);
+        const lng = parseFloat(item.lng);
+        if (!isNaN(lat) && !isNaN(lng)) {
+          const jd = item.journalData || {};
+          const entry = {
+            id:       item.id,
+            title:    item.text  || '—',
+            date:     day.date   || null,
+            pinType:  item.type  || null,
+            lat, lng,
+            photos:   (jd.photos || []).map(p => ({ url: p })),
+            content:  jd.notes   || '',
+            tags:     [],
+            _validated: !!jd.validated,
+          };
+          _allPins.push({ trip, entry, lat, lng });
+        }
+      }
+    }
+    // Legacy journal entries (backward compat)
+    for (const entry of (trip.journalEntries || [])) {
       const lat = parseFloat(entry.lat);
       const lng = parseFloat(entry.lng);
       if (!isNaN(lat) && !isNaN(lng)) {
-        _allPins.push({ trip, entry, lat, lng });
+        _allPins.push({ trip, entry: { ...entry, lat, lng }, lat, lng });
       }
     }
   }
