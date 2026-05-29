@@ -5,8 +5,9 @@
 import {
   getTrips, addTrip, updateTrip, deleteTrip,
   TRIP_TYPES, COMP_COLORS, uid,
-  getSettings, updateSettings, getPinTypes, DEFAULT_PIN_TYPES,
+  getSettings, updateSettings,
   getEventTypes, DEFAULT_EVENT_TYPES,
+  getLanguage,
 } from './store.js';
 import {
   notify, showModal, closeModal,
@@ -448,21 +449,7 @@ function _downloadCsv(csvContent, filename) {
 // ── Settings Modal ─────────────────────────────────────────────────────────────
 
 function _openSettingsModal() {
-  const pinTypes   = getPinTypes();
   const eventTypes = getEventTypes();
-
-  // ── PIN type rows ──────────────────────────────────────────────────────────
-
-  function _ptRowHtml(pt, i) {
-    return `
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px" data-pt-row="${i}">
-        <input type="text" data-pt-emoji="${i}" value="${_esc(pt.emoji)}"
-          style="width:48px;text-align:center;font-size:18px;padding:4px;border:1.5px solid var(--c3);border-radius:7px;background:var(--bg)">
-        <input type="text" data-pt-label="${i}" value="${_esc(pt.label)}" placeholder="Nom du type"
-          style="flex:1;padding:5px 8px;border:1.5px solid var(--c3);border-radius:7px;font-size:12px;background:var(--bg)">
-        <button type="button" data-pt-del="${i}" style="background:var(--crl,#fee2e2);color:var(--coral,#e85d3e);border:none;border-radius:6px;padding:4px 8px;font-size:12px;cursor:pointer">✕</button>
-      </div>`;
-  }
 
   // ── Event type rows ────────────────────────────────────────────────────────
 
@@ -480,26 +467,31 @@ function _openSettingsModal() {
       </div>`;
   }
 
-  function buildHtml(curPinTypes, curEventTypes) {
+  function buildHtml(curEventTypes, curLang) {
     return `
       <button class="mc" onclick="closeModal()">✕</button>
       <h3 style="font-family:'Lora',serif;font-size:17px;font-weight:700;margin-bottom:4px">⚙️ Paramètres</h3>
 
       <div class="fg" style="margin-top:14px">
-        <label style="font-size:12px;font-weight:700;color:var(--ink2)">Types de PIN (carnet & MyMap)</label>
-        <div style="font-size:11px;color:var(--ink4);margin-bottom:8px">Icônes disponibles pour les entrées de journal.</div>
-        <div id="pt-rows">${curPinTypes.map(_ptRowHtml).join('')}</div>
-        <button type="button" id="pt-add"
-          style="margin-top:6px;background:var(--c2);border:1.5px solid var(--c3);border-radius:7px;padding:5px 12px;font-size:12px;font-weight:700;cursor:pointer;color:var(--ink3)">
-          ＋ Ajouter un type
-        </button>
+        <label style="font-size:12px;font-weight:700;color:var(--ink2)">Langue / Language</label>
+        <div style="display:flex;gap:16px;margin-top:6px">
+          <label style="display:flex;align-items:center;gap:7px;cursor:pointer;font-size:13px">
+            <input type="radio" name="lang-sel" value="fr" ${curLang === 'fr' ? 'checked' : ''}>
+            🇫🇷 Français
+          </label>
+          <label style="display:flex;align-items:center;gap:7px;cursor:pointer;font-size:13px">
+            <input type="radio" name="lang-sel" value="en" ${curLang === 'en' ? 'checked' : ''}>
+            🇬🇧 English
+          </label>
+        </div>
+        <div style="font-size:10px;color:var(--ink4);margin-top:5px">Affecte la carte, la recherche et les étiquettes.</div>
       </div>
 
       <hr style="border:none;border-top:1px solid var(--c3);margin:16px 0">
 
       <div class="fg">
-        <label style="font-size:12px;font-weight:700;color:var(--ink2)">Types d'événements (planning)</label>
-        <div style="font-size:11px;color:var(--ink4);margin-bottom:8px">Types disponibles pour les événements dans le planning.</div>
+        <label style="font-size:12px;font-weight:700;color:var(--ink2)">Types d'activités (planning &amp; carnet)</label>
+        <div style="font-size:11px;color:var(--ink4);margin-bottom:8px">Types disponibles pour les événements du planning.</div>
         <div id="et-rows">${curEventTypes.map(_etRowHtml).join('')}</div>
         <button type="button" id="et-add"
           style="margin-top:6px;background:var(--c2);border:1.5px solid var(--c3);border-radius:7px;padding:5px 12px;font-size:12px;font-weight:700;cursor:pointer;color:var(--ink3)">
@@ -529,22 +521,9 @@ function _openSettingsModal() {
       </div>`;
   }
 
-  showModal(buildHtml(pinTypes, eventTypes));
+  showModal(buildHtml(eventTypes, getLanguage()));
 
   // ── Collect helpers ──────────────────────────────────────────────────────────
-
-  function collectPinTypes() {
-    const result = [];
-    document.querySelectorAll('[data-pt-row]').forEach((_, i) => {
-      const emoji = document.querySelector(`[data-pt-emoji="${i}"]`)?.value?.trim() || '';
-      const label = document.querySelector(`[data-pt-label="${i}"]`)?.value?.trim() || '';
-      if (emoji && label) {
-        const key = label.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
-        result.push({ key: key || 'pin_' + i, emoji, label });
-      }
-    });
-    return result;
-  }
 
   function collectEventTypes() {
     const result = [];
@@ -560,30 +539,6 @@ function _openSettingsModal() {
     });
     return result;
   }
-
-  // ── PIN type add/delete ──────────────────────────────────────────────────────
-
-  function reRenderPtRows(types) {
-    const el = document.getElementById('pt-rows');
-    if (el) { el.innerHTML = types.map(_ptRowHtml).join(''); attachPtDelete(); }
-  }
-
-  function attachPtDelete() {
-    document.getElementById('pt-rows')?.addEventListener('click', e => {
-      const btn = e.target.closest('[data-pt-del]');
-      if (!btn) return;
-      const types = collectPinTypes();
-      types.splice(parseInt(btn.dataset.ptDel, 10), 1);
-      reRenderPtRows(types);
-    });
-  }
-  attachPtDelete();
-
-  document.getElementById('pt-add')?.addEventListener('click', () => {
-    const types = collectPinTypes();
-    types.push({ key: 'new_' + uid(), emoji: '📌', label: 'Nouveau type' });
-    reRenderPtRows(types);
-  });
 
   // ── Event type add/delete ────────────────────────────────────────────────────
 
@@ -619,11 +574,11 @@ function _openSettingsModal() {
   });
 
   document.getElementById('settings-save')?.addEventListener('click', () => {
-    const newPinTypes   = collectPinTypes();
     const newEventTypes = collectEventTypes();
+    const lang = document.querySelector('input[name="lang-sel"]:checked')?.value || 'fr';
     updateSettings({
-      pinTypes:   newPinTypes.length   > 0 ? newPinTypes   : DEFAULT_PIN_TYPES,
       eventTypes: newEventTypes.length > 0 ? newEventTypes : DEFAULT_EVENT_TYPES,
+      lang,
     });
     notify('Paramètres enregistrés', '✅');
     closeModal();

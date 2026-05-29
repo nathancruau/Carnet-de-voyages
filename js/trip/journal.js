@@ -2,14 +2,14 @@
    CARNET DE VOYAGES — Journal Module
    ============================================================ */
 
-import { getTrip, updateTrip, uid, getPinTypes } from '../store.js';
+import { getTrip, updateTrip, uid, getEventTypes, getLanguage } from '../store.js';
 import { notify, showModal, closeModal, fmtDate, fmtDateShort, isoToDate, dateToIso } from '../utils.js';
 
-// ── PIN type definitions (dynamic from settings) ──────────────────────────────
+// ── Event type emoji map ──────────────────────────────────────────────────────
 
-function _pinTypeMap() {
+function _etMap() {
   const map = {};
-  for (const pt of getPinTypes()) map[pt.key] = pt.emoji;
+  for (const et of getEventTypes()) map[et.key] = et.emoji;
   return map;
 }
 
@@ -56,7 +56,6 @@ let _journalTripId   = null;
 // ── Day filter state ──────────────────────────────────────────────────────────
 
 let _activeDayFilter = null;
-let _journalSubTab   = 'recit'; // 'recit' | 'activites'
 
 export function destroyJournalMap() {
   if (_journalMap) {
@@ -78,58 +77,24 @@ export function renderJournal(tripId) {
 
   _journalTripId = tripId;
 
-  // Remove previous listener before re-rendering
   if (_handlers.has(panel)) {
     panel.removeEventListener('click', _handlers.get(panel));
     _handlers.delete(panel);
   }
 
-  const allEntries = [...(trip.journalEntries || [])].sort((a, b) => {
-    return (b.date || '').localeCompare(a.date || '');
-  });
-
-  function _subTabStyle(tab) {
-    const active = _journalSubTab === tab;
-    return `padding:5px 10px;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer;` +
-      `background:${active ? '#fff' : 'transparent'};` +
-      `color:${active ? 'var(--teal)' : 'var(--ink3)'};` +
-      `box-shadow:${active ? 'var(--sh)' : 'none'};border:none;transition:all .15s`;
-  }
-
-  const subTabsHtml = `
-    <div style="padding:0 10px 8px;flex-shrink:0">
-      <div style="display:flex;gap:3px;background:var(--c2);border-radius:8px;padding:3px;border:1px solid var(--c3)">
-        <button data-action="jn-tab" data-tab="recit" style="${_subTabStyle('recit')}">📔 Récit</button>
-        <button data-action="jn-tab" data-tab="activites" style="${_subTabStyle('activites')}">📅 Activités</button>
-      </div>
-    </div>`;
-
-  const leftContent = _journalSubTab === 'recit' ? `
-    <div style="flex-shrink:0;padding:0 8px 6px;border-bottom:1px solid var(--c3)">
-      ${_buildDayChipsHtml(trip)}
-    </div>
-    <div class="days-scroll" id="journal-entries-list" style="flex:1;overflow-y:auto;padding:6px 8px">
-      ${_buildEntriesListHtml(trip, allEntries)}
-    </div>
-  ` : `
-    <div class="days-scroll" id="journal-activities-list" style="flex:1;overflow-y:auto;padding:6px 8px">
-      ${_buildActivitiesHtml(trip)}
-    </div>
-  `;
-
   panel.innerHTML = `
     <div class="mapcal">
       <div class="left-panel" style="width:290px;min-width:240px;max-width:290px;display:flex;flex-direction:column">
-        <div style="padding:12px 14px 8px;flex-shrink:0;display:flex;align-items:center;justify-content:space-between;gap:8px">
-          <h3 style="font-family:var(--sf);font-size:15px;font-weight:700;color:var(--ink);margin:0">📔 Journal</h3>
-          ${_journalSubTab === 'recit' ? `<button class="btn-new" data-action="add-entry" style="font-size:11px;padding:5px 10px;white-space:nowrap">＋ Nouvelle</button>` : ''}
+        <div style="padding:12px 14px 6px;flex-shrink:0">
+          <h3 style="font-family:var(--sf);font-size:15px;font-weight:700;color:var(--ink);margin:0">📔 Carnet</h3>
+          <p style="font-size:11px;color:var(--ink4);margin-top:2px">Validez vos activités · les PIN apparaissent sur la carte</p>
         </div>
-        ${subTabsHtml}
-        ${leftContent}
+        <div class="days-scroll" id="journal-activities-list" style="flex:1;overflow-y:auto;padding:6px 8px">
+          ${_buildActivitiesHtml(trip)}
+        </div>
       </div>
       <div class="map-col" style="flex:1;position:relative">
         <div id="journal-map" style="width:100%;height:100%"></div>
-        ${allEntries.length === 0 ? `<div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center;color:var(--ink4);pointer-events:none"><div style="font-size:36px;margin-bottom:8px">🗺️</div><div style="font-size:13px;font-weight:600">Ajoutez des entrées avec une localisation<br>pour les voir sur la carte</div></div>` : ''}
       </div>
     </div>`;
 
@@ -220,7 +185,7 @@ function _entryCard(trip, e) {
   const dayLabel  = e.dayId ? _dayLabel(trip, e.dayId) : null;
 
   let metaPills = `<span class="jn-meta-pill">${_esc(dateLabel)}</span>`;
-  if (e.pinType && _pinTypeMap()[e.pinType]) metaPills += `<span class="jn-meta-pill" title="${_esc(e.pinType)}">${_pinTypeMap()[e.pinType]}</span>`;
+  if (e.pinType && _etMap()[e.pinType]) metaPills += `<span class="jn-meta-pill" title="${_esc(e.pinType)}">${_etMap()[e.pinType]}</span>`;
   if (e.weather) metaPills += `<span class="jn-meta-pill">${_esc(e.weather)}</span>`;
   if (e.mood)    metaPills += `<span class="jn-meta-pill">${_esc(e.mood)}</span>`;
   if (e.rating)  metaPills += `<span class="jn-meta-pill">${_starsHtml(e.rating)}</span>`;
@@ -289,17 +254,29 @@ function _initJournalMap(tripId) {
     if (!el) return;
 
     const trip = getTrip(tripId);
-    // Default center
     let center = [46.5, 2.5];
     let zoom   = 5;
     if (trip) {
-      const entry = (trip.journalEntries || []).find(e => e.lat != null && e.lng != null);
-      if (entry) { center = [entry.lat, entry.lng]; zoom = 7; }
+      // Try to center on first planning item pin
+      outer: for (const day of (trip.days || [])) {
+        for (const item of (day.items || [])) {
+          if (item.lat != null && item.lng != null) {
+            center = [item.lat, item.lng]; zoom = 7; break outer;
+          }
+        }
+        if (day.lat != null && day.lng != null) {
+          center = [day.lat, day.lng]; zoom = 7; break;
+        }
+      }
     }
 
     _journalMap = L.map('journal-map', { center, zoom, zoomControl: true });
 
-    L.tileLayer('https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png', {
+    const lang = getLanguage();
+    const tileUrl = lang === 'en'
+      ? 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png'
+      : 'https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png';
+    L.tileLayer(tileUrl, {
       attribution: '© OpenStreetMap contributors',
       maxZoom: 18,
     }).addTo(_journalMap);
@@ -314,50 +291,51 @@ function _refreshJournalPins(tripId) {
   const trip = getTrip(tripId);
   if (!trip) return;
 
-  // Remove existing markers
   Object.values(_journalMarkers).forEach(m => { try { _journalMap.removeLayer(m); } catch (_) {} });
   _journalMarkers = {};
 
-  const entries = (trip.journalEntries || []).filter(e => e.lat != null && e.lng != null);
+  const etMap = _etMap();
+  const allPinLatLngs = [];
 
-  entries.forEach(entry => {
-    const emoji = (entry.pinType && _pinTypeMap()[entry.pinType]) ? _pinTypeMap()[entry.pinType] : '📍';
-    const icon = L.divIcon({
-      className: '',
-      html: `<div style="background:#0891b2;border:2px solid #fff;border-radius:50%;width:30px;height:30px;display:flex;align-items:center;justify-content:center;font-size:17px;box-shadow:0 1px 6px rgba(0,0,0,.4)"><span style="filter:grayscale(1) brightness(2)">${emoji}</span></div>`,
-      iconSize:   [30, 30],
-      iconAnchor: [15, 15],
-      popupAnchor:[0, -18],
-    });
+  for (const day of (trip.days || [])) {
+    for (const item of (day.items || [])) {
+      if (item.lat == null || item.lng == null) continue;
 
-    const marker = L.marker([entry.lat, entry.lng], { icon });
+      const jd        = item.journalData;
+      const validated = jd?.validated;
+      const emoji     = etMap[item.type] || '📍';
+      const bgColor   = validated ? '#16a34a' : '#0891b2';
 
-    const contentSnippet = entry.content
-      ? entry.content.slice(0, 80) + (entry.content.length > 80 ? '…' : '')
-      : '';
+      const icon = L.divIcon({
+        className: '',
+        html: `<div style="background:${bgColor};border:2px solid #fff;border-radius:50%;width:30px;height:30px;display:flex;align-items:center;justify-content:center;font-size:16px;box-shadow:0 1px 6px rgba(0,0,0,.4)">${emoji}</div>`,
+        iconSize:   [30, 30],
+        iconAnchor: [15, 15],
+        popupAnchor:[0, -18],
+      });
 
-    marker.bindPopup(`
-      <div style="padding:4px 2px;min-width:130px">
-        <div style="font-weight:700;font-size:12px;margin-bottom:2px">${_esc(entry.title || 'Sans titre')}</div>
-        ${entry.date ? `<div style="font-size:11px;color:#6b7280">${_esc(fmtDate(entry.date))}</div>` : ''}
-        ${contentSnippet ? `<div style="font-size:11px;margin-top:4px;color:#374151">${_esc(contentSnippet)}</div>` : ''}
-      </div>
-    `, { maxWidth: 200 });
+      const marker = L.marker([item.lat, item.lng], { icon });
+      const dayLabel = `Jour ${day.num}${day.title ? ' · ' + day.title : ''}`;
 
-    marker.on('click', () => {
-      _highlightEntry(entry.id);
-    });
+      marker.bindPopup(`
+        <div style="padding:4px 2px;min-width:130px">
+          <div style="font-weight:700;font-size:12px;margin-bottom:2px">${_esc(item.text || '—')}</div>
+          <div style="font-size:11px;color:#6b7280">${_esc(dayLabel)}</div>
+          ${item.time ? `<div style="font-size:11px;color:#6b7280">🕐 ${_esc(item.time)}</div>` : ''}
+          ${validated ? `<div style="font-size:11px;color:#16a34a;margin-top:3px;font-weight:700">✓ Validé${jd.weather ? ' ' + jd.weather : ''}</div>` : ''}
+        </div>
+      `, { maxWidth: 200 });
 
-    marker.addTo(_journalMap);
-    _journalMarkers[entry.id] = marker;
-  });
+      marker.addTo(_journalMap);
+      _journalMarkers[item.id] = marker;
+      allPinLatLngs.push([item.lat, item.lng]);
+    }
+  }
 
-  // Fit bounds
-  if (entries.length === 1) {
-    _journalMap.setView([entries[0].lat, entries[0].lng], 10, { animate: true });
-  } else if (entries.length > 1) {
-    const bounds = entries.map(e => [e.lat, e.lng]);
-    _journalMap.fitBounds(bounds, { padding: [40, 40], maxZoom: 12 });
+  if (allPinLatLngs.length === 1) {
+    _journalMap.setView(allPinLatLngs[0], 10, { animate: true });
+  } else if (allPinLatLngs.length > 1) {
+    _journalMap.fitBounds(allPinLatLngs, { padding: [40, 40], maxZoom: 12 });
   }
 }
 
@@ -389,46 +367,17 @@ function _handleClick(e, tripId) {
 
   const action = btn.dataset.action;
 
-  if (action === 'jn-tab') {
-    _journalSubTab = btn.dataset.tab || 'recit';
-    renderJournal(tripId);
-  } else if (action === 'validate-item') {
+  if (action === 'validate-item') {
     _openValidateModal(tripId, btn.dataset.dayId, parseInt(btn.dataset.itemIdx, 10));
-  } else if (action === 'add-entry') {
-    _openEntryModal(tripId, null);
-  } else if (action === 'edit-entry') {
-    _openEntryModal(tripId, btn.dataset.entryId);
-  } else if (action === 'delete-entry') {
-    const entryId = btn.dataset.entryId;
-    if (confirm('Supprimer cette entrée de journal ?')) {
-      const trip = getTrip(tripId);
-      updateTrip(tripId, {
-        journalEntries: (trip.journalEntries || []).filter(en => en.id !== entryId)
-      });
-      notify('Entrée supprimée', '🗑');
-      renderJournal(tripId);
-    }
-  } else if (action === 'filter-day') {
-    const dayId = btn.dataset.dayId || null;
-    _activeDayFilter = dayId || null;
-    // Re-render just the chips and entries list
-    const trip = getTrip(tripId);
-    if (!trip) return;
-    const allEntries = [...(trip.journalEntries || [])].sort((a, b) =>
-      (b.date || '').localeCompare(a.date || '')
-    );
-    const chipsWrap = btn.closest('[style*="border-bottom"]') || btn.parentElement?.parentElement;
-    if (chipsWrap) {
-      chipsWrap.innerHTML = _buildDayChipsHtml(trip);
-    }
-    const listEl = document.getElementById('journal-entries-list');
-    if (listEl) listEl.innerHTML = _buildEntriesListHtml(trip, allEntries);
   }
 }
 
 // ── Activities sub-tab ────────────────────────────────────────────────────────
 
 function _eventTypeIcon(type) {
+  const et = getEventTypes().find(e => e.key === type);
+  if (et) return et.emoji;
+  // Fallback built-in map
   const m = { visit: '🏛️', activity: '🎯', sleep: '🏨', drive: '🚗', food: '🍽️', shop: '🛍️' };
   return m[type] || '📍';
 }
@@ -747,7 +696,7 @@ function _openEntryModal(tripId, entryId) {
   function pinTypeButtons() {
     const btns = [
       { val: null, emoji: '—', label: 'Aucun' },
-      ...getPinTypes().map(pt => ({ val: pt.key, emoji: pt.emoji, label: pt.label })),
+      ...getEventTypes().map(pt => ({ val: pt.key, emoji: pt.emoji, label: pt.label })),
     ];
     return btns.map(({ val, emoji, label }) => {
       const sel = state.pinType === val;

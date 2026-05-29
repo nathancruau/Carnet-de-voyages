@@ -6,7 +6,7 @@
  *   destroyMap()          — destroy the Leaflet instance (called on tab leave)
  */
 
-import { getTrip, updateTrip, saveData, uid, getEventTypes } from '../store.js';
+import { getTrip, updateTrip, saveData, uid, getEventTypes, getLanguage } from '../store.js';
 import {
   notify, showModal, closeModal,
   fmtDate, fmtDateShort,
@@ -26,8 +26,9 @@ let _markers      = {};            // dayId → L.Marker
 let _routeLayers  = [];            // polylines / dashed lines on map
 let _routeLoading = false;
 let _pendingMapClick = null;       // callback when user clicks map to pick coords
-let _tempSearchPin = null;         // temporary search result pin
-let _dragEvt      = null;          // { dayId, idx } being dragged
+let _tempSearchPin    = null;       // temporary search result pin
+let _dragEvt          = null;      // { dayId, idx } being dragged
+let _pendingModeChange = null;     // callback for route-mode popup
 
 // ─── Public API ───────────────────────────────────────────────────────────────
 
@@ -146,7 +147,11 @@ function _initMap(tripId) {
 
     _map = L.map('map', { center, zoom, zoomControl: true });
 
-    L.tileLayer('https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png', {
+    const _lang = getLanguage();
+    const _tileUrl = _lang === 'en'
+      ? 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png'
+      : 'https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png';
+    L.tileLayer(_tileUrl, {
       attribution: '© OpenStreetMap contributors',
       maxZoom: 18,
     }).addTo(_map);
@@ -223,8 +228,8 @@ function _refreshMapPins(tripId) {
     }
   }
 
-  // Draw routes
-  if (days.length > 1) {
+  // Draw routes through all georeferenced waypoints
+  if (_collectAllWaypoints(trip).length > 1) {
     _drawRoutes(trip, days);
   }
 
@@ -271,63 +276,132 @@ function _dayPopupHtml(day) {
   `;
 }
 
-async function _drawRoutes(trip, days) {
+// Collect ALL georeferenced waypoints from items + fallback to day pins
+function _collectAllWaypoints(trip) {
+  const wps = [];
+  for (const day of (trip.days || [])) {
+    const itemPins = (day.items || []).filter(it => it.lat != null && it.lng != null);
+    if (itemPins.length > 0) {
+      for (const item of itemPins) {
+        let mode = item.routeMode || 'car';
+        if (item.type === 'drive' && item.transport) mode = item.transport;
+        wps.push({ dayId: day.id, itemId: item.id, lat: item.lat, lng: item.lng, mode, label: item.text });
+      }
+    } else if (day.lat != null && day.lng != null) {
+      wps.push({ dayId: day.id, itemId: null, lat: day.lat, lng: day.lng, mode: day.routeMode || 'car', label: `Jour ${day.num}` });
+    }
+  }
+  return wps;
+}
+
+// Make a polyline segment clickable for transport mode selection
+function _bindRouteModeClick(polyline, toWp) {
+  const MODES = [
+    { key: 'car',   emoji: '🚗', label: 'Voiture' },
+    { key: 'bus',   emoji: '🚌', label: 'Bus/Taxi' },
+    { key: 'bike',  emoji: '🚲', label: 'Vélo' },
+    { key: 'foot',  emoji: '🚶', label: 'À pied' },
+    { key: 'plane', emoji: '✈️', label: 'Avion' },
+    { key: 'ferry', emoji: '⛴️', label: 'Bateau' },
+  ];
+
+  polyline.on('click', e => {
+    const cur = toWp.mode || 'car';
+    const btns = MODES.map(m =>
+      `<button onclick="window._mapcalPickMode('${m.key}')" title="${m.label}"
+        style="padding:5px 9px;border-radius:6px;font-size:14px;cursor:pointer;
+        background:${cur === m.key ? '#0d9488' : '#f5f5f5'};
+        color:${cur === m.key ? '#fff' : '#333'};
+        border:1.5px solid ${cur === m.key ? '#0d9488' : '#ddd'}">${m.emoji}</button>`
+    ).join('');
+
+    _pendingModeChange = (newMode) => {
+      const trip = getTrip(_tripId);
+      if (!trip) return;
+      if (toWp.itemId) {
+        const day  = (trip.days || []).find(d => d.id === toWp.dayId);
+        const item = (day?.items || []).find(it => it.id === toWp.itemId);
+        if (item) { item.routeMode = newMode; toWp.mode = newMode; }
+      } else {
+        const day = (trip.days || []).find(d => d.id === toWp.dayId);
+        if (day) { day.routeMode = newMode; toWp.mode = newMode; }
+      }
+      updateTrip(_tripId, { days: trip.days });
+      _map?.closePopup();
+      // Redraw routes
+      _routeLayers.forEach(l => { try { _map.removeLayer(l); } catch (_) {} });
+      _routeLayers = [];
+      const freshTrip = getTrip(_tripId);
+      if (freshTrip) _drawRoutes(freshTrip, []);
+    };
+
+    L.popup({ maxWidth: 260, closeButton: true })
+      .setLatLng(e.latlng)
+      .setContent(`
+        <div style="font-size:11px;font-weight:700;color:#333;margin-bottom:7px">Mode de transport</div>
+        <div style="display:flex;gap:5px;flex-wrap:wrap">${btns}</div>
+      `)
+      .openOn(_map);
+
+    L.DomEvent.stopPropagation(e);
+  });
+}
+
+window._mapcalPickMode = function(mode) {
+  if (_pendingModeChange) { _pendingModeChange(mode); _pendingModeChange = null; }
+};
+
+async function _drawRoutes(trip, _days) {
   if (!_map) return;
 
-  // Show loading
   const loadEl = document.getElementById('route-loading');
   if (loadEl) loadEl.style.display = 'block';
   _routeLoading = true;
 
-  for (let i = 0; i < days.length - 1; i++) {
-    const from = days[i];
-    const to   = days[i + 1];
+  const wps = _collectAllWaypoints(trip);
 
-    // Find transport mode from the first transport item in the FROM day
-    const transport = (from.items || []).find(it => it.type === 'drive');
-    const mode      = transport ? (transport.transport || 'car') : 'car';
+  for (let i = 0; i < wps.length - 1; i++) {
+    const from = wps[i];
+    const to   = wps[i + 1];
+    const mode = to.mode || 'car';
+
+    let line = null;
 
     if (mode === 'plane' || mode === 'ferry') {
-      // Draw dashed direct line
-      const line = L.polyline([[from.lat, from.lng], [to.lat, to.lng]], {
+      line = L.polyline([[from.lat, from.lng], [to.lat, to.lng]], {
         color:     mode === 'plane' ? '#7c3aed' : '#0d9488',
         weight:    2,
         opacity:   0.6,
         dashArray: '6 6',
       });
-      line.addTo(_map);
-      _routeLayers.push(line);
     } else {
-      // Fetch OSRM route
       try {
-        const profile  = _osrmProfile(mode);
+        const profile = _osrmProfile(mode);
         const url = `https://router.project-osrm.org/route/v1/${profile}/`
-          + `${from.lng},${from.lat};${to.lng},${to.lat}?overview=simplified&geometries=geojson`;
-
+          + `${from.lng},${from.lat};${to.lng},${to.lat}?overview=full&geometries=geojson`;
         const resp   = await fetch(url);
         const data   = await resp.json();
         const coords = data.routes?.[0]?.geometry?.coordinates;
         if (coords && coords.length) {
-          const latlngs = coords.map(([lng, lat]) => [lat, lng]);
-          const line = L.polyline(latlngs, {
+          line = L.polyline(coords.map(([lng, lat]) => [lat, lng]), {
             color:   trCol(mode),
-            weight:  3,
-            opacity: 0.7,
+            weight:  4,
+            opacity: 0.75,
           });
-          line.addTo(_map);
-          _routeLayers.push(line);
         }
-      } catch (err) {
-        // Fallback: straight line
-        const line = L.polyline([[from.lat, from.lng], [to.lat, to.lng]], {
-          color:     '#9c9890',
-          weight:    2,
-          opacity:   0.4,
-          dashArray: '4 4',
+      } catch (_) {}
+
+      if (!line) {
+        line = L.polyline([[from.lat, from.lng], [to.lat, to.lng]], {
+          color: '#9c9890', weight: 2, opacity: 0.4, dashArray: '4 4',
         });
-        line.addTo(_map);
-        _routeLayers.push(line);
       }
+    }
+
+    if (line) {
+      line.addTo(_map);
+      _routeLayers.push(line);
+      _bindRouteModeClick(line, to);
     }
   }
 
@@ -953,6 +1027,34 @@ function _deleteEvent(dayId, evtIdx, tripId) {
   notify('Événement supprimé', '🗑');
 }
 
+// ─── Geocoding helper — Photon with Nominatim fallback ───────────────────────
+
+async function _geocode(q) {
+  const lang = getLanguage();
+  // 1st try: Photon (fast fuzzy matching)
+  try {
+    const resp = await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&limit=6&lang=${lang}`);
+    const gj   = await resp.json();
+    const data  = (gj.features || []).map(f => {
+      const [lng, lat] = f.geometry.coordinates;
+      const p = f.properties;
+      const parts = [p.name, p.street, p.city, p.state, p.country].filter(Boolean);
+      return { lat: String(lat), lon: String(lng), display_name: parts.join(', ') };
+    });
+    if (data.length > 0) return data;
+  } catch (_) {}
+  // 2nd try: Nominatim (broader coverage, handles alt names / historical names)
+  try {
+    const resp = await fetch(
+      `https://nominatim.openstreetmap.org/search?format=json&limit=6&q=${encodeURIComponent(q)}`,
+      { headers: { 'Accept-Language': lang } }
+    );
+    const d = await resp.json();
+    return d.map(r => ({ lat: r.lat, lon: r.lon, display_name: r.display_name }));
+  } catch (_) {}
+  return [];
+}
+
 // ─── Map search bar ───────────────────────────────────────────────────────────
 
 function _initMapSearch(tripId) {
@@ -1037,15 +1139,7 @@ function _initMapSearch(tripId) {
     btn.textContent = '…';
     btn.disabled    = true;
     try {
-      const resp = await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&limit=5&lang=fr`);
-      const gj   = await resp.json();
-      const data  = (gj.features || []).map(f => {
-        const [lng, lat] = f.geometry.coordinates;
-        const p = f.properties;
-        const parts = [p.name, p.street, p.city, p.state, p.country].filter(Boolean);
-        return { lat: String(lat), lon: String(lng), display_name: parts.join(', ') };
-      });
-      _showResults(data);
+      _showResults(await _geocode(q));
     } catch {
       results.innerHTML = '<div style="padding:8px 12px;font-size:12px;color:#e85d3e">Erreur réseau</div>';
       results.style.display = 'block';
@@ -1109,14 +1203,7 @@ function _buildLocationSearch(container, onSelect, onMapClick) {
     searchBtn.textContent = '…';
     resultsEl.innerHTML = '<div style="font-size:11px;color:var(--ink4)">Recherche…</div>';
     try {
-      const resp = await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&limit=5&lang=fr`);
-      const gj   = await resp.json();
-      const data  = (gj.features || []).map(f => {
-        const [lng, lat] = f.geometry.coordinates;
-        const p = f.properties;
-        const parts = [p.name, p.street, p.city, p.state, p.country].filter(Boolean);
-        return { lat: String(lat), lon: String(lng), display_name: parts.join(', ') };
-      });
+      const data = await _geocode(q);
       if (!data.length) {
         resultsEl.innerHTML = '<div style="font-size:11px;color:var(--ink4)">Aucun résultat</div>';
       } else {

@@ -52,7 +52,7 @@ function _buildHtml(trip) {
         const items       = cat.items || [];
         const catChecked  = items.filter(i => checked[i.id]).length;
         return `
-          <div class="pack-cat-card" style="min-width:240px;max-width:300px;flex:0 0 260px;overflow:hidden">
+          <div class="pack-cat-card" style="min-width:240px;max-width:300px;flex:0 0 260px">
             <div class="pack-cat-header">
               <span class="pack-cat-icon">${cat.icon || '📦'}</span>
               <span class="pack-cat-name">${_esc(cat.name)}</span>

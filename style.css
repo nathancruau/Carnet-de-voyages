@@ -944,9 +944,8 @@ html,body{height:100%;font-family:var(--fn);background:var(--c);color:var(--ink)
 .pack-item-del:hover{color:var(--coral)}
 .pack-item-add{border:none;background:none;cursor:pointer;font-size:11px;color:var(--teal);font-weight:700;padding:5px 8px;margin-top:4px;text-align:left}
 .pack-item-add:hover{text-decoration:underline}
-/* 2-column grid for items on wider screens */
+/* single-column item list */
 .pack-items-grid{display:grid;grid-template-columns:1fr;gap:3px}
-@media(min-width:560px){.pack-items-grid{grid-template-columns:1fr 1fr}}
 /* edit button beside delete */
 .pack-item-edit{border:none;background:none;cursor:pointer;color:var(--ink4);font-size:12px;padding:0 2px;opacity:0;transition:opacity .12s}
 .pack-item:hover .pack-item-edit{opacity:1}

@@ -108,13 +108,17 @@ export function updateSettings(updates) {
 }
 
 export function getPinTypes() {
-  const s = state.settings || {};
-  return Array.isArray(s.pinTypes) && s.pinTypes.length > 0 ? s.pinTypes : DEFAULT_PIN_TYPES;
+  // Unified with event types — same type system for planning and journal
+  return getEventTypes().map(({ key, emoji, label }) => ({ key, emoji, label }));
 }
 
 export function getEventTypes() {
   const s = state.settings || {};
   return Array.isArray(s.eventTypes) && s.eventTypes.length > 0 ? s.eventTypes : DEFAULT_EVENT_TYPES;
+}
+
+export function getLanguage() {
+  return (state.settings || {}).lang || 'fr';
 }
 
 /* ── Internal state ── */
