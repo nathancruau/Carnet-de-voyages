@@ -1033,6 +1033,17 @@ function _deleteEvent(dayId, evtIdx, tripId) {
   const day = (trip.days || []).find(d => d.id === dayId);
   if (!day) return;
   day.items.splice(evtIdx, 1);
+
+  // Re-derive day pin from remaining items to avoid ghost markers
+  const firstPin = (day.items || []).find(it => it.lat != null && it.lng != null);
+  if (firstPin) {
+    day.lat = firstPin.lat;
+    day.lng = firstPin.lng;
+  } else if (!(day.items || []).some(it => it.lat != null)) {
+    day.lat = null;
+    day.lng = null;
+  }
+
   updateTrip(tripId, { days: trip.days });
   _activeEvtKey = null;
   _closeEDP();
@@ -1097,7 +1108,7 @@ function _initMapSearch(tripId) {
       action.style.display = 'none';
       if (_tempSearchPin && _map) { try { _map.removeLayer(_tempSearchPin); } catch (_) {} _tempSearchPin = null; }
       const trip     = getTrip(tripId);
-      const targetId = _activeDayId || (trip?.days || [])[0]?.id;
+      const targetId = [..._openDayIds][0] || (trip?.days || [])[0]?.id;
       if (!targetId) { notify('Aucun jour disponible — créez un jour d\'abord', '⚠️'); return; }
       _openAddEventModal(targetId, tripId, { lat, lng, label: label.split(',')[0].trim() });
     };
@@ -1376,7 +1387,7 @@ function _openAddDayModal(tripId) {
     days.push(newDay);
     updateTrip(tripId, { days });
     closeModal();
-    _activeDayId = newDay.id;
+    _openDayIds.add(newDay.id);
     _renderDaysList(tripId);
     _renderMiniCal(tripId);
     _refreshMapPins(tripId);
@@ -1484,7 +1495,7 @@ function _openAddDayModalWithCoords(tripId, lat, lng) {
     days.push(newDay);
     updateTrip(tripId, { days });
     closeModal();
-    _activeDayId = newDay.id;
+    _openDayIds.add(newDay.id);
     _renderDaysList(tripId);
     _renderMiniCal(tripId);
     _refreshMapPins(tripId);

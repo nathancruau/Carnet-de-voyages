@@ -377,8 +377,8 @@ function _refreshJournalPins(tripId) {
   const allPinLatLngs = [];
 
   for (const day of (trip.days || [])) {
-    for (const item of (day.items || [])) {
-      if (item.lat == null || item.lng == null) continue;
+    (day.items || []).forEach((item, itemIdx) => {
+      if (item.lat == null || item.lng == null) return;
 
       const jd        = item.journalData;
       const validated = jd?.validated;
@@ -387,28 +387,18 @@ function _refreshJournalPins(tripId) {
 
       const icon = L.divIcon({
         className: '',
-        html: `<div style="background:${bgColor};border:2px solid #fff;border-radius:50%;width:30px;height:30px;display:flex;align-items:center;justify-content:center;font-size:16px;box-shadow:0 1px 6px rgba(0,0,0,.4)">${emoji}</div>`,
+        html: `<div style="background:${bgColor};border:2px solid #fff;border-radius:50%;width:30px;height:30px;display:flex;align-items:center;justify-content:center;font-size:16px;box-shadow:0 1px 6px rgba(0,0,0,.4);cursor:pointer">${emoji}</div>`,
         iconSize:   [30, 30],
         iconAnchor: [15, 15],
         popupAnchor:[0, -18],
       });
 
       const marker = L.marker([item.lat, item.lng], { icon });
-      const dayLabel = `Jour ${day.num}${day.title ? ' · ' + day.title : ''}`;
-
-      marker.bindPopup(`
-        <div style="padding:4px 2px;min-width:130px">
-          <div style="font-weight:700;font-size:12px;margin-bottom:2px">${_esc(item.text || '—')}</div>
-          <div style="font-size:11px;color:#6b7280">${_esc(dayLabel)}</div>
-          ${item.time ? `<div style="font-size:11px;color:#6b7280">🕐 ${_esc(item.time)}</div>` : ''}
-          ${validated ? `<div style="font-size:11px;color:#16a34a;margin-top:3px;font-weight:700">✓ Validé${jd.weather ? ' ' + jd.weather : ''}</div>` : ''}
-        </div>
-      `, { maxWidth: 200 });
-
+      marker.on('click', () => _openJournalItemPanel(tripId, day.id, itemIdx));
       marker.addTo(_journalMap);
       _journalMarkers[item.id] = marker;
       allPinLatLngs.push([item.lat, item.lng]);
-    }
+    });
   }
 
   if (allPinLatLngs.length === 1) {
@@ -448,6 +438,79 @@ function _handleClick(e, tripId) {
 
   if (action === 'validate-item') {
     _openValidateModal(tripId, btn.dataset.dayId, parseInt(btn.dataset.itemIdx, 10));
+  }
+}
+
+// ── Journal item side panel (EDP) ─────────────────────────────────────────────
+
+function _openJournalItemPanel(tripId, dayId, itemIdx) {
+  _closeJournalItemPanel();
+
+  const trip = getTrip(tripId);
+  if (!trip) return;
+  const day = (trip.days || []).find(d => d.id === dayId);
+  if (!day) return;
+  const item = (day.items || [])[itemIdx];
+  if (!item) return;
+
+  const jd        = item.journalData || {};
+  const typeIcon  = _eventTypeIcon(item.type);
+  const dayLabel  = `Jour ${day.num}${day.title ? ' · ' + day.title : ''}`;
+
+  const photosHtml = (jd.photos || []).length > 0
+    ? `<div style="display:flex;gap:5px;flex-wrap:wrap;margin:6px 0">
+        ${(jd.photos || []).map(src =>
+          `<img src="${_esc(src)}" onclick="window.open(this.src,'_blank')"
+            style="width:72px;height:56px;object-fit:cover;border-radius:6px;cursor:pointer;border:1px solid var(--c3)">`
+        ).join('')}
+       </div>`
+    : '';
+
+  const mapCol = document.querySelector('#panel-journal .map-col');
+  if (!mapCol) return;
+
+  const panel = document.createElement('div');
+  panel.className = 'edp';
+  panel.id = 'jn-edp';
+  panel.innerHTML = `
+    <div class="edp-hd">
+      <div class="edp-ic">${typeIcon}</div>
+      <div style="min-width:0;flex:1">
+        <div class="edp-title">${_esc(item.text || '—')}</div>
+        <div class="edp-day">${_esc(dayLabel)}${day.date ? ' · ' + fmtDateShort(day.date) : ''}</div>
+      </div>
+      <button class="edp-close" id="jn-edp-close">✕</button>
+    </div>
+    <div class="edp-body">
+      ${jd.validated ? `<div style="font-size:11px;font-weight:700;color:#16a34a;margin-bottom:8px">✓ Activité validée</div>` : ''}
+      ${jd.weather   ? `<div style="font-size:22px;margin-bottom:6px">${jd.weather}</div>` : ''}
+      ${jd.notes     ? `<div style="font-size:12px;color:var(--ink2);white-space:pre-wrap;margin-bottom:8px">${_esc(jd.notes)}</div>` : ''}
+      ${photosHtml}
+      ${jd.amount    ? `<div style="font-size:12px;color:var(--ink3);margin-top:4px">💶 ${jd.amount} €</div>` : ''}
+      ${!jd.validated && !jd.notes && !jd.weather && !photosHtml
+        ? `<div style="font-size:12px;color:var(--ink4)">Aucune information enregistrée.<br>Cliquez sur "Valider" pour documenter cette activité.</div>`
+        : ''}
+    </div>
+    <div class="edp-actions">
+      <button class="edp-save" id="jn-edp-validate">${jd.validated ? '✎ Modifier' : '✓ Valider'}</button>
+    </div>
+  `;
+
+  mapCol.appendChild(panel);
+  requestAnimationFrame(() => panel.classList.add('open'));
+
+  panel.querySelector('#jn-edp-close').addEventListener('click', _closeJournalItemPanel);
+  panel.querySelector('#jn-edp-validate').addEventListener('click', () => {
+    _closeJournalItemPanel();
+    _openValidateModal(tripId, dayId, itemIdx);
+  });
+}
+
+function _closeJournalItemPanel() {
+  const existing = document.getElementById('jn-edp');
+  if (existing) {
+    existing.classList.remove('open');
+    setTimeout(() => { try { existing.remove(); } catch (_) {} }, 280);
   }
 }
 

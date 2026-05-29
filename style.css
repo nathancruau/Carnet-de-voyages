@@ -665,6 +665,16 @@ html,body{height:100%;font-family:var(--fn);background:var(--c);color:var(--ink)
 }
 .mm-export-btn:hover{background:var(--teal);border-color:var(--teal);color:#fff}
 
+/* MyMap info panel (slides in from right over the map) */
+.mm-info-panel{
+  position:absolute;top:10px;right:10px;bottom:10px;
+  width:280px;background:#fff;border-radius:12px;
+  box-shadow:0 4px 24px rgba(0,0,0,.2);z-index:800;
+  overflow:hidden;animation:mmInfoIn .2s ease;
+  font-family:var(--fn);
+}
+@keyframes mmInfoIn{from{opacity:0;transform:translateX(16px)}to{opacity:1;transform:translateX(0)}}
+
 /* Leaflet map pane */
 #mymap{flex:1;width:100%;height:100%}
 
