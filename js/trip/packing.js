@@ -87,7 +87,7 @@ function _buildHtml(trip) {
                       ${isChecked ? '✓' : ''}
                     </div>
                     <div class="pack-item-info">
-                      <span class="pack-item-name ${isChecked ? 'struck' : ''}" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:block">${_esc(item.name)}</span>
+                      <span class="pack-item-name ${isChecked ? 'struck' : ''}" style="overflow-wrap:anywhere;word-break:break-all;display:block">${_esc(item.name)}</span>
                       ${item.subtitle ? `<span class="pack-item-sub">${_esc(item.subtitle)}</span>` : ''}
                     </div>
                     ${carrierHtml}

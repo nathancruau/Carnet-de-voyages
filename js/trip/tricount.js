@@ -254,6 +254,7 @@ function _renderDepenses(trip, participants) {
         <td>
           <div style="font-weight:600;color:var(--ink)">${_esc(exp.desc || '—')}</div>
           ${exp.note ? `<div style="font-size:10px;color:var(--ink4);margin-top:1px">${_esc(exp.note)}</div>` : ''}
+          ${exp.receipt ? `<img src="${_esc(exp.receipt)}" alt="Reçu" title="Voir le reçu" style="max-height:28px;max-width:40px;border-radius:3px;object-fit:cover;margin-top:3px;cursor:pointer;display:block" onclick="window.open(this.src,'_blank')">` : ''}
         </td>
         <td style="font-weight:700">${_fmtEur(exp.amount)}</td>
         <td>${payerHtml}</td>
@@ -643,13 +644,68 @@ function _openExpenseModal(tripId, expId) {
   const state = {
     paidById:   exp?.paidById   || defaultPayer,
     sharedWith: exp?.sharedWith ? [...exp.sharedWith] : [...defaultShared],
+    receipt:    exp?.receipt    || null,
   };
 
+  async function _compressImage(file) {
+    return new Promise(resolve => {
+      const reader = new FileReader();
+      reader.onload = ev => {
+        const img = new Image();
+        img.onload = () => {
+          const maxSize = 800;
+          const canvas  = document.createElement('canvas');
+          let { width, height } = img;
+          if (width > maxSize || height > maxSize) {
+            const r = Math.min(maxSize / width, maxSize / height);
+            width = Math.round(width * r); height = Math.round(height * r);
+          }
+          canvas.width = width; canvas.height = height;
+          canvas.getContext('2d').drawImage(img, 0, 0, width, height);
+          resolve(canvas.toDataURL('image/jpeg', 0.8));
+        };
+        img.src = ev.target.result;
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+
+  function buildReceiptHtml() {
+    if (state.receipt) {
+      return `
+        <img src="${state.receipt}" alt="Reçu" style="max-height:80px;max-width:100%;border-radius:6px;border:1px solid var(--c3);display:block;margin-bottom:6px">
+        <button type="button" id="ex-receipt-clear" style="background:var(--c2);border:1px solid var(--c3);border-radius:6px;padding:4px 10px;font-size:11px;cursor:pointer;color:var(--coral)">✕ Supprimer la photo</button>`;
+    }
+    return `<input type="file" id="ex-receipt-file" accept="image/*" style="font-size:12px;color:var(--ink3)">`;
+  }
+
+  function refreshReceiptArea() {
+    const area = document.getElementById('ex-receipt-area');
+    if (!area) return;
+    area.innerHTML = buildReceiptHtml();
+    attachReceiptEvents();
+  }
+
+  function attachReceiptEvents() {
+    document.getElementById('ex-receipt-file')?.addEventListener('change', async ev => {
+      const file = ev.target.files?.[0];
+      if (!file) return;
+      state.receipt = await _compressImage(file);
+      refreshReceiptArea();
+    });
+    document.getElementById('ex-receipt-clear')?.addEventListener('click', () => {
+      state.receipt = null;
+      refreshReceiptArea();
+    });
+  }
+
   function buildHtml() {
-    const catsOpts = `<option value="">Aucune cat\xe9gorie</option>` +
-      cats.map(c =>
-        `<option value="${_esc(c.id)}"${exp?.catId === c.id ? ' selected' : ''}>${_esc(c.icon + ' ' + c.name)}</option>`
-      ).join('');
+    const defaultCatId = exp?.catId || cats[0]?.id || '';
+    const catsOpts = cats.length
+      ? cats.map(c =>
+          `<option value="${_esc(c.id)}"${defaultCatId === c.id ? ' selected' : ''}>${_esc(c.icon + ' ' + c.name)}</option>`
+        ).join('')
+      : `<option value="" disabled>Aucune catégorie disponible — créez-en une dans Budget</option>`;
 
     const daysOpts = `<option value="">Aucun jour</option>` +
       days.map(d =>
@@ -723,6 +779,11 @@ function _openExpenseModal(tripId, expId) {
         <textarea id="ex-note" rows="2" placeholder="Remarque optionnelle...">${_esc(exp?.note || '')}</textarea>
       </div>
 
+      <div class="fg">
+        <label>Photo (reçu)</label>
+        <div id="ex-receipt-area">${buildReceiptHtml()}</div>
+      </div>
+
       <div class="ma">
         <button class="bc" onclick="closeModal()">Annuler</button>
         <button class="bs" id="ex-save">Enregistrer</button>
@@ -755,6 +816,8 @@ function _openExpenseModal(tripId, expId) {
       document.querySelectorAll('[data-shared-id]').forEach(cb => { cb.checked = false; });
     });
 
+    attachReceiptEvents();
+
     document.getElementById('ex-save')?.addEventListener('click', () => {
       const desc   = document.getElementById('ex-desc')?.value?.trim()   || '';
       const amount = parseFloat(document.getElementById('ex-amount')?.value || '0') || 0;
@@ -785,6 +848,7 @@ function _openExpenseModal(tripId, expId) {
             date,
             dayId:      dayId  || null,
             note,
+            receipt:    state.receipt || null,
           };
         }
         notify('D\xe9pense mise \xe0 jour', '✓');
@@ -799,6 +863,7 @@ function _openExpenseModal(tripId, expId) {
           date,
           dayId:      dayId  || null,
           note,
+          receipt:    state.receipt || null,
         });
         notify('D\xe9pense ajout\xe9e', '✓');
       }

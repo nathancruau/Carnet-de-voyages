@@ -56,6 +56,7 @@ let _journalTripId   = null;
 // ── Day filter state ──────────────────────────────────────────────────────────
 
 let _activeDayFilter = null;
+let _journalSubTab   = 'recit'; // 'recit' | 'activites'
 
 export function destroyJournalMap() {
   if (_journalMap) {
@@ -87,19 +88,44 @@ export function renderJournal(tripId) {
     return (b.date || '').localeCompare(a.date || '');
   });
 
+  function _subTabStyle(tab) {
+    const active = _journalSubTab === tab;
+    return `padding:5px 10px;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer;` +
+      `background:${active ? '#fff' : 'transparent'};` +
+      `color:${active ? 'var(--teal)' : 'var(--ink3)'};` +
+      `box-shadow:${active ? 'var(--sh)' : 'none'};border:none;transition:all .15s`;
+  }
+
+  const subTabsHtml = `
+    <div style="padding:0 10px 8px;flex-shrink:0">
+      <div style="display:flex;gap:3px;background:var(--c2);border-radius:8px;padding:3px;border:1px solid var(--c3)">
+        <button data-action="jn-tab" data-tab="recit" style="${_subTabStyle('recit')}">📔 Récit</button>
+        <button data-action="jn-tab" data-tab="activites" style="${_subTabStyle('activites')}">📅 Activités</button>
+      </div>
+    </div>`;
+
+  const leftContent = _journalSubTab === 'recit' ? `
+    <div style="flex-shrink:0;padding:0 8px 6px;border-bottom:1px solid var(--c3)">
+      ${_buildDayChipsHtml(trip)}
+    </div>
+    <div class="days-scroll" id="journal-entries-list" style="flex:1;overflow-y:auto;padding:6px 8px">
+      ${_buildEntriesListHtml(trip, allEntries)}
+    </div>
+  ` : `
+    <div class="days-scroll" id="journal-activities-list" style="flex:1;overflow-y:auto;padding:6px 8px">
+      ${_buildActivitiesHtml(trip)}
+    </div>
+  `;
+
   panel.innerHTML = `
     <div class="mapcal">
       <div class="left-panel" style="width:290px;min-width:240px;max-width:290px;display:flex;flex-direction:column">
         <div style="padding:12px 14px 8px;flex-shrink:0;display:flex;align-items:center;justify-content:space-between;gap:8px">
           <h3 style="font-family:var(--sf);font-size:15px;font-weight:700;color:var(--ink);margin:0">📔 Journal</h3>
-          <button class="btn-new" data-action="add-entry" style="font-size:11px;padding:5px 10px;white-space:nowrap">＋ Nouvelle</button>
+          ${_journalSubTab === 'recit' ? `<button class="btn-new" data-action="add-entry" style="font-size:11px;padding:5px 10px;white-space:nowrap">＋ Nouvelle</button>` : ''}
         </div>
-        <div style="flex-shrink:0;padding:0 8px 6px;border-bottom:1px solid var(--c3)">
-          ${_buildDayChipsHtml(trip)}
-        </div>
-        <div class="days-scroll" id="journal-entries-list" style="flex:1;overflow-y:auto;padding:6px 8px">
-          ${_buildEntriesListHtml(trip, allEntries)}
-        </div>
+        ${subTabsHtml}
+        ${leftContent}
       </div>
       <div class="map-col" style="flex:1;position:relative">
         <div id="journal-map" style="width:100%;height:100%"></div>
@@ -363,7 +389,12 @@ function _handleClick(e, tripId) {
 
   const action = btn.dataset.action;
 
-  if (action === 'add-entry') {
+  if (action === 'jn-tab') {
+    _journalSubTab = btn.dataset.tab || 'recit';
+    renderJournal(tripId);
+  } else if (action === 'validate-item') {
+    _openValidateModal(tripId, btn.dataset.dayId, parseInt(btn.dataset.itemIdx, 10));
+  } else if (action === 'add-entry') {
     _openEntryModal(tripId, null);
   } else if (action === 'edit-entry') {
     _openEntryModal(tripId, btn.dataset.entryId);
@@ -393,6 +424,262 @@ function _handleClick(e, tripId) {
     const listEl = document.getElementById('journal-entries-list');
     if (listEl) listEl.innerHTML = _buildEntriesListHtml(trip, allEntries);
   }
+}
+
+// ── Activities sub-tab ────────────────────────────────────────────────────────
+
+function _eventTypeIcon(type) {
+  const m = { visit: '🏛️', activity: '🎯', sleep: '🏨', drive: '🚗', food: '🍽️', shop: '🛍️' };
+  return m[type] || '📍';
+}
+
+function _buildActivitiesHtml(trip) {
+  const days = trip.days || [];
+  const hasAny = days.some(d => (d.items || []).length > 0);
+
+  if (!hasAny) {
+    return `
+      <div class="jn-empty" style="text-align:center;padding:32px 12px;color:var(--ink4)">
+        <div style="font-size:36px;margin-bottom:8px">📅</div>
+        <p style="font-size:13px;font-weight:600;color:var(--ink3)">Aucune activité dans le planning</p>
+        <p style="font-size:11px;margin-top:6px;color:var(--ink4)">Ajoutez des activités dans Carte &amp; Planning</p>
+      </div>`;
+  }
+
+  let html = '';
+  for (const day of days) {
+    const items = day.items || [];
+    if (items.length === 0) continue;
+
+    const dayLabel = `Jour ${day.num}${day.title ? ' · ' + day.title : ''}`;
+    html += `<div class="jn-day-group">
+      <div class="jn-day-label">${_esc(dayLabel)}${day.date ? `<span style="font-weight:400;font-size:10px;color:var(--ink4);margin-left:5px">${fmtDateShort(day.date)}</span>` : ''}</div>`;
+
+    items.forEach((item, idx) => {
+      const jd        = item.journalData;
+      const validated = jd?.validated;
+      const typeIcon  = _eventTypeIcon(item.type);
+      const metaParts = [
+        item.time ? `🕐 ${item.time}` : '',
+        item.cost ? `💶 ${item.cost}€` : '',
+      ].filter(Boolean);
+
+      html += `
+        <div style="display:flex;align-items:center;gap:8px;padding:7px 8px;border-radius:8px;margin-bottom:4px;
+          background:${validated ? 'var(--tl)' : 'var(--c2)'};border:1px solid ${validated ? 'var(--teal)' : 'var(--c3)'}">
+          <div style="font-size:16px;flex-shrink:0">${typeIcon}</div>
+          <div style="flex:1;min-width:0">
+            <div style="font-weight:600;color:var(--ink);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_esc(item.text || '—')}</div>
+            ${metaParts.length ? `<div style="font-size:10px;color:var(--ink4);margin-top:1px">${_esc(metaParts.join(' · '))}</div>` : ''}
+            ${validated ? `<div style="font-size:10px;color:var(--td);margin-top:2px;display:flex;gap:4px;flex-wrap:wrap;align-items:center">
+              <span style="font-weight:700">✓ Validé</span>
+              ${jd.weather ? `<span>${jd.weather}</span>` : ''}
+              ${jd.amount  ? `<span>+${jd.amount}€</span>` : ''}
+              ${(jd.photos || []).length > 0 ? `<span>📷 ${jd.photos.length}</span>` : ''}
+            </div>` : ''}
+          </div>
+          <button data-action="validate-item" data-day-id="${_esc(day.id)}" data-item-idx="${idx}"
+            style="flex-shrink:0;font-size:10px;font-weight:700;padding:4px 7px;border-radius:6px;cursor:pointer;white-space:nowrap;
+            background:${validated ? 'var(--teal)' : 'var(--c)'};color:${validated ? '#fff' : 'var(--ink3)'};border:1.5px solid ${validated ? 'var(--teal)' : 'var(--c3)'}">
+            ${validated ? '✓ Éditer' : '✓ Valider'}
+          </button>
+        </div>`;
+    });
+
+    html += `</div>`;
+  }
+  return html;
+}
+
+// ── Validate activity modal ────────────────────────────────────────────────────
+
+function _openValidateModal(tripId, dayId, itemIdx) {
+  const trip = getTrip(tripId);
+  if (!trip) return;
+
+  const day = (trip.days || []).find(d => d.id === dayId);
+  if (!day) return;
+
+  const item = (day.items || [])[itemIdx];
+  if (!item) return;
+
+  const jd = item.journalData || {};
+
+  const state = {
+    weather: jd.weather || '',
+    notes:   jd.notes   || '',
+    amount:  jd.amount  || 0,
+    photos:  jd.photos  ? [...jd.photos] : [],
+  };
+
+  const weatherEmojis = ['☀️', '⛅', '🌧️', '⛈️', '🌨️', '🌫️', '🌊', '🏔️'];
+
+  async function _compressImg(file) {
+    return new Promise(resolve => {
+      const reader = new FileReader();
+      reader.onload = ev => {
+        const img = new Image();
+        img.onload = () => {
+          const maxSize = 800;
+          const canvas  = document.createElement('canvas');
+          let { width, height } = img;
+          if (width > maxSize || height > maxSize) {
+            const r = Math.min(maxSize / width, maxSize / height);
+            width = Math.round(width * r); height = Math.round(height * r);
+          }
+          canvas.width = width; canvas.height = height;
+          canvas.getContext('2d').drawImage(img, 0, 0, width, height);
+          resolve(canvas.toDataURL('image/jpeg', 0.8));
+        };
+        img.src = ev.target.result;
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+
+  function buildWeatherRow() {
+    return weatherEmojis.map(em => {
+      const sel = state.weather === em;
+      return `<button type="button" data-weather="${_esc(em)}"
+        style="background:${sel ? 'var(--tl)' : 'var(--c2)'};border:1.5px solid ${sel ? 'var(--teal)' : 'var(--c3)'};
+        border-radius:8px;padding:4px 6px;font-size:18px;cursor:pointer">${em}</button>`;
+    }).join('');
+  }
+
+  function buildPhotosHtml() {
+    if (state.photos.length === 0) return '<div style="font-size:11px;color:var(--ink4)">Aucune photo ajoutée</div>';
+    return `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px">` +
+      state.photos.map((src, i) =>
+        `<div style="position:relative;display:inline-block">
+          <img src="${_esc(src)}" style="width:56px;height:56px;object-fit:cover;border-radius:6px;border:1px solid var(--c3);cursor:pointer" onclick="window.open(this.src,'_blank')">
+          <button type="button" data-rm-photo="${i}"
+            style="position:absolute;top:-4px;right:-4px;background:var(--coral);color:#fff;border:none;border-radius:50%;width:16px;height:16px;font-size:9px;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;line-height:1">✕</button>
+        </div>`
+      ).join('') + `</div>`;
+  }
+
+  showModal(`
+    <button class="mc" onclick="closeModal()">✕</button>
+    <h3>✓ Valider l'activité</h3>
+    <div style="font-size:13px;font-weight:600;color:var(--ink);margin-bottom:14px;padding:8px 10px;background:var(--c2);border-radius:8px;border:1px solid var(--c3)">
+      ${_eventTypeIcon(item.type)} ${_esc(item.text || '—')}
+    </div>
+
+    <div class="fg">
+      <label>Météo</label>
+      <div style="display:flex;gap:5px;flex-wrap:wrap" id="vld-weather-row">${buildWeatherRow()}</div>
+    </div>
+
+    <div class="fg">
+      <label>Notes</label>
+      <textarea id="vld-notes" rows="3" placeholder="Comment s'est passée cette activité…">${_esc(state.notes)}</textarea>
+    </div>
+
+    <div class="fg">
+      <label>Montant réel (€) <span style="font-size:10px;color:var(--ink4);font-weight:400">— crée une dépense réelle</span></label>
+      <input type="number" id="vld-amount" min="0" step="0.01" placeholder="0" value="${state.amount || ''}">
+    </div>
+
+    <div class="fg">
+      <label>Photos</label>
+      <div id="vld-photos-list">${buildPhotosHtml()}</div>
+      <input type="file" id="vld-photo-file" accept="image/*" style="font-size:12px;color:var(--ink3);margin-top:6px">
+    </div>
+
+    <div class="ma">
+      <button class="bc" onclick="closeModal()">Annuler</button>
+      <button class="bs" id="vld-save">Enregistrer</button>
+    </div>`);
+
+  // Weather picker
+  document.getElementById('vld-weather-row')?.addEventListener('click', ev => {
+    const btn = ev.target.closest('[data-weather]');
+    if (!btn) return;
+    const em = btn.dataset.weather;
+    state.weather = state.weather === em ? '' : em;
+    const row = document.getElementById('vld-weather-row');
+    if (row) row.innerHTML = buildWeatherRow();
+  });
+
+  // Photo remove (delegation — survives innerHTML updates)
+  document.getElementById('vld-photos-list')?.addEventListener('click', ev => {
+    const btn = ev.target.closest('[data-rm-photo]');
+    if (!btn) return;
+    state.photos.splice(parseInt(btn.dataset.rmPhoto, 10), 1);
+    const list = document.getElementById('vld-photos-list');
+    if (list) list.innerHTML = buildPhotosHtml();
+  });
+
+  // Photo upload
+  document.getElementById('vld-photo-file')?.addEventListener('change', async ev => {
+    const file = ev.target.files?.[0];
+    if (!file) return;
+    const base64 = await _compressImg(file);
+    state.photos.push(base64);
+    const list = document.getElementById('vld-photos-list');
+    if (list) list.innerHTML = buildPhotosHtml();
+    ev.target.value = '';
+  });
+
+  // Save
+  document.getElementById('vld-save')?.addEventListener('click', () => {
+    state.notes  = document.getElementById('vld-notes')?.value?.trim()  || '';
+    state.amount = parseFloat(document.getElementById('vld-amount')?.value || '0') || 0;
+
+    const freshTrip = getTrip(tripId);
+    const days      = [...(freshTrip.days || [])];
+    const dayIdx    = days.findIndex(d => d.id === dayId);
+    if (dayIdx === -1) { closeModal(); return; }
+
+    const items = [...(days[dayIdx].items || [])];
+    if (!items[itemIdx]) { closeModal(); return; }
+
+    const itemId = items[itemIdx].id;
+    items[itemIdx] = {
+      ...items[itemIdx],
+      journalData: {
+        validated: true,
+        weather:   state.weather,
+        notes:     state.notes,
+        amount:    state.amount,
+        photos:    state.photos,
+      },
+    };
+    days[dayIdx] = { ...days[dayIdx], items };
+    updateTrip(tripId, { days });
+
+    if (state.amount > 0) {
+      const freshTrip2 = getTrip(tripId);
+      const expenses   = [...(freshTrip2.realExpenses || [])];
+      const cats       = freshTrip2.budgetCats || [];
+      const actCat     = cats.find(c => c.name === 'Activités');
+      const existIdx   = expenses.findIndex(ex => ex.journalItemId === itemId);
+
+      const newExp = {
+        id:            existIdx >= 0 ? expenses[existIdx].id : 'ex_' + uid(),
+        desc:          items[itemIdx].text || 'Activité validée',
+        amount:        state.amount,
+        catId:         actCat?.id || null,
+        paidById:      'moi',
+        sharedWith:    ['moi'],
+        date:          days[dayIdx].date || new Date().toISOString().slice(0, 10),
+        dayId,
+        note:          state.notes ? 'Via Journal · ' + state.notes : 'Via Journal',
+        journalItemId: itemId,
+      };
+
+      if (existIdx >= 0) expenses[existIdx] = newExp;
+      else expenses.push(newExp);
+
+      updateTrip(tripId, { realExpenses: expenses });
+      notify('Activité validée · dépense créée', '✓');
+    } else {
+      notify('Activité validée', '✓');
+    }
+
+    closeModal();
+    renderJournal(tripId);
+  });
 }
 
 // ── Add / Edit Modal ──────────────────────────────────────────────────────────
@@ -661,10 +948,14 @@ function _openEntryModal(tripId, entryId) {
       if (!q) return;
       state._locQuery = q;
       try {
-        const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q)}&limit=5&accept-language=fr`;
-        const res = await fetch(url, { headers: { 'Accept-Language': 'fr' } });
-        const results = await res.json();
-        state._locResults = results;
+        const res  = await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&limit=5&lang=fr`);
+        const gj   = await res.json();
+        state._locResults = (gj.features || []).map(f => {
+          const [lng, lat] = f.geometry.coordinates;
+          const p = f.properties;
+          const parts = [p.name, p.street, p.city, p.state, p.country].filter(Boolean);
+          return { lat: String(lat), lon: String(lng), display_name: parts.join(', ') };
+        });
         reRenderModal();
       } catch (err) {
         notify('Erreur de recherche de localisation', '⚠️');

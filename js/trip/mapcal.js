@@ -1037,11 +1037,15 @@ function _initMapSearch(tripId) {
     btn.textContent = '…';
     btn.disabled    = true;
     try {
-      const resp = await fetch(
-        `https://nominatim.openstreetmap.org/search?format=json&limit=5&q=${encodeURIComponent(q)}`,
-        { headers: { 'Accept-Language': 'fr' } }
-      );
-      _showResults(await resp.json());
+      const resp = await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&limit=5&lang=fr`);
+      const gj   = await resp.json();
+      const data  = (gj.features || []).map(f => {
+        const [lng, lat] = f.geometry.coordinates;
+        const p = f.properties;
+        const parts = [p.name, p.street, p.city, p.state, p.country].filter(Boolean);
+        return { lat: String(lat), lon: String(lng), display_name: parts.join(', ') };
+      });
+      _showResults(data);
     } catch {
       results.innerHTML = '<div style="padding:8px 12px;font-size:12px;color:#e85d3e">Erreur réseau</div>';
       results.style.display = 'block';
@@ -1105,9 +1109,14 @@ function _buildLocationSearch(container, onSelect, onMapClick) {
     searchBtn.textContent = '…';
     resultsEl.innerHTML = '<div style="font-size:11px;color:var(--ink4)">Recherche…</div>';
     try {
-      const url = `https://nominatim.openstreetmap.org/search?format=json&limit=5&q=${encodeURIComponent(q)}`;
-      const resp = await fetch(url, { headers: { 'Accept-Language': 'fr' } });
-      const data = await resp.json();
+      const resp = await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&limit=5&lang=fr`);
+      const gj   = await resp.json();
+      const data  = (gj.features || []).map(f => {
+        const [lng, lat] = f.geometry.coordinates;
+        const p = f.properties;
+        const parts = [p.name, p.street, p.city, p.state, p.country].filter(Boolean);
+        return { lat: String(lat), lon: String(lng), display_name: parts.join(', ') };
+      });
       if (!data.length) {
         resultsEl.innerHTML = '<div style="font-size:11px;color:var(--ink4)">Aucun résultat</div>';
       } else {
