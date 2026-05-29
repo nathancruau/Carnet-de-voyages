@@ -735,10 +735,10 @@ function _buildModalHtml(trip) {
                     data-modal-type="${key}">${t.icon} ${t.label}</button>`;
   }).join('');
 
-  // Status pills
+  // Status pills — Réalisé left, En planification right
   const statuses = [
-    { key: 'planning', label: '📝 En planification' },
     { key: 'done',     label: '✅ Réalisé' },
+    { key: 'planning', label: '📝 En planification' },
   ];
   const statusPills = statuses.map(s => {
     const isSel = _modalStatus === s.key;
@@ -865,7 +865,7 @@ export function openEditTripModal(id = null) {
     : [];
   _modalColor  = trip?.color  || '#0d9488';
   _modalType   = trip?.type   || 'voyage';
-  _modalStatus = trip?.status || 'done';
+  _modalStatus = trip?.status || 'planning';
 
   showModal(_buildModalHtml(trip));
   _initModalListeners(trip);

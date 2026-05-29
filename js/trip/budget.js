@@ -104,6 +104,8 @@ function _renderSide(cats, lines) {
           </div>
           <div class="ci-cnt">${linesCnt} ligne${linesCnt !== 1 ? 's' : ''}</div>
         </div>
+        <button class="tc-edit-btn" data-action="delete-cat" data-cat-id="${_esc(cat.id)}"
+          title="Supprimer la catégorie" style="flex-shrink:0;color:var(--coral)">🗑</button>
       </div>`;
   }
 
@@ -138,13 +140,9 @@ function _renderMain(trip, cats, lines) {
       </div>
     </div>`;
 
-  // Bar chart of real expenses by category (global view only)
-  if (!selCat) {
-    const realExpenses = trip.realExpenses || [];
-    if (realExpenses.length > 0) {
-      html += `<h4 style="margin:20px 0 6px;font-size:13px;font-weight:700;color:var(--ink)">💳 Dépenses réelles par catégorie</h4>`;
-      html += _renderRealExpensesBarChart(cats, realExpenses);
-    }
+  // Donut chart of planned budget by category (global view only)
+  if (!selCat && cats.length > 0 && lines.length > 0) {
+    html += _renderBudgetDonut(cats, lines);
   }
 
   // Planned costs from trip days (read-only)
@@ -158,42 +156,54 @@ function _renderMain(trip, cats, lines) {
   return html;
 }
 
-// ── Real expenses bar chart by category ──────────────────────────────────────
+// ── Budget donut chart by category ───────────────────────────────────────────
 
-function _renderRealExpensesBarChart(cats, realExpenses) {
-  if (cats.length === 0 || realExpenses.length === 0) return '';
+function _renderBudgetDonut(cats, lines) {
+  const total = _totalLines(lines);
+  if (total === 0) return '';
 
-  const spentByCat = {};
-  for (const exp of realExpenses) {
-    if (exp.catId) {
-      spentByCat[exp.catId] = (spentByCat[exp.catId] || 0) + (Number(exp.amount) || 0);
-    }
+  const segments = cats
+    .map(cat => ({
+      label: cat.name,
+      icon:  cat.icon  || '📦',
+      color: cat.color || '#888',
+      value: _catLinesTotal(lines, cat.id),
+    }))
+    .filter(s => s.value > 0);
+
+  if (segments.length === 0) return '';
+
+  const R = 40, cx = 50, cy = 50;
+  const circ = 2 * Math.PI * R;
+  let offset = 0;
+  let arcs = '';
+  for (const seg of segments) {
+    const dash = (seg.value / total) * circ;
+    arcs += `<circle cx="${cx}" cy="${cy}" r="${R}" fill="none"
+      stroke="${_esc(seg.color)}" stroke-width="16"
+      stroke-dasharray="${dash.toFixed(2)} ${(circ - dash).toFixed(2)}"
+      stroke-dashoffset="${(-offset).toFixed(2)}"
+      transform="rotate(-90 ${cx} ${cy})"/>`;
+    offset += dash;
   }
 
-  const activeCats = cats.filter(c => spentByCat[c.id] > 0);
-  if (activeCats.length === 0) return '';
-
-  const maxSpent = Math.max(...activeCats.map(c => spentByCat[c.id] || 0));
-
-  let bars = '';
-  for (const cat of activeCats) {
-    const spent = spentByCat[cat.id] || 0;
-    const pct   = maxSpent > 0 ? Math.round((spent / maxSpent) * 100) : 0;
-
-    bars += `
-      <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
-        <div style="width:28px;text-align:center;font-size:15px">${_esc(cat.icon || '📦')}</div>
-        <div style="width:90px;font-size:11px;font-weight:600;color:var(--ink2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${_esc(cat.name)}</div>
-        <div style="flex:1;background:var(--c3);border-radius:4px;height:12px;overflow:hidden">
-          <div style="width:${pct}%;height:100%;background:${_esc(cat.color || '#0d9488')};border-radius:4px;transition:width .3s"></div>
-        </div>
-        <div style="width:80px;text-align:right;font-size:11px;font-weight:700;color:var(--ink)">${_fmtEur(spent)}</div>
-      </div>`;
-  }
+  const legend = segments.map(s => `
+    <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
+      <div style="width:10px;height:10px;border-radius:50%;background:${_esc(s.color)};flex-shrink:0"></div>
+      <div style="font-size:11px;color:var(--ink2);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_esc(s.icon)} ${_esc(s.label)}</div>
+      <div style="font-size:11px;font-weight:700;color:var(--ink)">${_fmtEur(s.value)}</div>
+    </div>`).join('');
 
   return `
-    <div style="background:var(--c);border:1.5px solid var(--c3);border-radius:10px;padding:14px 16px;margin-bottom:4px">
-      ${bars}
+    <div style="background:var(--c);border:1.5px solid var(--c3);border-radius:10px;padding:14px 16px;margin-bottom:16px">
+      <div style="font-size:12px;font-weight:700;color:var(--ink2);margin-bottom:12px">Répartition par catégorie</div>
+      <div style="display:flex;align-items:center;gap:20px;flex-wrap:wrap">
+        <svg width="100" height="100" viewBox="0 0 100 100" style="flex-shrink:0">
+          <circle cx="${cx}" cy="${cy}" r="${R}" fill="none" stroke="var(--c3)" stroke-width="16"/>
+          ${arcs}
+        </svg>
+        <div style="flex:1;min-width:140px">${legend}</div>
+      </div>
     </div>`;
 }
 
