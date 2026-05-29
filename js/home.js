@@ -28,7 +28,7 @@ let _listenerAttached = false;
 let _modalComps  = [];
 let _modalColor  = '#0d9488';
 let _modalType   = 'voyage';
-let _modalStatus = 'done';
+let _modalStatus = 'planning';
 let _editingId   = null;
 
 // Photo file mode state

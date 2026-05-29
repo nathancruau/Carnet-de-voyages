@@ -95,7 +95,7 @@ export function updateTopStats(tripId) {
 
   const bEl = document.getElementById('ts-b');
   const eEl = document.getElementById('ts-e');
-  if (bEl) bEl.textContent = cats.length || (trip.budget || []).length ? fmtEur(planned) : '—';
+  if (bEl) bEl.textContent = planned > 0 ? fmtEur(planned) : '—';
   if (eEl) {
     if (expenses.length) {
       eEl.textContent = `${fmtEur(spent)} (${expenses.length})`;

@@ -98,8 +98,11 @@ function _renderSide(cats, lines) {
       <div class="cat-item${isActive ? ' active' : ''}" data-action="select-cat" data-cat-id="${_esc(cat.id)}">
         <div class="ci-ic">${_esc(cat.icon || '📦')}</div>
         <div class="ci-info">
-          <div class="ci-nm">${_esc(cat.name)}</div>
-          <div class="ci-cnt">${linesCnt} ligne${linesCnt !== 1 ? 's' : ''} · ${_fmtEur(catTotal)}</div>
+          <div style="display:flex;align-items:baseline;justify-content:space-between;gap:4px">
+            <div class="ci-nm">${_esc(cat.name)}</div>
+            <div style="font-size:12px;font-weight:700;color:var(--ink);white-space:nowrap;flex-shrink:0">${_fmtEur(catTotal)}</div>
+          </div>
+          <div class="ci-cnt">${linesCnt} ligne${linesCnt !== 1 ? 's' : ''}</div>
         </div>
       </div>`;
   }
@@ -120,18 +123,7 @@ function _renderMain(trip, cats, lines) {
     ? lines.filter(l => l.catId === _selectedCatId)
     : lines;
 
-  // Sum costs from planning events
-  const days = trip.days || [];
-  let totalPlannedCosts = 0;
-  for (const day of days) {
-    for (const ev of (day.items || [])) {
-      if (Number(ev.cost) > 0) {
-        if (!selCat || ev.catId === selCat.id) {
-          totalPlannedCosts += Number(ev.cost) || 0;
-        }
-      }
-    }
-  }
+  const totalPlannedCosts = filteredLines.reduce((s, l) => s + (Number(l.amount) || 0), 0);
 
   let html = `
     <div class="bud-section-hd">
