@@ -26,6 +26,8 @@ let _markers      = {};            // dayId → L.Marker
 let _routeLayers  = [];            // polylines / dashed lines on map
 let _routeLoading = false;
 let _pendingMapClick = null;       // callback when user clicks map to pick coords
+let _tempSearchPin = null;         // temporary search result pin
+let _dragEvt      = null;          // { dayId, idx } being dragged
 
 // ─── Public API ───────────────────────────────────────────────────────────────
 
@@ -64,11 +66,25 @@ export function renderMapCal(tripId) {
       <div class="map-col">
         <div id="map" style="width:100%;height:100%"></div>
         <div class="route-loading" id="route-loading" style="display:none">Calcul des itinéraires…</div>
+        <div id="map-srch" style="position:absolute;top:10px;left:50%;transform:translateX(-50%);z-index:1002;width:320px;max-width:calc(100% - 100px);pointer-events:all">
+          <div style="display:flex;border-radius:10px;overflow:hidden;box-shadow:0 2px 14px rgba(0,0,0,.22)">
+            <input id="ms-input" type="text" placeholder="🔍 Rechercher un lieu…" autocomplete="off"
+              style="flex:1;padding:9px 14px;border:none;font-size:13px;outline:none;color:#1a1a1a;background:#fff;min-width:0">
+            <button id="ms-btn" title="Chercher"
+              style="background:#0d9488;color:#fff;border:none;padding:0 14px;font-size:15px;cursor:pointer;flex-shrink:0">→</button>
+          </div>
+          <div id="ms-results" style="display:none;background:#fff;border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,.15);margin-top:4px;max-height:220px;overflow-y:auto"></div>
+          <div id="ms-action" style="display:none;flex-direction:row;align-items:center;flex-wrap:wrap;background:#fff;border-radius:8px;box-shadow:0 2px 10px rgba(0,0,0,.15);margin-top:4px;padding:8px 10px;gap:8px">
+            <span id="ms-action-label" style="flex:1;min-width:0;font-size:11px;font-weight:600;color:#1a1a1a;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span>
+            <button id="ms-action-add" style="background:#0d9488;color:#fff;border:none;border-radius:7px;padding:5px 10px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap;flex-shrink:0">＋ Planifier</button>
+            <button id="ms-action-close" style="background:none;border:none;cursor:pointer;color:#888;font-size:14px;padding:0;line-height:1;flex-shrink:0">✕</button>
+          </div>
+        </div>
       </div>
     </div>
   `;
 
-  // Attach event delegation for left panel
+  // Attach event delegation for left panel (including drag-and-drop)
   _attachLeftPanelListeners(panel);
 
   // Init or re-init Leaflet map
@@ -77,10 +93,14 @@ export function renderMapCal(tripId) {
   // Render days list + mini-cal
   _renderDaysList(tripId);
   _renderMiniCal(tripId);
+
+  // Wire map search bar
+  _initMapSearch(tripId);
 }
 
 export function destroyMap() {
   if (_map) {
+    if (_tempSearchPin) { try { _map.removeLayer(_tempSearchPin); } catch (_) {} _tempSearchPin = null; }
     try { _map.remove(); } catch (_) { /* already removed */ }
     _map = null;
   }
@@ -89,6 +109,7 @@ export function destroyMap() {
   _activeDayId  = null;
   _activeEvtKey = null;
   _pendingMapClick = null;
+  _dragEvt      = null;
 }
 
 // ─── Map initialization ───────────────────────────────────────────────────────
@@ -457,9 +478,11 @@ function _dayItemHtml(day) {
       const isSelEvt = _activeEvtKey && _activeEvtKey.dayId === day.id && _activeEvtKey.idx === idx;
       return `
         <div class="evt-row${isSelEvt ? ' sel-evt' : ''}"
+             draggable="true"
              data-action="open-event"
              data-day-id="${day.id}"
-             data-event-idx="${idx}">
+             data-event-idx="${idx}"
+             style="cursor:grab">
           <span class="evt-ic" style="color:${tCol(it.type)}">${it.type === 'drive' ? trIc(it.transport || 'car') : tIc(it.type)}</span>
           <div class="evt-info">
             <div class="evt-txt">${_esc(it.text || '—')}</div>
@@ -835,6 +858,82 @@ function _attachLeftPanelListeners(panel) {
       if (dayId && !isNaN(idx)) _deleteEvent(dayId, idx, _tripId);
     }
   });
+
+  // ── Drag-and-drop: move events between days ──────────────────────────────
+  let _dropTarget = null;
+
+  panel.addEventListener('dragstart', e => {
+    const row = e.target.closest('.evt-row');
+    if (!row) return;
+    _dragEvt = { dayId: row.dataset.dayId, idx: parseInt(row.dataset.eventIdx, 10) };
+    e.dataTransfer.effectAllowed = 'move';
+    setTimeout(() => { row.style.opacity = '0.4'; }, 0);
+  });
+
+  panel.addEventListener('dragend', e => {
+    const row = e.target.closest('.evt-row');
+    if (row) row.style.opacity = '';
+    if (_dropTarget) { _dropTarget.classList.remove('drop-target'); _dropTarget = null; }
+    _dragEvt = null;
+  });
+
+  panel.addEventListener('dragover', e => {
+    if (!_dragEvt) return;
+    const dayItem = e.target.closest('.day-item');
+    if (!dayItem) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    if (_dropTarget !== dayItem) {
+      if (_dropTarget) _dropTarget.classList.remove('drop-target');
+      _dropTarget = dayItem;
+      dayItem.classList.add('drop-target');
+    }
+  });
+
+  panel.addEventListener('dragleave', e => {
+    if (!e.currentTarget.contains(e.relatedTarget)) {
+      if (_dropTarget) { _dropTarget.classList.remove('drop-target'); _dropTarget = null; }
+    }
+  });
+
+  panel.addEventListener('drop', e => {
+    e.preventDefault();
+    if (_dropTarget) { _dropTarget.classList.remove('drop-target'); _dropTarget = null; }
+    if (!_dragEvt) return;
+    const dayItem = e.target.closest('.day-item');
+    if (!dayItem) return;
+    const targetDayId = dayItem.dataset.dayId;
+    _moveEvent(_dragEvt.dayId, _dragEvt.idx, targetDayId, _tripId);
+    _dragEvt = null;
+  });
+}
+
+// ─── Move event between days ──────────────────────────────────────────────────
+
+function _moveEvent(sourceDayId, evtIdx, targetDayId, tripId) {
+  if (!sourceDayId || !targetDayId || sourceDayId === targetDayId) return;
+  const trip = getTrip(tripId);
+  if (!trip) return;
+
+  const days      = trip.days || [];
+  const srcDay    = days.find(d => d.id === sourceDayId);
+  const tgtDay    = days.find(d => d.id === targetDayId);
+  if (!srcDay || !tgtDay) return;
+
+  const srcItems = [...(srcDay.items || [])];
+  if (evtIdx < 0 || evtIdx >= srcItems.length) return;
+  const [moved] = srcItems.splice(evtIdx, 1);
+  srcDay.items = srcItems;
+
+  tgtDay.items = [...(tgtDay.items || []), moved];
+
+  updateTrip(tripId, { days });
+  _activeEvtKey = null;
+  _closeEDP();
+  _renderDaysList(tripId);
+  _renderMiniCal(tripId);
+  _refreshMapPins(tripId);
+  notify('Événement déplacé', '✅');
 }
 
 // ─── Delete event ─────────────────────────────────────────────────────────────
@@ -852,6 +951,122 @@ function _deleteEvent(dayId, evtIdx, tripId) {
   _refreshMapPins(tripId);
   updateTopStats(tripId);
   notify('Événement supprimé', '🗑');
+}
+
+// ─── Map search bar ───────────────────────────────────────────────────────────
+
+function _initMapSearch(tripId) {
+  const input   = document.getElementById('ms-input');
+  const btn     = document.getElementById('ms-btn');
+  const results = document.getElementById('ms-results');
+  const action  = document.getElementById('ms-action');
+  const aLabel  = document.getElementById('ms-action-label');
+  const aAdd    = document.getElementById('ms-action-add');
+  const aClose  = document.getElementById('ms-action-close');
+  if (!input || !btn || !results) return;
+
+  // Remove stale temp pin on re-init
+  if (_tempSearchPin && _map) {
+    try { _map.removeLayer(_tempSearchPin); } catch (_) {}
+    _tempSearchPin = null;
+  }
+
+  function _setActionBar(lat, lng, label) {
+    if (!action || !aLabel) return;
+    aLabel.textContent = label.split(',').slice(0, 2).join(',').trim();
+    action.style.display = 'flex';
+
+    aAdd.onclick = () => {
+      action.style.display = 'none';
+      if (_tempSearchPin && _map) { try { _map.removeLayer(_tempSearchPin); } catch (_) {} _tempSearchPin = null; }
+      const trip     = getTrip(tripId);
+      const targetId = _activeDayId || (trip?.days || [])[0]?.id;
+      if (!targetId) { notify('Aucun jour disponible — créez un jour d\'abord', '⚠️'); return; }
+      _openAddEventModal(targetId, tripId, { lat, lng, label: label.split(',')[0].trim() });
+    };
+
+    aClose.onclick = () => {
+      action.style.display = 'none';
+      if (_tempSearchPin && _map) { try { _map.removeLayer(_tempSearchPin); } catch (_) {} _tempSearchPin = null; }
+    };
+  }
+
+  function _placePin(lat, lng, label) {
+    if (!_map) return;
+    if (_tempSearchPin) { try { _map.removeLayer(_tempSearchPin); } catch (_) {} }
+    const icon = L.divIcon({
+      className: '',
+      html: `<div style="background:#fff;border:3px solid #0d9488;border-radius:50%;width:30px;height:30px;display:flex;align-items:center;justify-content:center;font-size:16px;box-shadow:0 2px 8px rgba(0,0,0,.3)">📍</div>`,
+      iconSize: [30, 30], iconAnchor: [15, 15],
+    });
+    _tempSearchPin = L.marker([lat, lng], { icon, zIndexOffset: 2000 }).addTo(_map);
+    _map.flyTo([lat, lng], Math.max(_map.getZoom(), 13), { duration: 0.8 });
+    _setActionBar(lat, lng, label);
+  }
+
+  function _showResults(data) {
+    if (!data.length) {
+      results.innerHTML = '<div style="padding:8px 12px;font-size:12px;color:#888">Aucun résultat</div>';
+    } else {
+      results.innerHTML = data.map(r =>
+        `<div class="ms-result" data-lat="${r.lat}" data-lng="${r.lon}"
+             data-label="${_esc(r.display_name)}"
+             style="padding:8px 12px;font-size:12px;cursor:pointer;border-bottom:1px solid #f0f0f0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
+           📍 ${_esc(r.display_name)}
+         </div>`
+      ).join('');
+      results.querySelectorAll('.ms-result').forEach(el => {
+        el.addEventListener('mouseenter', () => { el.style.background = '#f0fafa'; });
+        el.addEventListener('mouseleave', () => { el.style.background = ''; });
+        el.addEventListener('click', () => {
+          const lat   = parseFloat(el.dataset.lat);
+          const lng   = parseFloat(el.dataset.lng);
+          const label = el.dataset.label;
+          input.value = label.split(',')[0].trim();
+          results.style.display = 'none';
+          _placePin(lat, lng, label);
+        });
+      });
+    }
+    results.style.display = 'block';
+  }
+
+  async function _doSearch() {
+    const q = input.value.trim();
+    if (!q) return;
+    btn.textContent = '…';
+    btn.disabled    = true;
+    try {
+      const resp = await fetch(
+        `https://nominatim.openstreetmap.org/search?format=json&limit=5&q=${encodeURIComponent(q)}`,
+        { headers: { 'Accept-Language': 'fr' } }
+      );
+      _showResults(await resp.json());
+    } catch {
+      results.innerHTML = '<div style="padding:8px 12px;font-size:12px;color:#e85d3e">Erreur réseau</div>';
+      results.style.display = 'block';
+    }
+    btn.textContent = '→';
+    btn.disabled    = false;
+  }
+
+  btn.addEventListener('click', _doSearch);
+  input.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); _doSearch(); } });
+
+  let _deb = null;
+  input.addEventListener('input', () => {
+    clearTimeout(_deb);
+    const q = input.value.trim();
+    if (q.length < 3) { results.style.display = 'none'; return; }
+    _deb = setTimeout(_doSearch, 450);
+  });
+
+  // Close dropdown when clicking outside
+  const _outsideClick = e => {
+    if (!document.getElementById('ms-results')) { document.removeEventListener('click', _outsideClick); return; }
+    if (!e.target.closest('#map-srch')) results.style.display = 'none';
+  };
+  document.addEventListener('click', _outsideClick);
 }
 
 // ─── Nominatim address search helper ─────────────────────────────────────────
@@ -1168,12 +1383,12 @@ function _openAddDayModalWithCoords(tripId, lat, lng) {
 
 // ─── Add Event Modal ──────────────────────────────────────────────────────────
 
-function _openAddEventModal(dayId, tripId) {
+function _openAddEventModal(dayId, tripId, prefill = null) {
   const evtTypes   = getEventTypes();
   let selType      = evtTypes.find(t => t.key === 'visit') ? 'visit' : (evtTypes[0]?.key || 'visit');
   let selTransport = 'car';
-  let pickedLat    = null;
-  let pickedLng    = null;
+  let pickedLat    = prefill?.lat ?? null;
+  let pickedLng    = prefill?.lng ?? null;
 
   function _aeTypeBtnsHtml() {
     return evtTypes.map(et => {
@@ -1244,7 +1459,7 @@ function _openAddEventModal(dayId, tripId) {
 
   // Build main location search widget (updates day PIN)
   const locWidgetEl = document.getElementById('ae-location-widget');
-  _buildLocationSearch(
+  const _locWidget = _buildLocationSearch(
     locWidgetEl,
     ({ lat, lng }) => { pickedLat = lat; pickedLng = lng; },
     () => {
@@ -1261,13 +1476,16 @@ function _openAddEventModal(dayId, tripId) {
         pickedLat = lat; pickedLng = lng;
         if (_map) _map.getContainer().style.cursor = '';
         document.getElementById('map-pick-info')?.remove();
-        // Reopen modal — simplest approach: just notify and re-open
         _openAddEventModal(dayId, tripId);
-        // Note: pickedLat/pickedLng are local; user may search again after reopen
         notify(`📍 ${lat.toFixed(5)}, ${lng.toFixed(5)} sélectionné`, '✅');
       };
     }
   );
+
+  // Pre-fill location from map search
+  if (prefill?.lat != null && _locWidget) {
+    _locWidget.setSelected(`📍 ${prefill.label || (prefill.lat.toFixed(5) + ', ' + prefill.lng.toFixed(5))}`);
+  }
 
   // Transport destination widget (shown only for drive)
   let destLat = null, destLng = null;

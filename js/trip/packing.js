@@ -5,6 +5,9 @@
 import { getTrip, updateTrip, uid } from '../store.js';
 import { notify, showModal, closeModal, colorOptsHtml } from '../utils.js';
 
+// ── Panel listener registry (prevent accumulation) ────────────────────────────
+const _handlers = new WeakMap();
+
 // ── Public entry ───────────────────────────────────────────────────────────────
 
 export function renderPacking(tripId) {
@@ -14,8 +17,16 @@ export function renderPacking(tripId) {
   const trip = getTrip(tripId);
   if (!trip) return;
 
+  if (_handlers.has(panel)) {
+    panel.removeEventListener('click', _handlers.get(panel));
+    _handlers.delete(panel);
+  }
+
   panel.innerHTML = _buildHtml(trip);
-  _attachListeners(panel, tripId);
+
+  const handler = e => _handleClick(e, tripId);
+  _handlers.set(panel, handler);
+  panel.addEventListener('click', handler);
 }
 
 // ── HTML ──────────────────────────────────────────────────────────────────────
@@ -76,7 +87,7 @@ function _buildHtml(trip) {
                       ${isChecked ? '✓' : ''}
                     </div>
                     <div class="pack-item-info">
-                      <span class="pack-item-name ${isChecked ? 'struck' : ''}" style="max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:block">${_esc(item.name)}</span>
+                      <span class="pack-item-name ${isChecked ? 'struck' : ''}" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:block">${_esc(item.name)}</span>
                       ${item.subtitle ? `<span class="pack-item-sub">${_esc(item.subtitle)}</span>` : ''}
                     </div>
                     ${carrierHtml}
@@ -109,23 +120,21 @@ function _buildHtml(trip) {
     </div>`;
 }
 
-// ── Listeners ─────────────────────────────────────────────────────────────────
+// ── Event delegation ──────────────────────────────────────────────────────────
 
-function _attachListeners(panel, tripId) {
-  panel.addEventListener('click', e => {
-    const el     = e.target.closest('[data-action]');
-    if (!el) return;
-    const action = el.dataset.action;
+function _handleClick(e, tripId) {
+  const el = e.target.closest('[data-action]');
+  if (!el) return;
+  const action = el.dataset.action;
 
-    if (action === 'add-cat')   { _openCatModal(tripId, null); return; }
-    if (action === 'edit-cat')  { _openCatModal(tripId, el.dataset.cat); return; }
-    if (action === 'del-cat')   { _deleteCat(tripId, el.dataset.cat); return; }
-    if (action === 'add-item')  { _openItemModal(tripId, el.dataset.cat, null); return; }
-    if (action === 'edit-item') { e.stopPropagation(); _openItemModal(tripId, el.dataset.cat, el.dataset.item); return; }
-    if (action === 'del-item')  { e.stopPropagation(); _deleteItem(tripId, el.dataset.cat, el.dataset.item); return; }
-    if (action === 'toggle')    { _toggleItem(tripId, el.dataset.item); return; }
-    if (action === 'reset-all') { _resetAll(tripId); return; }
-  });
+  if (action === 'add-cat')   { _openCatModal(tripId, null); return; }
+  if (action === 'edit-cat')  { _openCatModal(tripId, el.dataset.cat); return; }
+  if (action === 'del-cat')   { _deleteCat(tripId, el.dataset.cat); return; }
+  if (action === 'add-item')  { _openItemModal(tripId, el.dataset.cat, null); return; }
+  if (action === 'edit-item') { e.stopPropagation(); _openItemModal(tripId, el.dataset.cat, el.dataset.item); return; }
+  if (action === 'del-item')  { e.stopPropagation(); _deleteItem(tripId, el.dataset.cat, el.dataset.item); return; }
+  if (action === 'toggle')    { _toggleItem(tripId, el.dataset.item); return; }
+  if (action === 'reset-all') { _resetAll(tripId); return; }
 }
 
 // ── Toggle ─────────────────────────────────────────────────────────────────────
