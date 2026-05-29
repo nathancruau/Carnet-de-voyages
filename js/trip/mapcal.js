@@ -363,7 +363,6 @@ function _renderMiniCal(tripId) {
 
       let cls  = 'mc-cell';
       let style = '';
-      if (isToday) cls += ' td';
 
       if (day) {
         cls   += ' sd';

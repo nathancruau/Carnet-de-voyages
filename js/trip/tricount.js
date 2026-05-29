@@ -269,11 +269,8 @@ function _renderDepenses(trip, participants) {
       </tr>`;
   }
 
-  // Budget vs real comparison
-  const comparisonHtml = _renderBudgetComparison(trip, totalSpent);
-
-  // Category bar chart
-  const barChartHtml = _renderCatBarChart(trip, expenses);
+  // Category donut chart
+  const donutHtml = _renderCatDonut(trip, expenses);
 
   return `
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">
@@ -296,63 +293,83 @@ function _renderDepenses(trip, participants) {
       </thead>
       <tbody>${rows}</tbody>
     </table>
-    ${barChartHtml}
-    ${comparisonHtml}`;
+    ${donutHtml}`;
 }
 
-// ── Category bar chart ────────────────────────────────────────────────────────
+// ── Category donut chart ──────────────────────────────────────────────────────
 
-function _renderCatBarChart(trip, expenses) {
-  const cats = trip.budgetCats || [];
-  if (cats.length === 0 || expenses.length === 0) return '';
+function _renderCatDonut(trip, expenses) {
+  const cats  = trip.budgetCats || [];
+  const total = expenses.reduce((s, e) => s + (Number(e.amount) || 0), 0);
+  if (cats.length === 0 || total === 0) return '';
 
-  // Sum real expenses by category
   const spentByCat = {};
   for (const exp of expenses) {
-    if (exp.catId) {
-      spentByCat[exp.catId] = (spentByCat[exp.catId] || 0) + (Number(exp.amount) || 0);
-    }
+    if (exp.catId) spentByCat[exp.catId] = (spentByCat[exp.catId] || 0) + (Number(exp.amount) || 0);
   }
 
-  // Only show cats that have real expenses
-  const activeCats = cats.filter(c => spentByCat[c.id] > 0);
-  if (activeCats.length === 0) return '';
+  const budgetByCat = {};
+  for (const line of (trip.budgetLines || [])) {
+    if (line.catId) budgetByCat[line.catId] = (budgetByCat[line.catId] || 0) + (Number(line.amount) || 0);
+  }
 
-  const maxSpent = Math.max(...activeCats.map(c => spentByCat[c.id] || 0));
+  const segments = cats
+    .map(cat => ({
+      label:   cat.name,
+      icon:    cat.icon  || '📦',
+      color:   cat.color || '#888',
+      spent:   spentByCat[cat.id]  || 0,
+      planned: budgetByCat[cat.id] || 0,
+    }))
+    .filter(s => s.spent > 0);
 
-  let bars = '';
-  for (const cat of activeCats) {
-    const spent   = spentByCat[cat.id] || 0;
-    const planned = Number(cat.planned) || 0;
-    const pct     = maxSpent > 0 ? Math.round((spent / maxSpent) * 100) : 0;
-    const overBudget = planned > 0 && spent > planned;
-    const barColor = overBudget ? 'var(--coral)' : (cat.color || '#0d9488');
+  if (segments.length === 0) return '';
 
-    bars += `
-      <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
-        <div style="width:28px;text-align:center;font-size:15px">${_esc(cat.icon || '📦')}</div>
-        <div style="width:90px;font-size:11px;font-weight:600;color:var(--ink2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${_esc(cat.name)}</div>
-        <div style="flex:1;background:var(--c3);border-radius:4px;height:12px;overflow:hidden">
-          <div style="width:${pct}%;height:100%;background:${barColor};border-radius:4px;transition:width .3s"></div>
-        </div>
-        <div style="width:80px;text-align:right;font-size:11px;font-weight:700;color:${overBudget ? 'var(--coral)' : 'var(--ink)'}">
-          ${_fmtEur(spent)}${planned > 0 ? `<span style="font-weight:400;color:var(--ink4)"> / ${_fmtEur(planned)}</span>` : ''}
+  const R = 40, cx = 50, cy = 50;
+  const circ = 2 * Math.PI * R;
+  let offset = 0;
+  let arcs = '';
+  for (const seg of segments) {
+    const dash = (seg.spent / total) * circ;
+    const over = seg.planned > 0 && seg.spent > seg.planned;
+    arcs += `<circle cx="${cx}" cy="${cy}" r="${R}" fill="none"
+      stroke="${over ? 'var(--coral)' : _esc(seg.color)}" stroke-width="16"
+      stroke-dasharray="${dash.toFixed(2)} ${(circ - dash).toFixed(2)}"
+      stroke-dashoffset="${(-offset).toFixed(2)}"
+      transform="rotate(-90 ${cx} ${cy})"/>`;
+    offset += dash;
+  }
+
+  const legend = segments.map(s => {
+    const over = s.planned > 0 && s.spent > s.planned;
+    return `
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
+        <div style="width:10px;height:10px;border-radius:50%;background:${over ? 'var(--coral)' : _esc(s.color)};flex-shrink:0"></div>
+        <div style="font-size:11px;color:var(--ink2);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_esc(s.icon)} ${_esc(s.label)}</div>
+        <div style="font-size:11px;font-weight:700;color:${over ? 'var(--coral)' : 'var(--ink)'}">
+          ${_fmtEur(s.spent)}${s.planned > 0 ? `<span style="font-weight:400;color:var(--ink4)"> / ${_fmtEur(s.planned)}</span>` : ''}
         </div>
       </div>`;
-  }
+  }).join('');
 
   return `
     <div style="margin-top:20px;background:var(--c);border:1.5px solid var(--c3);border-radius:10px;padding:14px 16px">
-      <div style="font-size:12px;font-weight:700;color:var(--ink2);margin-bottom:12px">D&eacute;penses par cat&eacute;gorie</div>
-      ${bars}
+      <div style="font-size:12px;font-weight:700;color:var(--ink2);margin-bottom:12px">R&eacute;partition par cat&eacute;gorie</div>
+      <div style="display:flex;align-items:center;gap:20px;flex-wrap:wrap">
+        <svg width="100" height="100" viewBox="0 0 100 100" style="flex-shrink:0">
+          <circle cx="${cx}" cy="${cy}" r="${R}" fill="none" stroke="var(--c3)" stroke-width="16"/>
+          ${arcs}
+        </svg>
+        <div style="flex:1;min-width:140px">${legend}</div>
+      </div>
     </div>`;
 }
 
 // ── Budget vs real comparison ─────────────────────────────────────────────────
 
 function _renderBudgetComparison(trip, totalSpent) {
-  const cats        = trip.budgetCats || [];
-  const totalBudget = cats.reduce((s, c) => s + (Number(c.planned) || 0), 0);
+  const budgetLines = trip.budgetLines || [];
+  const totalBudget = budgetLines.reduce((s, l) => s + (Number(l.amount) || 0), 0);
 
   if (totalBudget === 0) return '';
 
@@ -455,8 +472,9 @@ function _renderBilans(trip, participants, balances, settlements) {
 // ── Budget vs Dépenses tab ────────────────────────────────────────────────────
 
 function _renderBudgetVsDep(trip) {
-  const cats     = trip.budgetCats    || [];
-  const expenses = trip.realExpenses  || [];
+  const cats        = trip.budgetCats    || [];
+  const expenses    = trip.realExpenses  || [];
+  const budgetLines = trip.budgetLines   || [];
 
   if (cats.length === 0) {
     return `
@@ -475,12 +493,20 @@ function _renderBudgetVsDep(trip) {
     }
   }
 
+  // Sum budget lines by category
+  const budgetByCat = {};
+  for (const line of budgetLines) {
+    if (line.catId) {
+      budgetByCat[line.catId] = (budgetByCat[line.catId] || 0) + (Number(line.amount) || 0);
+    }
+  }
+
   let totalPlanned = 0;
   let totalSpent   = 0;
   let rows = '';
 
   for (const cat of cats) {
-    const planned = Number(cat.planned) || 0;
+    const planned = budgetByCat[cat.id] || 0;
     const spent   = spentByCat[cat.id]  || 0;
     const diff    = planned - spent;
     const isOver  = diff < -0.01;
