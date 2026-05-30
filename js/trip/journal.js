@@ -2,14 +2,15 @@
    CARNET DE VOYAGES — Journal Module
    ============================================================ */
 
-import { getTrip, updateTrip, uid, getPinTypes } from '../store.js';
+import { getTrip, updateTrip, uid, getEventTypes, getLanguage } from '../store.js';
 import { notify, showModal, closeModal, fmtDate, fmtDateShort, isoToDate, dateToIso } from '../utils.js';
+import { updateTopStats } from './trip.js';
 
-// ── PIN type definitions (dynamic from settings) ──────────────────────────────
+// ── Event type emoji map ──────────────────────────────────────────────────────
 
-function _pinTypeMap() {
+function _etMap() {
   const map = {};
-  for (const pt of getPinTypes()) map[pt.key] = pt.emoji;
+  for (const et of getEventTypes()) map[et.key] = et.emoji;
   return map;
 }
 
@@ -49,9 +50,10 @@ const _handlers = new WeakMap();
 
 // ── Map state ─────────────────────────────────────────────────────────────────
 
-let _journalMap      = null;
-let _journalMarkers  = {};
-let _journalTripId   = null;
+let _journalMap          = null;
+let _journalMarkers      = {};
+let _journalRouteLayers  = [];
+let _journalTripId       = null;
 
 // ── Day filter state ──────────────────────────────────────────────────────────
 
@@ -62,8 +64,84 @@ export function destroyJournalMap() {
     try { _journalMap.remove(); } catch (_) { /* already removed */ }
     _journalMap = null;
   }
-  _journalMarkers = {};
-  _journalTripId  = null;
+  _journalMarkers     = {};
+  _journalRouteLayers = [];
+  _journalTripId      = null;
+}
+
+// ── Route helpers (mirrors mapcal logic) ──────────────────────────────────────
+
+function _jCollectWaypoints(trip) {
+  const wps = [];
+  for (const day of (trip.days || [])) {
+    const itemPins = (day.items || []).filter(it => it.lat != null && it.lng != null);
+    if (itemPins.length > 0) {
+      for (const item of itemPins) {
+        let mode = item.routeMode || 'car';
+        if (item.type === 'drive' && item.transport) mode = item.transport;
+        wps.push({ lat: item.lat, lng: item.lng, mode });
+      }
+    } else if (day.lat != null && day.lng != null) {
+      wps.push({ lat: day.lat, lng: day.lng, mode: day.routeMode || 'car' });
+    }
+  }
+  return wps;
+}
+
+function _jOsrmProfile(mode) {
+  return { car: 'driving', bus: 'driving', foot: 'foot', bike: 'cycling' }[mode] || 'driving';
+}
+
+function _jModeColor(mode) {
+  return { car: '#0284c7', foot: '#16a34a', bike: '#d97706', bus: '#7c3aed', plane: '#7c3aed', ferry: '#0d9488' }[mode] || '#9c9890';
+}
+
+async function _drawJournalRoutes(tripId) {
+  if (!_journalMap) return;
+  const trip = getTrip(tripId);
+  if (!trip) return;
+
+  _journalRouteLayers.forEach(l => { try { _journalMap.removeLayer(l); } catch (_) {} });
+  _journalRouteLayers = [];
+
+  const wps = _jCollectWaypoints(trip);
+  if (wps.length < 2) return;
+
+  for (let i = 0; i < wps.length - 1; i++) {
+    const from = wps[i];
+    const to   = wps[i + 1];
+    const mode = to.mode || 'car';
+    let line   = null;
+
+    if (mode === 'plane' || mode === 'ferry') {
+      line = L.polyline([[from.lat, from.lng], [to.lat, to.lng]], {
+        color: mode === 'plane' ? '#7c3aed' : '#0d9488', weight: 2, opacity: 0.6, dashArray: '6 6',
+      });
+    } else {
+      try {
+        const url = `https://router.project-osrm.org/route/v1/${_jOsrmProfile(mode)}/`
+          + `${from.lng},${from.lat};${to.lng},${to.lat}?overview=full&geometries=geojson`;
+        const resp   = await fetch(url);
+        const data   = await resp.json();
+        const coords = data.routes?.[0]?.geometry?.coordinates;
+        if (coords && coords.length) {
+          line = L.polyline(coords.map(([lng, lat]) => [lat, lng]), {
+            color: _jModeColor(mode), weight: 3, opacity: 0.7,
+          });
+        }
+      } catch (_) {}
+      if (!line) {
+        line = L.polyline([[from.lat, from.lng], [to.lat, to.lng]], {
+          color: '#9c9890', weight: 2, opacity: 0.4, dashArray: '4 4',
+        });
+      }
+    }
+
+    if (line) {
+      line.addTo(_journalMap);
+      _journalRouteLayers.push(line);
+    }
+  }
 }
 
 // ── Render ────────────────────────────────────────────────────────────────────
@@ -77,33 +155,24 @@ export function renderJournal(tripId) {
 
   _journalTripId = tripId;
 
-  // Remove previous listener before re-rendering
   if (_handlers.has(panel)) {
     panel.removeEventListener('click', _handlers.get(panel));
     _handlers.delete(panel);
   }
 
-  const allEntries = [...(trip.journalEntries || [])].sort((a, b) => {
-    return (b.date || '').localeCompare(a.date || '');
-  });
-
   panel.innerHTML = `
     <div class="mapcal">
       <div class="left-panel" style="width:290px;min-width:240px;max-width:290px;display:flex;flex-direction:column">
-        <div style="padding:12px 14px 8px;flex-shrink:0;display:flex;align-items:center;justify-content:space-between;gap:8px">
-          <h3 style="font-family:var(--sf);font-size:15px;font-weight:700;color:var(--ink);margin:0">📔 Journal</h3>
-          <button class="btn-new" data-action="add-entry" style="font-size:11px;padding:5px 10px;white-space:nowrap">＋ Nouvelle</button>
+        <div style="padding:12px 14px 6px;flex-shrink:0">
+          <h3 style="font-family:var(--sf);font-size:15px;font-weight:700;color:var(--ink);margin:0">📔 Carnet</h3>
+          <p style="font-size:11px;color:var(--ink4);margin-top:2px">Validez vos activités · les PIN apparaissent sur la carte</p>
         </div>
-        <div style="flex-shrink:0;padding:0 8px 6px;border-bottom:1px solid var(--c3)">
-          ${_buildDayChipsHtml(trip)}
-        </div>
-        <div class="days-scroll" id="journal-entries-list" style="flex:1;overflow-y:auto;padding:6px 8px">
-          ${_buildEntriesListHtml(trip, allEntries)}
+        <div class="days-scroll" id="journal-activities-list" style="flex:1;overflow-y:auto;padding:6px 8px">
+          ${_buildActivitiesHtml(trip)}
         </div>
       </div>
       <div class="map-col" style="flex:1;position:relative">
         <div id="journal-map" style="width:100%;height:100%"></div>
-        ${allEntries.length === 0 ? `<div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center;color:var(--ink4);pointer-events:none"><div style="font-size:36px;margin-bottom:8px">🗺️</div><div style="font-size:13px;font-weight:600">Ajoutez des entrées avec une localisation<br>pour les voir sur la carte</div></div>` : ''}
       </div>
     </div>`;
 
@@ -194,7 +263,7 @@ function _entryCard(trip, e) {
   const dayLabel  = e.dayId ? _dayLabel(trip, e.dayId) : null;
 
   let metaPills = `<span class="jn-meta-pill">${_esc(dateLabel)}</span>`;
-  if (e.pinType && _pinTypeMap()[e.pinType]) metaPills += `<span class="jn-meta-pill" title="${_esc(e.pinType)}">${_pinTypeMap()[e.pinType]}</span>`;
+  if (e.pinType && _etMap()[e.pinType]) metaPills += `<span class="jn-meta-pill" title="${_esc(e.pinType)}">${_etMap()[e.pinType]}</span>`;
   if (e.weather) metaPills += `<span class="jn-meta-pill">${_esc(e.weather)}</span>`;
   if (e.mood)    metaPills += `<span class="jn-meta-pill">${_esc(e.mood)}</span>`;
   if (e.rating)  metaPills += `<span class="jn-meta-pill">${_starsHtml(e.rating)}</span>`;
@@ -263,23 +332,36 @@ function _initJournalMap(tripId) {
     if (!el) return;
 
     const trip = getTrip(tripId);
-    // Default center
     let center = [46.5, 2.5];
     let zoom   = 5;
     if (trip) {
-      const entry = (trip.journalEntries || []).find(e => e.lat != null && e.lng != null);
-      if (entry) { center = [entry.lat, entry.lng]; zoom = 7; }
+      // Try to center on first planning item pin
+      outer: for (const day of (trip.days || [])) {
+        for (const item of (day.items || [])) {
+          if (item.lat != null && item.lng != null) {
+            center = [item.lat, item.lng]; zoom = 7; break outer;
+          }
+        }
+        if (day.lat != null && day.lng != null) {
+          center = [day.lat, day.lng]; zoom = 7; break;
+        }
+      }
     }
 
     _journalMap = L.map('journal-map', { center, zoom, zoomControl: true });
 
-    L.tileLayer('https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png', {
+    const lang = getLanguage();
+    const tileUrl = lang === 'en'
+      ? 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png'
+      : 'https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png';
+    L.tileLayer(tileUrl, {
       attribution: '© OpenStreetMap contributors',
       maxZoom: 18,
     }).addTo(_journalMap);
 
     _journalMap.invalidateSize();
     _refreshJournalPins(tripId);
+    _drawJournalRoutes(tripId);
   });
 }
 
@@ -288,50 +370,41 @@ function _refreshJournalPins(tripId) {
   const trip = getTrip(tripId);
   if (!trip) return;
 
-  // Remove existing markers
   Object.values(_journalMarkers).forEach(m => { try { _journalMap.removeLayer(m); } catch (_) {} });
   _journalMarkers = {};
 
-  const entries = (trip.journalEntries || []).filter(e => e.lat != null && e.lng != null);
+  const etMap = _etMap();
+  const allPinLatLngs = [];
 
-  entries.forEach(entry => {
-    const emoji = (entry.pinType && _pinTypeMap()[entry.pinType]) ? _pinTypeMap()[entry.pinType] : '📍';
-    const icon = L.divIcon({
-      className: '',
-      html: `<div style="background:#0891b2;border:2px solid #fff;border-radius:50%;width:30px;height:30px;display:flex;align-items:center;justify-content:center;font-size:17px;box-shadow:0 1px 6px rgba(0,0,0,.4)"><span style="filter:grayscale(1) brightness(2)">${emoji}</span></div>`,
-      iconSize:   [30, 30],
-      iconAnchor: [15, 15],
-      popupAnchor:[0, -18],
+  for (const day of (trip.days || [])) {
+    (day.items || []).forEach((item, itemIdx) => {
+      if (item.lat == null || item.lng == null) return;
+
+      const jd        = item.journalData;
+      const validated = jd?.validated;
+      const emoji     = etMap[item.type] || '📍';
+      const bgColor   = validated ? '#16a34a' : '#0891b2';
+
+      const icon = L.divIcon({
+        className: '',
+        html: `<div style="background:${bgColor};border:2px solid #fff;border-radius:50%;width:30px;height:30px;display:flex;align-items:center;justify-content:center;font-size:16px;box-shadow:0 1px 6px rgba(0,0,0,.4);cursor:pointer">${emoji}</div>`,
+        iconSize:   [30, 30],
+        iconAnchor: [15, 15],
+        popupAnchor:[0, -18],
+      });
+
+      const marker = L.marker([item.lat, item.lng], { icon });
+      marker.on('click', () => _openJournalItemPanel(tripId, day.id, itemIdx));
+      marker.addTo(_journalMap);
+      _journalMarkers[item.id] = marker;
+      allPinLatLngs.push([item.lat, item.lng]);
     });
+  }
 
-    const marker = L.marker([entry.lat, entry.lng], { icon });
-
-    const contentSnippet = entry.content
-      ? entry.content.slice(0, 80) + (entry.content.length > 80 ? '…' : '')
-      : '';
-
-    marker.bindPopup(`
-      <div style="padding:4px 2px;min-width:130px">
-        <div style="font-weight:700;font-size:12px;margin-bottom:2px">${_esc(entry.title || 'Sans titre')}</div>
-        ${entry.date ? `<div style="font-size:11px;color:#6b7280">${_esc(fmtDate(entry.date))}</div>` : ''}
-        ${contentSnippet ? `<div style="font-size:11px;margin-top:4px;color:#374151">${_esc(contentSnippet)}</div>` : ''}
-      </div>
-    `, { maxWidth: 200 });
-
-    marker.on('click', () => {
-      _highlightEntry(entry.id);
-    });
-
-    marker.addTo(_journalMap);
-    _journalMarkers[entry.id] = marker;
-  });
-
-  // Fit bounds
-  if (entries.length === 1) {
-    _journalMap.setView([entries[0].lat, entries[0].lng], 10, { animate: true });
-  } else if (entries.length > 1) {
-    const bounds = entries.map(e => [e.lat, e.lng]);
-    _journalMap.fitBounds(bounds, { padding: [40, 40], maxZoom: 12 });
+  if (allPinLatLngs.length === 1) {
+    _journalMap.setView(allPinLatLngs[0], 10, { animate: true });
+  } else if (allPinLatLngs.length > 1) {
+    _journalMap.fitBounds(allPinLatLngs, { padding: [40, 40], maxZoom: 12 });
   }
 }
 
@@ -363,36 +436,342 @@ function _handleClick(e, tripId) {
 
   const action = btn.dataset.action;
 
-  if (action === 'add-entry') {
-    _openEntryModal(tripId, null);
-  } else if (action === 'edit-entry') {
-    _openEntryModal(tripId, btn.dataset.entryId);
-  } else if (action === 'delete-entry') {
-    const entryId = btn.dataset.entryId;
-    if (confirm('Supprimer cette entrée de journal ?')) {
-      const trip = getTrip(tripId);
-      updateTrip(tripId, {
-        journalEntries: (trip.journalEntries || []).filter(en => en.id !== entryId)
-      });
-      notify('Entrée supprimée', '🗑');
-      renderJournal(tripId);
-    }
-  } else if (action === 'filter-day') {
-    const dayId = btn.dataset.dayId || null;
-    _activeDayFilter = dayId || null;
-    // Re-render just the chips and entries list
-    const trip = getTrip(tripId);
-    if (!trip) return;
-    const allEntries = [...(trip.journalEntries || [])].sort((a, b) =>
-      (b.date || '').localeCompare(a.date || '')
-    );
-    const chipsWrap = btn.closest('[style*="border-bottom"]') || btn.parentElement?.parentElement;
-    if (chipsWrap) {
-      chipsWrap.innerHTML = _buildDayChipsHtml(trip);
-    }
-    const listEl = document.getElementById('journal-entries-list');
-    if (listEl) listEl.innerHTML = _buildEntriesListHtml(trip, allEntries);
+  if (action === 'validate-item') {
+    _openValidateModal(tripId, btn.dataset.dayId, parseInt(btn.dataset.itemIdx, 10));
   }
+}
+
+// ── Journal item side panel (EDP) ─────────────────────────────────────────────
+
+function _openJournalItemPanel(tripId, dayId, itemIdx) {
+  _closeJournalItemPanel();
+
+  const trip = getTrip(tripId);
+  if (!trip) return;
+  const day = (trip.days || []).find(d => d.id === dayId);
+  if (!day) return;
+  const item = (day.items || [])[itemIdx];
+  if (!item) return;
+
+  const jd        = item.journalData || {};
+  const typeIcon  = _eventTypeIcon(item.type);
+  const dayLabel  = `Jour ${day.num}${day.title ? ' · ' + day.title : ''}`;
+
+  const photosHtml = (jd.photos || []).length > 0
+    ? `<div style="display:flex;gap:5px;flex-wrap:wrap;margin:6px 0">
+        ${(jd.photos || []).map(src =>
+          `<img src="${_esc(src)}" onclick="window.open(this.src,'_blank')"
+            style="width:72px;height:56px;object-fit:cover;border-radius:6px;cursor:pointer;border:1px solid var(--c3)">`
+        ).join('')}
+       </div>`
+    : '';
+
+  const mapCol = document.querySelector('#panel-journal .map-col');
+  if (!mapCol) return;
+
+  const panel = document.createElement('div');
+  panel.className = 'edp';
+  panel.id = 'jn-edp';
+  panel.innerHTML = `
+    <div class="edp-hd">
+      <div class="edp-ic">${typeIcon}</div>
+      <div style="min-width:0;flex:1">
+        <div class="edp-title">${_esc(item.text || '—')}</div>
+        <div class="edp-day">${_esc(dayLabel)}${day.date ? ' · ' + fmtDateShort(day.date) : ''}</div>
+      </div>
+      <button class="edp-close" id="jn-edp-close">✕</button>
+    </div>
+    <div class="edp-body">
+      ${jd.validated ? `<div style="font-size:11px;font-weight:700;color:#16a34a;margin-bottom:8px">✓ Activité validée</div>` : ''}
+      ${jd.weather   ? `<div style="font-size:22px;margin-bottom:6px">${jd.weather}</div>` : ''}
+      ${jd.notes     ? `<div style="font-size:12px;color:var(--ink2);white-space:pre-wrap;margin-bottom:8px">${_esc(jd.notes)}</div>` : ''}
+      ${photosHtml}
+      ${jd.amount    ? `<div style="font-size:12px;color:var(--ink3);margin-top:4px">💶 ${jd.amount} €</div>` : ''}
+      ${!jd.validated && !jd.notes && !jd.weather && !photosHtml
+        ? `<div style="font-size:12px;color:var(--ink4)">Aucune information enregistrée.<br>Cliquez sur "Valider" pour documenter cette activité.</div>`
+        : ''}
+    </div>
+    <div class="edp-actions">
+      <button class="edp-save" id="jn-edp-validate">${jd.validated ? '✎ Modifier' : '✓ Valider'}</button>
+    </div>
+  `;
+
+  mapCol.appendChild(panel);
+  requestAnimationFrame(() => panel.classList.add('open'));
+
+  panel.querySelector('#jn-edp-close').addEventListener('click', _closeJournalItemPanel);
+  panel.querySelector('#jn-edp-validate').addEventListener('click', () => {
+    _closeJournalItemPanel();
+    _openValidateModal(tripId, dayId, itemIdx);
+  });
+}
+
+function _closeJournalItemPanel() {
+  const existing = document.getElementById('jn-edp');
+  if (existing) {
+    existing.classList.remove('open');
+    setTimeout(() => { try { existing.remove(); } catch (_) {} }, 280);
+  }
+}
+
+// ── Activities sub-tab ────────────────────────────────────────────────────────
+
+function _eventTypeIcon(type) {
+  const et = getEventTypes().find(e => e.key === type);
+  if (et) return et.emoji;
+  // Fallback built-in map
+  const m = { visit: '🏛️', activity: '🎯', sleep: '🏨', drive: '🚗', food: '🍽️', shop: '🛍️' };
+  return m[type] || '📍';
+}
+
+function _buildActivitiesHtml(trip) {
+  const days = trip.days || [];
+  const hasAny = days.some(d => (d.items || []).length > 0);
+
+  if (!hasAny) {
+    return `
+      <div class="jn-empty" style="text-align:center;padding:32px 12px;color:var(--ink4)">
+        <div style="font-size:36px;margin-bottom:8px">📅</div>
+        <p style="font-size:13px;font-weight:600;color:var(--ink3)">Aucune activité dans le planning</p>
+        <p style="font-size:11px;margin-top:6px;color:var(--ink4)">Ajoutez des activités dans Carte &amp; Planning</p>
+      </div>`;
+  }
+
+  let html = '';
+  for (const day of days) {
+    const items = day.items || [];
+    if (items.length === 0) continue;
+
+    const dayLabel = `Jour ${day.num}${day.title ? ' · ' + day.title : ''}`;
+    html += `<div class="jn-day-group">
+      <div class="jn-day-label">${_esc(dayLabel)}${day.date ? `<span style="font-weight:400;font-size:10px;color:var(--ink4);margin-left:5px">${fmtDateShort(day.date)}</span>` : ''}</div>`;
+
+    items.forEach((item, idx) => {
+      const jd        = item.journalData;
+      const validated = jd?.validated;
+      const typeIcon  = _eventTypeIcon(item.type);
+      const metaParts = [
+        item.time ? `🕐 ${item.time}` : '',
+        item.cost ? `💶 ${item.cost}€` : '',
+      ].filter(Boolean);
+
+      html += `
+        <div style="display:flex;align-items:center;gap:8px;padding:7px 8px;border-radius:8px;margin-bottom:4px;
+          background:${validated ? 'var(--tl)' : 'var(--c2)'};border:1px solid ${validated ? 'var(--teal)' : 'var(--c3)'}">
+          <div style="font-size:16px;flex-shrink:0">${typeIcon}</div>
+          <div style="flex:1;min-width:0">
+            <div style="font-weight:600;color:var(--ink);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_esc(item.text || '—')}</div>
+            ${metaParts.length ? `<div style="font-size:10px;color:var(--ink4);margin-top:1px">${_esc(metaParts.join(' · '))}</div>` : ''}
+            ${validated ? `<div style="font-size:10px;color:var(--td);margin-top:2px;display:flex;gap:4px;flex-wrap:wrap;align-items:center">
+              <span style="font-weight:700">✓ Validé</span>
+              ${jd.weather ? `<span>${jd.weather}</span>` : ''}
+              ${jd.amount  ? `<span>+${jd.amount}€</span>` : ''}
+              ${(jd.photos || []).length > 0 ? `<span>📷 ${jd.photos.length}</span>` : ''}
+            </div>` : ''}
+          </div>
+          <button data-action="validate-item" data-day-id="${_esc(day.id)}" data-item-idx="${idx}"
+            style="flex-shrink:0;font-size:10px;font-weight:700;padding:4px 7px;border-radius:6px;cursor:pointer;white-space:nowrap;
+            background:${validated ? 'var(--teal)' : 'var(--c)'};color:${validated ? '#fff' : 'var(--ink3)'};border:1.5px solid ${validated ? 'var(--teal)' : 'var(--c3)'}">
+            ${validated ? '✓ Éditer' : '✓ Valider'}
+          </button>
+        </div>`;
+    });
+
+    html += `</div>`;
+  }
+  return html;
+}
+
+// ── Validate activity modal ────────────────────────────────────────────────────
+
+function _openValidateModal(tripId, dayId, itemIdx) {
+  const trip = getTrip(tripId);
+  if (!trip) return;
+
+  const day = (trip.days || []).find(d => d.id === dayId);
+  if (!day) return;
+
+  const item = (day.items || [])[itemIdx];
+  if (!item) return;
+
+  const jd = item.journalData || {};
+
+  const state = {
+    weather: jd.weather || '',
+    notes:   jd.notes   || '',
+    amount:  jd.amount  || 0,
+    photos:  jd.photos  ? [...jd.photos] : [],
+  };
+
+  const weatherEmojis = ['☀️', '⛅', '🌧️', '⛈️', '🌨️', '🌫️', '🌊', '🏔️'];
+
+  async function _compressImg(file) {
+    return new Promise(resolve => {
+      const reader = new FileReader();
+      reader.onload = ev => {
+        const img = new Image();
+        img.onload = () => {
+          const maxSize = 800;
+          const canvas  = document.createElement('canvas');
+          let { width, height } = img;
+          if (width > maxSize || height > maxSize) {
+            const r = Math.min(maxSize / width, maxSize / height);
+            width = Math.round(width * r); height = Math.round(height * r);
+          }
+          canvas.width = width; canvas.height = height;
+          canvas.getContext('2d').drawImage(img, 0, 0, width, height);
+          resolve(canvas.toDataURL('image/jpeg', 0.8));
+        };
+        img.src = ev.target.result;
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+
+  function buildWeatherRow() {
+    return weatherEmojis.map(em => {
+      const sel = state.weather === em;
+      return `<button type="button" data-weather="${_esc(em)}"
+        style="background:${sel ? 'var(--tl)' : 'var(--c2)'};border:1.5px solid ${sel ? 'var(--teal)' : 'var(--c3)'};
+        border-radius:8px;padding:4px 6px;font-size:18px;cursor:pointer">${em}</button>`;
+    }).join('');
+  }
+
+  function buildPhotosHtml() {
+    if (state.photos.length === 0) return '<div style="font-size:11px;color:var(--ink4)">Aucune photo ajoutée</div>';
+    return `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px">` +
+      state.photos.map((src, i) =>
+        `<div style="position:relative;display:inline-block">
+          <img src="${_esc(src)}" style="width:56px;height:56px;object-fit:cover;border-radius:6px;border:1px solid var(--c3);cursor:pointer" onclick="window.open(this.src,'_blank')">
+          <button type="button" data-rm-photo="${i}"
+            style="position:absolute;top:-4px;right:-4px;background:var(--coral);color:#fff;border:none;border-radius:50%;width:16px;height:16px;font-size:9px;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;line-height:1">✕</button>
+        </div>`
+      ).join('') + `</div>`;
+  }
+
+  showModal(`
+    <button class="mc" onclick="closeModal()">✕</button>
+    <h3>✓ Valider l'activité</h3>
+    <div style="font-size:13px;font-weight:600;color:var(--ink);margin-bottom:14px;padding:8px 10px;background:var(--c2);border-radius:8px;border:1px solid var(--c3)">
+      ${_eventTypeIcon(item.type)} ${_esc(item.text || '—')}
+    </div>
+
+    <div class="fg">
+      <label>Météo</label>
+      <div style="display:flex;gap:5px;flex-wrap:wrap" id="vld-weather-row">${buildWeatherRow()}</div>
+    </div>
+
+    <div class="fg">
+      <label>Notes</label>
+      <textarea id="vld-notes" rows="3" placeholder="Comment s'est passée cette activité…">${_esc(state.notes)}</textarea>
+    </div>
+
+    <div class="fg">
+      <label>Montant réel (€) <span style="font-size:10px;color:var(--ink4);font-weight:400">— crée une dépense réelle</span></label>
+      <input type="number" id="vld-amount" min="0" step="0.01" placeholder="0" value="${state.amount || ''}">
+    </div>
+
+    <div class="fg">
+      <label>Photos</label>
+      <div id="vld-photos-list">${buildPhotosHtml()}</div>
+      <input type="file" id="vld-photo-file" accept="image/*" style="font-size:12px;color:var(--ink3);margin-top:6px">
+    </div>
+
+    <div class="ma">
+      <button class="bc" onclick="closeModal()">Annuler</button>
+      <button class="bs" id="vld-save">Enregistrer</button>
+    </div>`);
+
+  // Weather picker
+  document.getElementById('vld-weather-row')?.addEventListener('click', ev => {
+    const btn = ev.target.closest('[data-weather]');
+    if (!btn) return;
+    const em = btn.dataset.weather;
+    state.weather = state.weather === em ? '' : em;
+    const row = document.getElementById('vld-weather-row');
+    if (row) row.innerHTML = buildWeatherRow();
+  });
+
+  // Photo remove (delegation — survives innerHTML updates)
+  document.getElementById('vld-photos-list')?.addEventListener('click', ev => {
+    const btn = ev.target.closest('[data-rm-photo]');
+    if (!btn) return;
+    state.photos.splice(parseInt(btn.dataset.rmPhoto, 10), 1);
+    const list = document.getElementById('vld-photos-list');
+    if (list) list.innerHTML = buildPhotosHtml();
+  });
+
+  // Photo upload
+  document.getElementById('vld-photo-file')?.addEventListener('change', async ev => {
+    const file = ev.target.files?.[0];
+    if (!file) return;
+    const base64 = await _compressImg(file);
+    state.photos.push(base64);
+    const list = document.getElementById('vld-photos-list');
+    if (list) list.innerHTML = buildPhotosHtml();
+    ev.target.value = '';
+  });
+
+  // Save
+  document.getElementById('vld-save')?.addEventListener('click', () => {
+    state.notes  = document.getElementById('vld-notes')?.value?.trim()  || '';
+    state.amount = parseFloat(document.getElementById('vld-amount')?.value || '0') || 0;
+
+    const freshTrip = getTrip(tripId);
+    const days      = [...(freshTrip.days || [])];
+    const dayIdx    = days.findIndex(d => d.id === dayId);
+    if (dayIdx === -1) { closeModal(); return; }
+
+    const items = [...(days[dayIdx].items || [])];
+    if (!items[itemIdx]) { closeModal(); return; }
+
+    const itemId = items[itemIdx].id;
+    items[itemIdx] = {
+      ...items[itemIdx],
+      journalData: {
+        validated: true,
+        weather:   state.weather,
+        notes:     state.notes,
+        amount:    state.amount,
+        photos:    state.photos,
+      },
+    };
+    days[dayIdx] = { ...days[dayIdx], items };
+    updateTrip(tripId, { days });
+
+    if (state.amount > 0) {
+      const freshTrip2 = getTrip(tripId);
+      const expenses   = [...(freshTrip2.realExpenses || [])];
+      const cats       = freshTrip2.budgetCats || [];
+      const actCat     = cats.find(c => c.name === 'Activités');
+      const existIdx   = expenses.findIndex(ex => ex.journalItemId === itemId);
+
+      const newExp = {
+        id:            existIdx >= 0 ? expenses[existIdx].id : 'ex_' + uid(),
+        desc:          items[itemIdx].text || 'Activité validée',
+        amount:        state.amount,
+        catId:         actCat?.id || null,
+        paidById:      'moi',
+        sharedWith:    ['moi'],
+        date:          days[dayIdx].date || new Date().toISOString().slice(0, 10),
+        dayId,
+        note:          state.notes ? 'Via Journal · ' + state.notes : 'Via Journal',
+        journalItemId: itemId,
+      };
+
+      if (existIdx >= 0) expenses[existIdx] = newExp;
+      else expenses.push(newExp);
+
+      updateTrip(tripId, { realExpenses: expenses });
+      updateTopStats(tripId);
+      notify('Activité validée · dépense créée', '✓');
+    } else {
+      notify('Activité validée', '✓');
+    }
+
+    closeModal();
+    renderJournal(tripId);
+  });
 }
 
 // ── Add / Edit Modal ──────────────────────────────────────────────────────────
@@ -460,7 +839,7 @@ function _openEntryModal(tripId, entryId) {
   function pinTypeButtons() {
     const btns = [
       { val: null, emoji: '—', label: 'Aucun' },
-      ...getPinTypes().map(pt => ({ val: pt.key, emoji: pt.emoji, label: pt.label })),
+      ...getEventTypes().map(pt => ({ val: pt.key, emoji: pt.emoji, label: pt.label })),
     ];
     return btns.map(({ val, emoji, label }) => {
       const sel = state.pinType === val;
@@ -661,10 +1040,14 @@ function _openEntryModal(tripId, entryId) {
       if (!q) return;
       state._locQuery = q;
       try {
-        const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q)}&limit=5&accept-language=fr`;
-        const res = await fetch(url, { headers: { 'Accept-Language': 'fr' } });
-        const results = await res.json();
-        state._locResults = results;
+        const res  = await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&limit=5&lang=fr`);
+        const gj   = await res.json();
+        state._locResults = (gj.features || []).map(f => {
+          const [lng, lat] = f.geometry.coordinates;
+          const p = f.properties;
+          const parts = [p.name, p.street, p.city, p.state, p.country].filter(Boolean);
+          return { lat: String(lat), lon: String(lng), display_name: parts.join(', ') };
+        });
         reRenderModal();
       } catch (err) {
         notify('Erreur de recherche de localisation', '⚠️');

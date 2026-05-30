@@ -5,8 +5,9 @@
 import {
   getTrips, addTrip, updateTrip, deleteTrip,
   TRIP_TYPES, COMP_COLORS, uid,
-  getSettings, updateSettings, getPinTypes, DEFAULT_PIN_TYPES,
+  getSettings, updateSettings,
   getEventTypes, DEFAULT_EVENT_TYPES,
+  getLanguage,
 } from './store.js';
 import {
   notify, showModal, closeModal,
@@ -15,7 +16,7 @@ import {
   typeBadge,
   generateDays,
 } from './utils.js';
-import { navigateToTrip, goMyMap } from './app.js';
+// navigateToTrip / goMyMap accessed via window globals (set by app.js) to avoid circular import
 import { importFile } from './import.js';
 
 // ── Module state ───────────────────────────────────────────────────────────────
@@ -58,6 +59,53 @@ function _esc(str) {
 
 // ── Statistics ─────────────────────────────────────────────────────────────────
 
+function _haversineKm(lat1, lng1, lat2, lng2) {
+  const R = 6371, p = Math.PI / 180;
+  const a = 0.5 - Math.cos((lat2 - lat1) * p) / 2
+    + Math.cos(lat1 * p) * Math.cos(lat2 * p) * (1 - Math.cos((lng2 - lng1) * p)) / 2;
+  return 2 * R * Math.asin(Math.sqrt(a));
+}
+
+const _ROAD_FACTOR = { car: 1.3, bus: 1.3, bike: 1.2, foot: 1.15, plane: 1.05, ferry: 1.1 };
+
+function _calcKmByMode(trips) {
+  const km = {};
+  for (const trip of trips) {
+    const wps = [];
+    for (const day of (trip.days || [])) {
+      const itemPins = (day.items || []).filter(it => it.lat != null && it.lng != null);
+      if (itemPins.length > 0) {
+        for (const item of itemPins) {
+          let mode = item.routeMode || 'car';
+          if (item.type === 'drive' && item.transport) mode = item.transport;
+          wps.push({ lat: item.lat, lng: item.lng, mode });
+        }
+      } else if (day.lat != null && day.lng != null) {
+        wps.push({ lat: day.lat, lng: day.lng, mode: day.routeMode || 'car' });
+      }
+    }
+    for (let i = 0; i < wps.length - 1; i++) {
+      const m = wps[i + 1].mode || 'car';
+      const factor = _ROAD_FACTOR[m] || 1.2;
+      km[m] = (km[m] || 0) + _haversineKm(wps[i].lat, wps[i].lng, wps[i + 1].lat, wps[i + 1].lng) * factor;
+    }
+  }
+  return km;
+}
+
+function _calcSpendingByMonth(trips) {
+  const by = {};
+  for (const trip of trips) {
+    for (const exp of (trip.realExpenses || [])) {
+      if (exp.date && exp.type !== 'transfer') {
+        const m = exp.date.slice(0, 7);
+        by[m] = (by[m] || 0) + (Number(exp.amount) || 0);
+      }
+    }
+  }
+  return by;
+}
+
 function _calcStats(trips) {
   const voyageCount  = trips.filter(t => t.type === 'voyage').length;
   const weekendCount = trips.filter(t => t.type === 'weekend').length;
@@ -77,7 +125,14 @@ function _calcStats(trips) {
     trips.map(t => (t.destination || '').trim().toLowerCase()).filter(Boolean)
   );
 
-  return { voyageCount, weekendCount, sortieCount, totalDays, countries: destinations.size };
+  let totalSpent = 0;
+  for (const t of trips) {
+    for (const exp of (t.realExpenses || [])) {
+      if (exp.type !== 'transfer') totalSpent += Number(exp.amount) || 0;
+    }
+  }
+
+  return { voyageCount, weekendCount, sortieCount, totalDays, countries: destinations.size, totalSpent };
 }
 
 // ── Stats view HTML ────────────────────────────────────────────────────────────
@@ -127,17 +182,64 @@ function _statsViewHtml(trips) {
   let totalBudget = 0;
   trips.forEach(t => {
     if (Array.isArray(t.budgetLines)) {
-      totalBudget += t.budgetLines.reduce((s, b) => s + (Number(b.amount) || 0), 0);
+      totalBudget += t.budgetLines.reduce((sum, b) => sum + (Number(b.amount) || 0), 0);
     }
   });
 
+  // Km by transport mode
+  const kmByMode = _calcKmByMode(trips);
+  const MODE_META = {
+    car:   { emoji: '🚗', label: 'Voiture' },
+    bus:   { emoji: '🚌', label: 'Bus/Taxi' },
+    bike:  { emoji: '🚲', label: 'Vélo' },
+    foot:  { emoji: '🚶', label: 'À pied' },
+    plane: { emoji: '✈️', label: 'Avion' },
+    ferry: { emoji: '⛴️', label: 'Bateau' },
+  };
+  const totalKm = Object.values(kmByMode).reduce((a, b) => a + b, 0);
+
+  const kmRows = Object.entries(kmByMode)
+    .sort((a, b) => b[1] - a[1])
+    .map(([mode, dist]) => {
+      const meta = MODE_META[mode] || { emoji: '🚌', label: mode };
+      const pct  = totalKm > 0 ? Math.round((dist / totalKm) * 100) : 0;
+      return `
+        <div style="margin-bottom:8px">
+          <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px">
+            <span>${meta.emoji} ${meta.label}</span>
+            <span style="font-weight:700;color:var(--ink)">${Math.round(dist).toLocaleString('fr-FR')} km</span>
+          </div>
+          <div style="background:var(--c3);border-radius:4px;height:6px;overflow:hidden">
+            <div style="width:${pct}%;height:100%;background:var(--teal);border-radius:4px"></div>
+          </div>
+        </div>`;
+    }).join('');
+
+  // Spending by month
+  const spendByMonth = _calcSpendingByMonth(trips);
+  const spendMonths  = Object.keys(spendByMonth).sort().slice(-12);
+  const maxSpend     = Math.max(...spendMonths.map(m => spendByMonth[m]), 1);
+
+  const spendBars = spendMonths.map(m => {
+    const val  = spendByMonth[m];
+    const barH = Math.max(Math.round((val / maxSpend) * 60), 4);
+    const [yr, mo] = m.split('-');
+    const label = new Date(Number(yr), Number(mo) - 1, 1).toLocaleDateString('fr-FR', { month: 'short' }) + ' ' + yr.slice(2);
+    return `
+      <div style="display:flex;flex-direction:column;align-items:center;gap:3px;min-width:32px">
+        <div style="font-size:9px;font-weight:700;color:var(--ink3)">${Math.round(val)}</div>
+        <div style="width:22px;background:var(--amb,#d97706);border-radius:3px 3px 0 0;height:${barH}px"></div>
+        <div style="font-size:8px;color:var(--ink4);writing-mode:vertical-rl;transform:rotate(180deg);white-space:nowrap">${label}</div>
+      </div>`;
+  }).join('');
+
   const perYearBars = years.map(y => {
     const count = perYear[y];
-    const pct   = Math.round((count / maxPerYear) * 100);
+    const barH  = Math.max(Math.round((count / maxPerYear) * 80), 8);
     return `
       <div style="display:flex;flex-direction:column;align-items:center;gap:4px;min-width:36px">
         <div style="font-size:10px;font-weight:700;color:var(--ink3)">${count}</div>
-        <div style="width:28px;background:var(--teal);border-radius:4px 4px 0 0;height:${Math.max(pct, 6)}px;transition:height .3s"></div>
+        <div style="width:28px;background:var(--teal);border-radius:4px 4px 0 0;height:${barH}px;transition:height .3s"></div>
         <div style="font-size:10px;color:var(--ink4);transform:rotate(-45deg);white-space:nowrap;transform-origin:center;margin-top:2px">${y}</div>
       </div>`;
   }).join('');
@@ -150,19 +252,25 @@ function _statsViewHtml(trips) {
         </div>`).join('')
     : `<div style="font-size:12px;color:var(--ink4)">Aucune destination renseignée</div>`;
 
+  const _sc = 'background:var(--c2);border-radius:10px;padding:9px 14px;text-align:center;min-width:68px';
+  const _sv = 'font-family:var(--sf);font-size:20px;font-weight:700;color:var(--ink)';
+  const _sl = 'font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--ink3);margin-top:2px';
+
   return `
     <div style="max-width:700px;margin:0 auto;padding:8px 0">
-      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin-bottom:24px">
-        <div class="hs-card"><div class="hs-v">${trips.length}</div><div class="hs-l">Voyages total</div></div>
-        <div class="hs-card"><div class="hs-v">${s.weekendCount}</div><div class="hs-l">Week-ends</div></div>
-        <div class="hs-card"><div class="hs-v">${s.sortieCount}</div><div class="hs-l">Sorties</div></div>
-        <div class="hs-card"><div class="hs-v">${s.totalDays}</div><div class="hs-l">Jours voyagés</div></div>
-        <div class="hs-card"><div class="hs-v">${s.countries}</div><div class="hs-l">Destinations</div></div>
-        <div class="hs-card"><div class="hs-v">${avgDays}</div><div class="hs-l">Durée moy. (j)</div></div>
-        ${totalBudget > 0 ? `<div class="hs-card"><div class="hs-v">${totalBudget.toLocaleString('fr-FR')} €</div><div class="hs-l">Budget total</div></div>` : ''}
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:10px;margin-bottom:24px">
+        <div style="${_sc}"><div style="${_sv}">${trips.length}</div><div style="${_sl}">Voyages total</div></div>
+        <div style="${_sc}"><div style="${_sv}">${s.weekendCount}</div><div style="${_sl}">Week-ends</div></div>
+        <div style="${_sc}"><div style="${_sv}">${s.sortieCount}</div><div style="${_sl}">Sorties</div></div>
+        <div style="${_sc}"><div style="${_sv}">${s.totalDays}</div><div style="${_sl}">Jours voyagés</div></div>
+        <div style="${_sc}"><div style="${_sv}">${s.countries}</div><div style="${_sl}">Destinations</div></div>
+        <div style="${_sc}"><div style="${_sv}">${avgDays}</div><div style="${_sl}">Durée moy. (j)</div></div>
+        ${totalBudget > 0 ? `<div style="${_sc}"><div style="${_sv}">${totalBudget.toLocaleString('fr-FR')} €</div><div style="${_sl}">Budget prévu</div></div>` : ''}
+        ${s.totalSpent > 0 ? `<div style="${_sc}"><div style="${_sv}">${Math.round(s.totalSpent).toLocaleString('fr-FR')} €</div><div style="${_sl}">Dépensé réel</div></div>` : ''}
+        ${totalKm > 0 ? `<div style="${_sc}"><div style="${_sv}">${Math.round(totalKm).toLocaleString('fr-FR')}</div><div style="${_sl}">km parcourus</div></div>` : ''}
       </div>
 
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
         <div style="background:var(--c2);border-radius:12px;padding:16px">
           <h4 style="font-size:13px;font-weight:700;color:var(--ink3);margin-bottom:12px">🏆 Top destinations</h4>
           ${topDestsHtml}
@@ -171,10 +279,26 @@ function _statsViewHtml(trips) {
         <div style="background:var(--c2);border-radius:12px;padding:16px">
           <h4 style="font-size:13px;font-weight:700;color:var(--ink3);margin-bottom:12px">📅 Voyages par année</h4>
           ${years.length > 0
-            ? `<div style="display:flex;align-items:flex-end;gap:6px;height:90px;padding-bottom:20px">${perYearBars}</div>`
+            ? `<div style="display:flex;align-items:flex-end;gap:6px;height:130px;padding-bottom:26px;overflow-x:auto">${perYearBars}</div>`
             : `<div style="font-size:12px;color:var(--ink4)">Aucune date renseignée</div>`
           }
         </div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+        ${totalKm > 0 ? `
+        <div style="background:var(--c2);border-radius:12px;padding:16px">
+          <h4 style="font-size:13px;font-weight:700;color:var(--ink3);margin-bottom:12px">🛣️ Distances par mode (estimation)</h4>
+          ${kmRows || '<div style="font-size:12px;color:var(--ink4)">Aucune donnée</div>'}
+          <div style="font-size:10px;color:var(--ink4);margin-top:8px">Total : ${Math.round(totalKm).toLocaleString('fr-FR')} km · coeff. routier appliqué</div>
+        </div>` : ''}
+
+        ${spendMonths.length > 0 ? `
+        <div style="background:var(--c2);border-radius:12px;padding:16px">
+          <h4 style="font-size:13px;font-weight:700;color:var(--ink3);margin-bottom:12px">💶 Dépenses par mois</h4>
+          <div style="display:flex;align-items:flex-end;gap:4px;height:100px;padding-bottom:22px;overflow-x:auto">${spendBars}</div>
+          <div style="font-size:10px;color:var(--ink4);margin-top:4px">Total dépensé : ${Math.round(s.totalSpent).toLocaleString('fr-FR')} €</div>
+        </div>` : ''}
       </div>
     </div>
   `;
@@ -448,21 +572,7 @@ function _downloadCsv(csvContent, filename) {
 // ── Settings Modal ─────────────────────────────────────────────────────────────
 
 function _openSettingsModal() {
-  const pinTypes   = getPinTypes();
   const eventTypes = getEventTypes();
-
-  // ── PIN type rows ──────────────────────────────────────────────────────────
-
-  function _ptRowHtml(pt, i) {
-    return `
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px" data-pt-row="${i}">
-        <input type="text" data-pt-emoji="${i}" value="${_esc(pt.emoji)}"
-          style="width:48px;text-align:center;font-size:18px;padding:4px;border:1.5px solid var(--c3);border-radius:7px;background:var(--bg)">
-        <input type="text" data-pt-label="${i}" value="${_esc(pt.label)}" placeholder="Nom du type"
-          style="flex:1;padding:5px 8px;border:1.5px solid var(--c3);border-radius:7px;font-size:12px;background:var(--bg)">
-        <button type="button" data-pt-del="${i}" style="background:var(--crl,#fee2e2);color:var(--coral,#e85d3e);border:none;border-radius:6px;padding:4px 8px;font-size:12px;cursor:pointer">✕</button>
-      </div>`;
-  }
 
   // ── Event type rows ────────────────────────────────────────────────────────
 
@@ -480,26 +590,31 @@ function _openSettingsModal() {
       </div>`;
   }
 
-  function buildHtml(curPinTypes, curEventTypes) {
+  function buildHtml(curEventTypes, curLang) {
     return `
       <button class="mc" onclick="closeModal()">✕</button>
       <h3 style="font-family:'Lora',serif;font-size:17px;font-weight:700;margin-bottom:4px">⚙️ Paramètres</h3>
 
       <div class="fg" style="margin-top:14px">
-        <label style="font-size:12px;font-weight:700;color:var(--ink2)">Types de PIN (carnet & MyMap)</label>
-        <div style="font-size:11px;color:var(--ink4);margin-bottom:8px">Icônes disponibles pour les entrées de journal.</div>
-        <div id="pt-rows">${curPinTypes.map(_ptRowHtml).join('')}</div>
-        <button type="button" id="pt-add"
-          style="margin-top:6px;background:var(--c2);border:1.5px solid var(--c3);border-radius:7px;padding:5px 12px;font-size:12px;font-weight:700;cursor:pointer;color:var(--ink3)">
-          ＋ Ajouter un type
-        </button>
+        <label style="font-size:12px;font-weight:700;color:var(--ink2)">Langue / Language</label>
+        <div style="display:flex;gap:16px;margin-top:6px">
+          <label style="display:flex;align-items:center;gap:7px;cursor:pointer;font-size:13px">
+            <input type="radio" name="lang-sel" value="fr" ${curLang === 'fr' ? 'checked' : ''}>
+            🇫🇷 Français
+          </label>
+          <label style="display:flex;align-items:center;gap:7px;cursor:pointer;font-size:13px">
+            <input type="radio" name="lang-sel" value="en" ${curLang === 'en' ? 'checked' : ''}>
+            🇬🇧 English
+          </label>
+        </div>
+        <div style="font-size:10px;color:var(--ink4);margin-top:5px">Affecte la carte, la recherche et les étiquettes.</div>
       </div>
 
       <hr style="border:none;border-top:1px solid var(--c3);margin:16px 0">
 
       <div class="fg">
-        <label style="font-size:12px;font-weight:700;color:var(--ink2)">Types d'événements (planning)</label>
-        <div style="font-size:11px;color:var(--ink4);margin-bottom:8px">Types disponibles pour les événements dans le planning.</div>
+        <label style="font-size:12px;font-weight:700;color:var(--ink2)">Types d'activités (planning &amp; carnet)</label>
+        <div style="font-size:11px;color:var(--ink4);margin-bottom:8px">Types disponibles pour les événements du planning.</div>
         <div id="et-rows">${curEventTypes.map(_etRowHtml).join('')}</div>
         <button type="button" id="et-add"
           style="margin-top:6px;background:var(--c2);border:1.5px solid var(--c3);border-radius:7px;padding:5px 12px;font-size:12px;font-weight:700;cursor:pointer;color:var(--ink3)">
@@ -529,22 +644,9 @@ function _openSettingsModal() {
       </div>`;
   }
 
-  showModal(buildHtml(pinTypes, eventTypes));
+  showModal(buildHtml(eventTypes, getLanguage()));
 
   // ── Collect helpers ──────────────────────────────────────────────────────────
-
-  function collectPinTypes() {
-    const result = [];
-    document.querySelectorAll('[data-pt-row]').forEach((_, i) => {
-      const emoji = document.querySelector(`[data-pt-emoji="${i}"]`)?.value?.trim() || '';
-      const label = document.querySelector(`[data-pt-label="${i}"]`)?.value?.trim() || '';
-      if (emoji && label) {
-        const key = label.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
-        result.push({ key: key || 'pin_' + i, emoji, label });
-      }
-    });
-    return result;
-  }
 
   function collectEventTypes() {
     const result = [];
@@ -560,30 +662,6 @@ function _openSettingsModal() {
     });
     return result;
   }
-
-  // ── PIN type add/delete ──────────────────────────────────────────────────────
-
-  function reRenderPtRows(types) {
-    const el = document.getElementById('pt-rows');
-    if (el) { el.innerHTML = types.map(_ptRowHtml).join(''); attachPtDelete(); }
-  }
-
-  function attachPtDelete() {
-    document.getElementById('pt-rows')?.addEventListener('click', e => {
-      const btn = e.target.closest('[data-pt-del]');
-      if (!btn) return;
-      const types = collectPinTypes();
-      types.splice(parseInt(btn.dataset.ptDel, 10), 1);
-      reRenderPtRows(types);
-    });
-  }
-  attachPtDelete();
-
-  document.getElementById('pt-add')?.addEventListener('click', () => {
-    const types = collectPinTypes();
-    types.push({ key: 'new_' + uid(), emoji: '📌', label: 'Nouveau type' });
-    reRenderPtRows(types);
-  });
 
   // ── Event type add/delete ────────────────────────────────────────────────────
 
@@ -619,11 +697,11 @@ function _openSettingsModal() {
   });
 
   document.getElementById('settings-save')?.addEventListener('click', () => {
-    const newPinTypes   = collectPinTypes();
     const newEventTypes = collectEventTypes();
+    const lang = document.querySelector('input[name="lang-sel"]:checked')?.value || 'fr';
     updateSettings({
-      pinTypes:   newPinTypes.length   > 0 ? newPinTypes   : DEFAULT_PIN_TYPES,
       eventTypes: newEventTypes.length > 0 ? newEventTypes : DEFAULT_EVENT_TYPES,
+      lang,
     });
     notify('Paramètres enregistrés', '✅');
     closeModal();
@@ -640,7 +718,7 @@ function _attachListeners(wrap) {
 
     switch (action) {
       case 'open-mymap':
-        goMyMap();
+        window.goMyMap();
         break;
 
       case 'open-import':
@@ -661,7 +739,7 @@ function _attachListeners(wrap) {
         break;
 
       case 'open-trip':
-        navigateToTrip(target.dataset.tripId);
+        window.navigateToTrip(target.dataset.tripId);
         break;
 
       case 'filter':
@@ -1033,12 +1111,22 @@ function _initModalListeners(trip) {
   // Cancel
   document.getElementById('m-cancel')?.addEventListener('click', closeModal);
 
-  // Export single trip
+  // Export single trip — full JSON (all data)
   document.getElementById('m-export')?.addEventListener('click', () => {
     const t = getTrips().find(tr => tr.id === _editingId);
     if (!t) return;
     const safeName = (t.name || 'voyage').replace(/[^a-zA-Z0-9À-ɏ_-]/g, '-');
-    _downloadCsv(_buildCsv([_tripToCsvRow(t)]), `voyage-${safeName}.csv`);
+    const json = JSON.stringify(t, null, 2);
+    const blob = new Blob([json], { type: 'application/json;charset=utf-8' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
+    a.download = `voyage-${safeName}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    notify('Voyage exporté (JSON complet)', '⬇');
   });
 }
 
@@ -1147,35 +1235,35 @@ function _handleDelete() {
 
 function _openImportModal() {
   showModal(`
-    <div class="modal-head"><h3>⬆ Importer des voyages</h3></div>
-    <div class="modal-body">
-      <p style="font-size:13px;color:var(--ink3);margin-bottom:12px">
-        Importez vos anciens voyages depuis un fichier KML (Google Earth) ou CSV.
-        Les points seront regroupés automatiquement par date et région.
-      </p>
-      <div style="margin-bottom:12px">
-        <button type="button" id="imp-download-sample"
-          style="background:var(--c2);border:1.5px solid var(--c3);border-radius:8px;padding:7px 14px;font-size:12px;font-weight:700;cursor:pointer;color:var(--ink3);display:inline-flex;align-items:center;gap:6px">
-          📥 Télécharger un exemple CSV
-        </button>
-      </div>
-      <label class="ml">Type de voyage importé
-        <div class="t-row" id="imp-types">
-          <button class="tp sel" data-imp-type="voyage"  style="background:#0d9488;border-color:#0d9488;color:#fff">✈️ Voyage</button>
-          <button class="tp"     data-imp-type="weekend">🏕️ Week-end</button>
-          <button class="tp"     data-imp-type="sortie" >🎯 Sortie</button>
-        </div>
-      </label>
-      <label class="ml" style="margin-top:12px">Fichier KML ou CSV
-        <input type="file" id="imp-file" accept=".kml,.csv" class="mi"
-               style="padding:8px;cursor:pointer" />
-      </label>
-      <div id="imp-status" style="font-size:12px;color:var(--ink4);margin-top:8px;min-height:18px"></div>
+    <button class="mc" onclick="closeModal()">✕</button>
+    <h3>⬆ Importer des voyages</h3>
+    <p style="font-size:13px;color:var(--ink3);margin-bottom:12px">
+      Importez depuis un fichier <strong>JSON</strong> (voyage exporté depuis l'appli), <strong>KML</strong> (Google Earth) ou <strong>CSV</strong>.
+    </p>
+    <div style="margin-bottom:12px">
+      <button type="button" id="imp-download-sample"
+        style="background:var(--c2);border:1.5px solid var(--c3);border-radius:8px;padding:7px 14px;font-size:12px;font-weight:700;cursor:pointer;color:var(--ink3);display:inline-flex;align-items:center;gap:6px">
+        📥 Exemple CSV
+      </button>
     </div>
-    <div class="modal-footer">
-      <button class="btn-sec" onclick="closeModal()">Annuler</button>
-      <button class="btn-pri" id="imp-go">Importer</button>
-    </div>`, {});
+    <div class="fg">
+      <label>Type de voyage (pour KML/CSV)</label>
+      <div class="t-row" id="imp-types">
+        <button class="tp sel" data-imp-type="voyage"  style="background:#0d9488;border-color:#0d9488;color:#fff">✈️ Voyage</button>
+        <button class="tp"     data-imp-type="weekend">🏕️ Week-end</button>
+        <button class="tp"     data-imp-type="sortie" >🎯 Sortie</button>
+      </div>
+    </div>
+    <div class="fg">
+      <label>Fichier JSON, KML ou CSV</label>
+      <input type="file" id="imp-file" accept=".kml,.csv,.json" class="mi"
+             style="padding:8px;cursor:pointer" />
+    </div>
+    <div id="imp-status" style="font-size:12px;color:var(--ink4);margin-top:8px;min-height:18px"></div>
+    <div class="ma">
+      <button class="bc" onclick="closeModal()">Annuler</button>
+      <button class="bs" id="imp-go">Importer</button>
+    </div>`);
 
   // Sample CSV download
   document.getElementById('imp-download-sample')?.addEventListener('click', () => {

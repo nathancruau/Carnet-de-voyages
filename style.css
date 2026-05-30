@@ -182,7 +182,17 @@ html,body{height:100%;font-family:var(--fn);background:var(--c);color:var(--ink)
   width:292px;display:flex;flex-direction:column;
   background:#fff;border-right:1px solid var(--c3);
   flex-shrink:0;overflow:hidden;
+  transition:width .25s;
 }
+.left-panel.collapsed{width:0;min-width:0;border-right:none}
+.lp-toggle-btn{
+  position:absolute;top:50%;left:6px;transform:translateY(-50%);
+  z-index:1001;background:#fff;border:1.5px solid var(--c3);border-radius:6px;
+  width:22px;height:36px;cursor:pointer;font-size:11px;color:var(--ink3);
+  display:flex;align-items:center;justify-content:center;padding:0;
+  box-shadow:0 2px 6px rgba(0,0,0,.12);transition:all .15s;
+}
+.lp-toggle-btn:hover{background:var(--c2);color:var(--ink)}
 
 /* Mini calendar */
 .mini-cal{padding:12px;border-bottom:1px solid var(--c3);flex-shrink:0}
@@ -623,6 +633,8 @@ html,body{height:100%;font-family:var(--fn);background:var(--c);color:var(--ink)
   font-size:12px;font-weight:700;color:var(--ink2);
   flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
 }
+.mm-trip-name:hover{color:var(--teal)}
+.mm-trip-name.mm-trip-focused{color:var(--teal);text-decoration:underline}
 .mm-pin-count{
   font-size:10px;font-weight:700;background:var(--c3);color:var(--ink3);
   border-radius:999px;padding:1px 7px;flex-shrink:0;
@@ -652,6 +664,16 @@ html,body{height:100%;font-family:var(--fn);background:var(--c);color:var(--ink)
   font-family:var(--fn);cursor:pointer;transition:all .15s;
 }
 .mm-export-btn:hover{background:var(--teal);border-color:var(--teal);color:#fff}
+
+/* MyMap info panel (slides in from right over the map) */
+.mm-info-panel{
+  position:absolute;top:10px;right:10px;bottom:10px;
+  width:280px;background:#fff;border-radius:12px;
+  box-shadow:0 4px 24px rgba(0,0,0,.2);z-index:800;
+  overflow:hidden;animation:mmInfoIn .2s ease;
+  font-family:var(--fn);
+}
+@keyframes mmInfoIn{from{opacity:0;transform:translateX(16px)}to{opacity:1;transform:translateX(0)}}
 
 /* Leaflet map pane */
 #mymap{flex:1;width:100%;height:100%}
@@ -944,9 +966,8 @@ html,body{height:100%;font-family:var(--fn);background:var(--c);color:var(--ink)
 .pack-item-del:hover{color:var(--coral)}
 .pack-item-add{border:none;background:none;cursor:pointer;font-size:11px;color:var(--teal);font-weight:700;padding:5px 8px;margin-top:4px;text-align:left}
 .pack-item-add:hover{text-decoration:underline}
-/* 2-column grid for items on wider screens */
+/* single-column item list */
 .pack-items-grid{display:grid;grid-template-columns:1fr;gap:3px}
-@media(min-width:560px){.pack-items-grid{grid-template-columns:1fr 1fr}}
 /* edit button beside delete */
 .pack-item-edit{border:none;background:none;cursor:pointer;color:var(--ink4);font-size:12px;padding:0 2px;opacity:0;transition:opacity .12s}
 .pack-item:hover .pack-item-edit{opacity:1}

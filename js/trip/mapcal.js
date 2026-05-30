@@ -6,7 +6,7 @@
  *   destroyMap()          — destroy the Leaflet instance (called on tab leave)
  */
 
-import { getTrip, updateTrip, saveData, uid, getEventTypes } from '../store.js';
+import { getTrip, updateTrip, saveData, uid, getEventTypes, getLanguage } from '../store.js';
 import {
   notify, showModal, closeModal,
   fmtDate, fmtDateShort,
@@ -20,14 +20,15 @@ import { updateTopStats } from './trip.js';
 
 let _map          = null;          // Leaflet map instance
 let _tripId       = null;
-let _activeDayId  = null;          // currently selected day id
+let _openDayIds   = new Set();     // set of open day ids (multiple allowed)
 let _activeEvtKey = null;          // { dayId, idx } or null
 let _markers      = {};            // dayId → L.Marker
 let _routeLayers  = [];            // polylines / dashed lines on map
 let _routeLoading = false;
 let _pendingMapClick = null;       // callback when user clicks map to pick coords
-let _tempSearchPin = null;         // temporary search result pin
-let _dragEvt      = null;          // { dayId, idx } being dragged
+let _tempSearchPin    = null;       // temporary search result pin
+let _dragEvt          = null;      // { dayId, idx } being dragged
+let _pendingModeChange = null;     // callback for route-mode popup
 
 // ─── Public API ───────────────────────────────────────────────────────────────
 
@@ -64,6 +65,7 @@ export function renderMapCal(tripId) {
         <div class="days-scroll" id="days-list"></div>
       </div>
       <div class="map-col">
+        <button class="lp-toggle-btn" id="lp-toggle" title="Masquer / afficher le panneau">◀</button>
         <div id="map" style="width:100%;height:100%"></div>
         <div class="route-loading" id="route-loading" style="display:none">Calcul des itinéraires…</div>
         <div id="map-srch" style="position:absolute;top:10px;left:50%;transform:translateX(-50%);z-index:1002;width:320px;max-width:calc(100% - 100px);pointer-events:all">
@@ -94,6 +96,18 @@ export function renderMapCal(tripId) {
   _renderDaysList(tripId);
   _renderMiniCal(tripId);
 
+  // Wire left panel toggle button
+  const lpToggle = panel.querySelector('#lp-toggle');
+  if (lpToggle) {
+    lpToggle.addEventListener('click', () => {
+      const lp = panel.querySelector('.left-panel');
+      if (!lp) return;
+      const collapsed = lp.classList.toggle('collapsed');
+      lpToggle.textContent = collapsed ? '▶' : '◀';
+      setTimeout(() => { if (_map) _map.invalidateSize(); }, 280);
+    });
+  }
+
   // Wire map search bar
   _initMapSearch(tripId);
 }
@@ -106,7 +120,7 @@ export function destroyMap() {
   }
   _markers      = {};
   _routeLayers  = [];
-  _activeDayId  = null;
+  _openDayIds   = new Set();
   _activeEvtKey = null;
   _pendingMapClick = null;
   _dragEvt      = null;
@@ -146,7 +160,11 @@ function _initMap(tripId) {
 
     _map = L.map('map', { center, zoom, zoomControl: true });
 
-    L.tileLayer('https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png', {
+    const _lang = getLanguage();
+    const _tileUrl = _lang === 'en'
+      ? 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png'
+      : 'https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png';
+    L.tileLayer(_tileUrl, {
       attribution: '© OpenStreetMap contributors',
       maxZoom: 18,
     }).addTo(_map);
@@ -199,11 +217,11 @@ function _refreshMapPins(tripId) {
 
   // Add separate event-level markers for events that have their own coordinates
   for (const day of (trip.days || [])) {
-    for (const item of (day.items || [])) {
+    (day.items || []).forEach((item, itemIdx) => {
       if (item.lat != null && item.lng != null) {
         const evtIcon = L.divIcon({
           className: '',
-          html: `<div style="background:${day.color || '#0d9488'};border:2px solid #fff;border-radius:50%;width:24px;height:24px;display:flex;align-items:center;justify-content:center;font-size:13px;box-shadow:0 1px 4px rgba(0,0,0,.4);cursor:pointer"><span style="filter:grayscale(1) brightness(2)">${tIc(item.type)}</span></div>`,
+          html: `<div style="background:${day.color || '#0d9488'};border:2px solid #fff;border-radius:50%;width:24px;height:24px;display:flex;align-items:center;justify-content:center;font-size:13px;box-shadow:0 1px 4px rgba(0,0,0,.4);cursor:pointer">${tIc(item.type)}</div>`,
           iconSize:   [24, 24],
           iconAnchor: [12, 12],
           popupAnchor:[0, -16],
@@ -216,15 +234,18 @@ function _refreshMapPins(tripId) {
           </div>`,
           { maxWidth: 200 }
         );
-        evtMarker.on('click', () => _selectDay(day.id, tripId));
+        evtMarker.on('click', () => {
+          _openDayIds.add(day.id);
+          _openEDP(day.id, itemIdx, tripId);
+        });
         evtMarker.addTo(_map);
         _markers['e_' + item.id] = evtMarker;
       }
-    }
+    });
   }
 
-  // Draw routes
-  if (days.length > 1) {
+  // Draw routes through all georeferenced waypoints
+  if (_collectAllWaypoints(trip).length > 1) {
     _drawRoutes(trip, days);
   }
 
@@ -271,63 +292,132 @@ function _dayPopupHtml(day) {
   `;
 }
 
-async function _drawRoutes(trip, days) {
+// Collect ALL georeferenced waypoints from items + fallback to day pins
+function _collectAllWaypoints(trip) {
+  const wps = [];
+  for (const day of (trip.days || [])) {
+    const itemPins = (day.items || []).filter(it => it.lat != null && it.lng != null);
+    if (itemPins.length > 0) {
+      for (const item of itemPins) {
+        let mode = item.routeMode || 'car';
+        if (item.type === 'drive' && item.transport) mode = item.transport;
+        wps.push({ dayId: day.id, itemId: item.id, lat: item.lat, lng: item.lng, mode, label: item.text });
+      }
+    } else if (day.lat != null && day.lng != null) {
+      wps.push({ dayId: day.id, itemId: null, lat: day.lat, lng: day.lng, mode: day.routeMode || 'car', label: `Jour ${day.num}` });
+    }
+  }
+  return wps;
+}
+
+// Make a polyline segment clickable for transport mode selection
+function _bindRouteModeClick(polyline, toWp) {
+  const MODES = [
+    { key: 'car',   emoji: '🚗', label: 'Voiture' },
+    { key: 'bus',   emoji: '🚌', label: 'Bus/Taxi' },
+    { key: 'bike',  emoji: '🚲', label: 'Vélo' },
+    { key: 'foot',  emoji: '🚶', label: 'À pied' },
+    { key: 'plane', emoji: '✈️', label: 'Avion' },
+    { key: 'ferry', emoji: '⛴️', label: 'Bateau' },
+  ];
+
+  polyline.on('click', e => {
+    const cur = toWp.mode || 'car';
+    const btns = MODES.map(m =>
+      `<button onclick="window._mapcalPickMode('${m.key}')" title="${m.label}"
+        style="padding:5px 9px;border-radius:6px;font-size:14px;cursor:pointer;
+        background:${cur === m.key ? '#0d9488' : '#f5f5f5'};
+        color:${cur === m.key ? '#fff' : '#333'};
+        border:1.5px solid ${cur === m.key ? '#0d9488' : '#ddd'}">${m.emoji}</button>`
+    ).join('');
+
+    _pendingModeChange = (newMode) => {
+      const trip = getTrip(_tripId);
+      if (!trip) return;
+      if (toWp.itemId) {
+        const day  = (trip.days || []).find(d => d.id === toWp.dayId);
+        const item = (day?.items || []).find(it => it.id === toWp.itemId);
+        if (item) { item.routeMode = newMode; toWp.mode = newMode; }
+      } else {
+        const day = (trip.days || []).find(d => d.id === toWp.dayId);
+        if (day) { day.routeMode = newMode; toWp.mode = newMode; }
+      }
+      updateTrip(_tripId, { days: trip.days });
+      _map?.closePopup();
+      // Redraw routes
+      _routeLayers.forEach(l => { try { _map.removeLayer(l); } catch (_) {} });
+      _routeLayers = [];
+      const freshTrip = getTrip(_tripId);
+      if (freshTrip) _drawRoutes(freshTrip, []);
+    };
+
+    L.popup({ maxWidth: 260, closeButton: true })
+      .setLatLng(e.latlng)
+      .setContent(`
+        <div style="font-size:11px;font-weight:700;color:#333;margin-bottom:7px">Mode de transport</div>
+        <div style="display:flex;gap:5px;flex-wrap:wrap">${btns}</div>
+      `)
+      .openOn(_map);
+
+    L.DomEvent.stopPropagation(e);
+  });
+}
+
+window._mapcalPickMode = function(mode) {
+  if (_pendingModeChange) { _pendingModeChange(mode); _pendingModeChange = null; }
+};
+
+async function _drawRoutes(trip, _days) {
   if (!_map) return;
 
-  // Show loading
   const loadEl = document.getElementById('route-loading');
   if (loadEl) loadEl.style.display = 'block';
   _routeLoading = true;
 
-  for (let i = 0; i < days.length - 1; i++) {
-    const from = days[i];
-    const to   = days[i + 1];
+  const wps = _collectAllWaypoints(trip);
 
-    // Find transport mode from the first transport item in the FROM day
-    const transport = (from.items || []).find(it => it.type === 'drive');
-    const mode      = transport ? (transport.transport || 'car') : 'car';
+  for (let i = 0; i < wps.length - 1; i++) {
+    const from = wps[i];
+    const to   = wps[i + 1];
+    const mode = to.mode || 'car';
+
+    let line = null;
 
     if (mode === 'plane' || mode === 'ferry') {
-      // Draw dashed direct line
-      const line = L.polyline([[from.lat, from.lng], [to.lat, to.lng]], {
+      line = L.polyline([[from.lat, from.lng], [to.lat, to.lng]], {
         color:     mode === 'plane' ? '#7c3aed' : '#0d9488',
         weight:    2,
         opacity:   0.6,
         dashArray: '6 6',
       });
-      line.addTo(_map);
-      _routeLayers.push(line);
     } else {
-      // Fetch OSRM route
       try {
-        const profile  = _osrmProfile(mode);
+        const profile = _osrmProfile(mode);
         const url = `https://router.project-osrm.org/route/v1/${profile}/`
-          + `${from.lng},${from.lat};${to.lng},${to.lat}?overview=simplified&geometries=geojson`;
-
+          + `${from.lng},${from.lat};${to.lng},${to.lat}?overview=full&geometries=geojson`;
         const resp   = await fetch(url);
         const data   = await resp.json();
         const coords = data.routes?.[0]?.geometry?.coordinates;
         if (coords && coords.length) {
-          const latlngs = coords.map(([lng, lat]) => [lat, lng]);
-          const line = L.polyline(latlngs, {
+          line = L.polyline(coords.map(([lng, lat]) => [lat, lng]), {
             color:   trCol(mode),
-            weight:  3,
-            opacity: 0.7,
+            weight:  4,
+            opacity: 0.75,
           });
-          line.addTo(_map);
-          _routeLayers.push(line);
         }
-      } catch (err) {
-        // Fallback: straight line
-        const line = L.polyline([[from.lat, from.lng], [to.lat, to.lng]], {
-          color:     '#9c9890',
-          weight:    2,
-          opacity:   0.4,
-          dashArray: '4 4',
+      } catch (_) {}
+
+      if (!line) {
+        line = L.polyline([[from.lat, from.lng], [to.lat, to.lng]], {
+          color: '#9c9890', weight: 2, opacity: 0.4, dashArray: '4 4',
         });
-        line.addTo(_map);
-        _routeLayers.push(line);
       }
+    }
+
+    if (line) {
+      line.addTo(_map);
+      _routeLayers.push(line);
+      _bindRouteModeClick(line, to);
     }
   }
 
@@ -388,7 +478,7 @@ function _renderMiniCal(tripId) {
       if (day) {
         cls   += ' sd';
         style  = `background:${day.color || 'var(--teal)'};color:#fff;font-weight:700`;
-        if (day.id === _activeDayId) {
+        if (_openDayIds.has(day.id)) {
           style += ';outline:2px solid var(--ink);outline-offset:1px';
         }
       }
@@ -465,7 +555,7 @@ function _renderDaysList(tripId) {
 }
 
 function _dayItemHtml(day) {
-  const isSelected = day.id === _activeDayId;
+  const isSelected = _openDayIds.has(day.id);
   const items = day.items || [];
 
   // Cost total
@@ -780,9 +870,8 @@ function _closeEDP() {
 // ─── Select day ───────────────────────────────────────────────────────────────
 
 function _selectDay(dayId, tripId) {
-  if (_activeDayId === dayId) {
-    // Toggle off
-    _activeDayId = null;
+  if (_openDayIds.has(dayId)) {
+    _openDayIds.delete(dayId);
     _activeEvtKey = null;
     _closeEDP();
     _renderDaysList(tripId);
@@ -790,7 +879,7 @@ function _selectDay(dayId, tripId) {
     return;
   }
 
-  _activeDayId  = dayId;
+  _openDayIds.add(dayId);
   _activeEvtKey = null;
   _closeEDP();
 
@@ -944,6 +1033,17 @@ function _deleteEvent(dayId, evtIdx, tripId) {
   const day = (trip.days || []).find(d => d.id === dayId);
   if (!day) return;
   day.items.splice(evtIdx, 1);
+
+  // Re-derive day pin from remaining items to avoid ghost markers
+  const firstPin = (day.items || []).find(it => it.lat != null && it.lng != null);
+  if (firstPin) {
+    day.lat = firstPin.lat;
+    day.lng = firstPin.lng;
+  } else if (!(day.items || []).some(it => it.lat != null)) {
+    day.lat = null;
+    day.lng = null;
+  }
+
   updateTrip(tripId, { days: trip.days });
   _activeEvtKey = null;
   _closeEDP();
@@ -951,6 +1051,34 @@ function _deleteEvent(dayId, evtIdx, tripId) {
   _refreshMapPins(tripId);
   updateTopStats(tripId);
   notify('Événement supprimé', '🗑');
+}
+
+// ─── Geocoding helper — Photon with Nominatim fallback ───────────────────────
+
+async function _geocode(q) {
+  const lang = getLanguage();
+  // 1st try: Photon (fast fuzzy matching)
+  try {
+    const resp = await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&limit=6&lang=${lang}`);
+    const gj   = await resp.json();
+    const data  = (gj.features || []).map(f => {
+      const [lng, lat] = f.geometry.coordinates;
+      const p = f.properties;
+      const parts = [p.name, p.street, p.city, p.state, p.country].filter(Boolean);
+      return { lat: String(lat), lon: String(lng), display_name: parts.join(', ') };
+    });
+    if (data.length > 0) return data;
+  } catch (_) {}
+  // 2nd try: Nominatim (broader coverage, handles alt names / historical names)
+  try {
+    const resp = await fetch(
+      `https://nominatim.openstreetmap.org/search?format=json&limit=6&q=${encodeURIComponent(q)}`,
+      { headers: { 'Accept-Language': lang } }
+    );
+    const d = await resp.json();
+    return d.map(r => ({ lat: r.lat, lon: r.lon, display_name: r.display_name }));
+  } catch (_) {}
+  return [];
 }
 
 // ─── Map search bar ───────────────────────────────────────────────────────────
@@ -980,7 +1108,7 @@ function _initMapSearch(tripId) {
       action.style.display = 'none';
       if (_tempSearchPin && _map) { try { _map.removeLayer(_tempSearchPin); } catch (_) {} _tempSearchPin = null; }
       const trip     = getTrip(tripId);
-      const targetId = _activeDayId || (trip?.days || [])[0]?.id;
+      const targetId = [..._openDayIds][0] || (trip?.days || [])[0]?.id;
       if (!targetId) { notify('Aucun jour disponible — créez un jour d\'abord', '⚠️'); return; }
       _openAddEventModal(targetId, tripId, { lat, lng, label: label.split(',')[0].trim() });
     };
@@ -1037,11 +1165,7 @@ function _initMapSearch(tripId) {
     btn.textContent = '…';
     btn.disabled    = true;
     try {
-      const resp = await fetch(
-        `https://nominatim.openstreetmap.org/search?format=json&limit=5&q=${encodeURIComponent(q)}`,
-        { headers: { 'Accept-Language': 'fr' } }
-      );
-      _showResults(await resp.json());
+      _showResults(await _geocode(q));
     } catch {
       results.innerHTML = '<div style="padding:8px 12px;font-size:12px;color:#e85d3e">Erreur réseau</div>';
       results.style.display = 'block';
@@ -1105,9 +1229,7 @@ function _buildLocationSearch(container, onSelect, onMapClick) {
     searchBtn.textContent = '…';
     resultsEl.innerHTML = '<div style="font-size:11px;color:var(--ink4)">Recherche…</div>';
     try {
-      const url = `https://nominatim.openstreetmap.org/search?format=json&limit=5&q=${encodeURIComponent(q)}`;
-      const resp = await fetch(url, { headers: { 'Accept-Language': 'fr' } });
-      const data = await resp.json();
+      const data = await _geocode(q);
       if (!data.length) {
         resultsEl.innerHTML = '<div style="font-size:11px;color:var(--ink4)">Aucun résultat</div>';
       } else {
@@ -1265,7 +1387,7 @@ function _openAddDayModal(tripId) {
     days.push(newDay);
     updateTrip(tripId, { days });
     closeModal();
-    _activeDayId = newDay.id;
+    _openDayIds.add(newDay.id);
     _renderDaysList(tripId);
     _renderMiniCal(tripId);
     _refreshMapPins(tripId);
@@ -1373,7 +1495,7 @@ function _openAddDayModalWithCoords(tripId, lat, lng) {
     days.push(newDay);
     updateTrip(tripId, { days });
     closeModal();
-    _activeDayId = newDay.id;
+    _openDayIds.add(newDay.id);
     _renderDaysList(tripId);
     _renderMiniCal(tripId);
     _refreshMapPins(tripId);

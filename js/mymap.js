@@ -17,10 +17,12 @@ function _pinTypeMap() {
 }
 
 // ── Module-level state ─────────────────────────────────────────────────────────
-let _map          = null;   // Leaflet map instance
-let _markers      = [];     // { marker, trip, entry } objects currently on the map
-let _allPins      = [];     // All { trip, entry, lat, lng } built from store
-let _filters      = { type: 'all', country: 'all', status: 'done', pinType: 'all', tripId: 'all' };
+let _map             = null;   // Leaflet map instance
+let _markers         = [];     // { marker, trip, entry } objects currently on the map
+let _allPins         = [];     // All { trip, entry, lat, lng } built from store
+let _filters         = { type: 'all', pinType: 'all', tripId: 'all' };
+let _collapsedGroups = new Set();  // trip ids whose sidebar group is folded
+let _infoPanelEl     = null;   // info panel DOM element
 
 // ── Country color mapping ──────────────────────────────────────────────────────
 
@@ -62,13 +64,23 @@ function _colorForFlag(flag) {
   return _countryColors[iso];
 }
 
+// ── HTML escape ───────────────────────────────────────────────────────────────
+
+function _esc(s) {
+  return String(s ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
 // ── Pin icon builder ───────────────────────────────────────────────────────────
 
 function _makeIcon(color, size = 13, emoji = null) {
   if (emoji) {
     return L.divIcon({
       className: '',
-      html: `<div style="background:${color};border:2px solid #fff;border-radius:50%;width:28px;height:28px;display:flex;align-items:center;justify-content:center;font-size:16px;box-shadow:0 1px 6px rgba(0,0,0,.4)"><span style="filter:grayscale(1) brightness(2)">${emoji}</span></div>`,
+      html: `<div style="background:${color};border:2px solid #fff;border-radius:50%;width:28px;height:28px;display:flex;align-items:center;justify-content:center;font-size:16px;box-shadow:0 1px 6px rgba(0,0,0,.4)">${emoji}</div>`,
       iconSize:    [28, 28],
       iconAnchor:  [14, 14],
       popupAnchor: [0, -20],
@@ -90,43 +102,53 @@ function _makeIcon(color, size = 13, emoji = null) {
   });
 }
 
-// ── Popup HTML ─────────────────────────────────────────────────────────────────
+// ── Info panel (rich display on pin/legend click) ──────────────────────────────
 
-function _popupHtml(trip, entry) {
-  const imgSrc = entry.photos?.[0]?.url || trip.photo || null;
-  const photoHtml = imgSrc
-    ? `<img src="${imgSrc}"
-             style="width:100%;height:68px;object-fit:cover;border-radius:6px;margin-bottom:7px;display:block"
-             onerror="this.style.display='none'" alt="">`
-    : '';
+function _mmShowInfo(trip, entry) {
+  if (!_infoPanelEl) return;
 
-  const entryTitle = entry.title || 'Sans titre';
-  const entryDate  = entry.date ? `<span style="color:var(--ink4)">${fmtDate(entry.date)}</span>` : '';
-
-  const contentSnippet = entry.content ? entry.content.slice(0, 100) : '';
-  const contentHtml = contentSnippet
-    ? `<div style="font-size:10px;color:var(--ink3);margin:4px 0 5px;white-space:pre-wrap;overflow:hidden">${contentSnippet}${entry.content.length > 100 ? '…' : ''}</div>`
-    : '';
-
-  const tags = (entry.tags || []).slice(0, 3);
-  const tagsHtml = tags.length > 0
-    ? `<div style="margin:4px 0 5px;display:flex;gap:3px;flex-wrap:wrap">
-        ${tags.map(t => `<span style="font-size:9px;background:var(--tl);color:var(--td);border-radius:999px;padding:1px 6px;font-weight:700">${t}</span>`).join('')}
+  const photosHtml = (entry.photos || []).length > 0
+    ? `<div style="display:flex;gap:5px;flex-wrap:nowrap;overflow-x:auto;padding:2px 0 6px;scrollbar-width:thin">
+        ${entry.photos.slice(0, 6).map(p =>
+          `<img src="${_esc(p.url)}" onclick="window.open(this.src,'_blank')"
+            style="height:80px;min-width:80px;border-radius:8px;object-fit:cover;cursor:pointer;flex-shrink:0;border:1px solid var(--c3)"
+            onerror="this.style.display='none'">`
+        ).join('')}
        </div>`
     : '';
 
-  return `
-    <div style="padding:10px 12px;min-width:185px;max-width:230px;font-family:'Nunito',sans-serif">
-      ${photoHtml}
-      <div class="mymap-popup-title">${trip.flag || '🌍'} ${trip.name || 'Sans titre'}</div>
-      <div style="font-size:11px;font-weight:600;color:var(--ink2);margin-bottom:2px">${entryTitle}</div>
-      ${entryDate ? `<div class="mymap-popup-meta">${entryDate}</div>` : ''}
-      ${contentHtml}
-      ${tagsHtml}
-      <button class="mymap-popup-btn"
-              onclick="window.navigateToTrip && window.navigateToTrip('${trip.id}')">Ouvrir →</button>
+  const _ptm    = _pinTypeMap();
+  const typeEmoji = (entry.pinType && _ptm[entry.pinType]) ? _ptm[entry.pinType] : '';
+  const color   = _colorForFlag(trip.flag);
+
+  _infoPanelEl.innerHTML = `
+    <div style="padding:12px 14px;border-bottom:1px solid var(--c3);display:flex;align-items:flex-start;gap:8px;flex-shrink:0">
+      <div style="flex:1;min-width:0">
+        <div style="font-size:11px;font-weight:700;color:${color};margin-bottom:2px">${_esc(trip.flag || '')} ${_esc(trip.name)}</div>
+        <div style="font-size:14px;font-weight:700;color:var(--ink)">${typeEmoji} ${_esc(entry.title)}</div>
+        ${entry.dayLabel ? `<div style="font-size:11px;color:var(--ink4);margin-top:1px">📅 ${_esc(entry.dayLabel)}</div>` : ''}
+        ${entry.date    ? `<div style="font-size:11px;color:var(--ink4)">${fmtDate(entry.date)}</div>` : ''}
+      </div>
+      <button onclick="_mmCloseInfo()"
+        style="background:none;border:none;cursor:pointer;color:var(--ink4);font-size:16px;padding:0;line-height:1;flex-shrink:0">✕</button>
+    </div>
+    <div style="padding:12px 14px;flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:8px">
+      ${entry._validated ? `<div style="font-size:11px;font-weight:700;color:#16a34a">✓ Activité validée</div>` : ''}
+      ${entry.weather    ? `<div style="font-size:24px">${entry.weather}</div>` : ''}
+      ${photosHtml}
+      ${entry.content    ? `<div style="font-size:12px;color:var(--ink2);white-space:pre-wrap;line-height:1.5">${_esc(entry.content)}</div>` : ''}
+      ${entry.amount     ? `<div style="font-size:12px;color:var(--ink3)">💶 ${entry.amount} €</div>` : ''}
+      ${!entry._validated && !entry.weather && !photosHtml && !entry.content
+        ? `<div style="font-size:12px;color:var(--ink4)">Aucune information enregistrée pour ce PIN.</div>` : ''}
+      <button onclick="window.navigateToTrip && window.navigateToTrip('${trip.id}')"
+        style="margin-top:6px;width:100%;background:var(--teal);color:#fff;border:none;border-radius:8px;
+               padding:8px;font-size:12px;font-weight:700;cursor:pointer;font-family:var(--fn)">
+        Ouvrir le voyage →
+      </button>
     </div>
   `;
+
+  _infoPanelEl.style.display = 'flex';
 }
 
 // ── Build the flat pin list from store ────────────────────────────────────────
@@ -134,12 +156,37 @@ function _popupHtml(trip, entry) {
 function _buildAllPins() {
   _allPins = [];
   for (const trip of getTrips()) {
-    const entries = Array.isArray(trip.journalEntries) ? trip.journalEntries : [];
-    for (const entry of entries) {
+    // Planning item pins (source of truth for journal/carnet)
+    for (const day of (trip.days || [])) {
+      for (const item of (day.items || [])) {
+        const lat = parseFloat(item.lat);
+        const lng = parseFloat(item.lng);
+        if (!isNaN(lat) && !isNaN(lng)) {
+          const jd = item.journalData || {};
+          const entry = {
+            id:         item.id,
+            title:      item.text  || '—',
+            date:       day.date   || null,
+            dayLabel:   `Jour ${day.num}${day.title ? ' · ' + day.title : ''}`,
+            pinType:    item.type  || null,
+            lat, lng,
+            photos:     (jd.photos || []).map(p => ({ url: p })),
+            content:    jd.notes   || '',
+            weather:    jd.weather || '',
+            amount:     jd.amount  || 0,
+            tags:       [],
+            _validated: !!jd.validated,
+          };
+          _allPins.push({ trip, entry, lat, lng });
+        }
+      }
+    }
+    // Legacy journal entries (backward compat)
+    for (const entry of (trip.journalEntries || [])) {
       const lat = parseFloat(entry.lat);
       const lng = parseFloat(entry.lng);
       if (!isNaN(lat) && !isNaN(lng)) {
-        _allPins.push({ trip, entry, lat, lng });
+        _allPins.push({ trip, entry: { ...entry, lat, lng }, lat, lng });
       }
     }
   }
@@ -150,38 +197,12 @@ function _buildAllPins() {
 function _visiblePins() {
   return _allPins.filter(({ trip, entry }) => {
     if (_filters.type !== 'all' && trip.type !== _filters.type) return false;
-    if (_filters.country !== 'all') {
-      const iso = _isoFromFlag(trip.flag);
-      if (iso !== _filters.country) return false;
-    }
-    if (_filters.status === 'done' && trip.status !== 'done') return false;
     if (_filters.pinType !== 'all') {
       if (entry?.pinType !== _filters.pinType) return false;
     }
     if (_filters.tripId !== 'all' && trip.id !== _filters.tripId) return false;
     return true;
   });
-}
-
-/** Unique sorted list of { iso, flag } for country dropdown. */
-function _countryOptions() {
-  const seen = new Map();
-  for (const { trip } of _allPins) {
-    const iso = _isoFromFlag(trip.flag);
-    if (iso && !seen.has(iso)) {
-      seen.set(iso, trip.flag);
-    }
-  }
-  return [...seen.entries()].map(([iso, flag]) => ({ iso, flag }));
-}
-
-/** Unique trips that have at least one pin. */
-function _tripsWithPins() {
-  const seen = new Map();
-  for (const { trip } of _allPins) {
-    if (!seen.has(trip.id)) seen.set(trip.id, trip);
-  }
-  return [...seen.values()];
 }
 
 // ── Sidebar tree ───────────────────────────────────────────────────────────────
@@ -196,16 +217,35 @@ function _buildSidebarTree(pins) {
   }
 
   if (tripMap.size === 0) {
-    return `<div style="padding:24px 16px;text-align:center;color:var(--ink4);font-size:12px">
-      Aucun voyage à afficher.<br>Ajoutez des entrées de journal avec des coordonnées GPS.
-    </div>`;
+    // Show all trips even if no visible pins (so user can click to filter)
+    const allTrips = new Map();
+    for (const { trip } of _allPins) {
+      if (!allTrips.has(trip.id)) allTrips.set(trip.id, { trip, pins: [] });
+      allTrips.get(trip.id).pins.push(..._allPins.filter(p => p.trip.id === trip.id));
+    }
+    if (allTrips.size === 0) {
+      return `<div style="padding:24px 16px;text-align:center;color:var(--ink4);font-size:12px">
+        Aucun voyage à afficher.<br>Ajoutez des entrées de journal avec des coordonnées GPS.
+      </div>`;
+    }
+  }
+
+  // Merge: always show all trips in sidebar (use allPins to build trip list), but pin rows show only visible pins
+  const allTripMap = new Map();
+  for (const { trip } of _allPins) {
+    if (!allTripMap.has(trip.id)) allTripMap.set(trip.id, { trip, pins: [] });
+  }
+  for (const pin of pins) {
+    allTripMap.get(pin.trip.id)?.pins.push(pin);
   }
 
   let html = '';
-  for (const { trip, pins: tPins } of tripMap.values()) {
-    const typeInfo  = TRIP_TYPES[trip.type] || TRIP_TYPES.voyage;
-    const color     = _colorForFlag(trip.flag);
-    const groupId   = 'mm-grp-' + trip.id;
+  for (const { trip, pins: tPins } of allTripMap.values()) {
+    const typeInfo    = TRIP_TYPES[trip.type] || TRIP_TYPES.voyage;
+    const color       = _colorForFlag(trip.flag);
+    const groupId     = 'mm-grp-' + trip.id;
+    const isCollapsed = _collapsedGroups.has(trip.id);
+    const isFocused   = _filters.tripId === trip.id;
 
     const pinsHtml = tPins.map(pin => {
       const _ptm = _pinTypeMap();
@@ -213,49 +253,32 @@ function _buildSidebarTree(pins) {
         ? _ptm[pin.entry.pinType]
         : '📍';
       const label = pin.entry.title || (pin.entry.date ? fmtDateShort(pin.entry.date) : 'Sans titre');
+      const dateStr = pin.entry.date ? fmtDateShort(pin.entry.date) : '';
       return `
         <div class="mm-pin-row"
              data-lat="${pin.lat}" data-lng="${pin.lng}" data-tripid="${trip.id}"
              onclick="_mmFlyTo(${pin.lat}, ${pin.lng}, '${trip.id}')">
           <span style="color:${color};flex-shrink:0">${pinEmoji}</span>
           <span class="mm-pin-label">${label}</span>
+          ${dateStr ? `<span style="font-size:9px;color:var(--ink4);flex-shrink:0;white-space:nowrap">${dateStr}</span>` : ''}
         </div>`;
     }).join('');
 
     html += `
-      <div class="mm-trip-group" id="${groupId}">
-        <div class="mm-trip-header" onclick="_mmToggleGroup('${groupId}')">
-          <span class="mm-trip-chevron">▼</span>
+      <div class="mm-trip-group${isCollapsed ? ' collapsed' : ''}" id="${groupId}">
+        <div class="mm-trip-header">
+          <span class="mm-trip-chevron" onclick="_mmFoldGroup('${trip.id}')" title="Plier/déplier">▼</span>
           <span style="font-size:15px">${typeInfo.icon}</span>
-          <span class="mm-trip-name">${trip.flag || ''} ${trip.name}</span>
+          <span class="mm-trip-name${isFocused ? ' mm-trip-focused' : ''}"
+                onclick="_mmFocusTrip('${trip.id}')"
+                title="${isFocused ? 'Voir tous les voyages' : 'Filtrer sur ce voyage'}"
+                style="cursor:pointer">${trip.flag || ''} ${trip.name}</span>
           <span class="mm-pin-count">${tPins.length}</span>
         </div>
-        <div class="mm-trip-body">${pinsHtml}</div>
+        <div class="mm-trip-body">${pinsHtml || '<div style="padding:4px 12px 4px 28px;font-size:10px;color:var(--ink4)">Aucun PIN visible</div>'}</div>
       </div>`;
   }
   return html;
-}
-
-// ── Sidebar country dropdown ───────────────────────────────────────────────────
-
-function _countryDropdownHtml() {
-  const opts = _countryOptions();
-  const options = `<option value="all">Tous pays</option>` +
-    opts.map(({ iso, flag }) =>
-      `<option value="${iso}"${_filters.country === iso ? ' selected' : ''}>${flag} ${iso}</option>`
-    ).join('');
-  return `<select class="mm-select" onchange="_mmSetCountry(this.value)">${options}</select>`;
-}
-
-// ── Sidebar trip dropdown ──────────────────────────────────────────────────────
-
-function _tripDropdownHtml() {
-  const trips = _tripsWithPins();
-  const options = `<option value="all">Tous les voyages</option>` +
-    trips.map(t =>
-      `<option value="${t.id}"${_filters.tripId === t.id ? ' selected' : ''}>${t.flag || ''} ${t.name}</option>`
-    ).join('');
-  return `<select class="mm-select" onchange="_mmSetTrip(this.value)">${options}</select>`;
 }
 
 // ── Full sidebar HTML ──────────────────────────────────────────────────────────
@@ -270,12 +293,6 @@ function _sidebarHtml(pins) {
     `<button class="mm-type-btn${_filters.type === key ? ' active' : ''}"
              onclick="_mmSetType('${key}')">${label}</button>`
   ).join('');
-
-  const statusToggle = `
-    <div class="mm-status-toggle">
-      <button class="mm-st-btn${_filters.status === 'all'  ? ' active' : ''}" onclick="_mmSetStatus('all')">Tous</button>
-      <button class="mm-st-btn${_filters.status === 'done' ? ' active' : ''}" onclick="_mmSetStatus('done')">Réalisés</button>
-    </div>`;
 
   const pinTypeFilters = [
     { val: 'all', label: 'Tous' },
@@ -296,11 +313,6 @@ function _sidebarHtml(pins) {
 
     <div class="mm-filter-row">
       <div class="mm-type-group">${typeButtons}</div>
-    </div>
-    <div class="mm-filter-row" style="gap:6px">
-      ${_tripDropdownHtml()}
-      ${_countryDropdownHtml()}
-      ${statusToggle}
     </div>
     <div class="mm-filter-row">
       <div style="font-size:11px;color:var(--ink4);font-weight:600;margin-right:4px;flex-shrink:0">Lieu :</div>
@@ -334,7 +346,7 @@ function _redrawMarkers(pins) {
     const color  = _colorForFlag(pin.trip.flag);
     const emoji  = _pinTypeMap()[pin.entry?.pinType] || null;
     const marker = L.marker([pin.lat, pin.lng], { icon: _makeIcon(color, 14, emoji) });
-    marker.bindPopup(_popupHtml(pin.trip, pin.entry), { maxWidth: 250 });
+    marker.on('click', () => _mmShowInfo(pin.trip, pin.entry));
     marker.addTo(_map);
     _markers.push({ marker, trip: pin.trip, entry: pin.entry });
     bounds.push([pin.lat, pin.lng]);
@@ -359,21 +371,12 @@ function _redrawMarkers(pins) {
 function _update() {
   const pins = _visiblePins();
 
-  // Update sidebar tree
+  // Update sidebar tree only
   const treeEl = document.getElementById('mm-tree');
   if (treeEl) treeEl.innerHTML = _buildSidebarTree(pins);
 
-  // Update filter buttons — type
-  document.querySelectorAll('.mm-type-btn').forEach(btn => {
-    btn.classList.toggle('active', btn.textContent.trim() === _filterTypeLabel(_filters.type));
-  });
-
   // Redraw markers
   _redrawMarkers(pins);
-}
-
-function _filterTypeLabel(key) {
-  return { all: 'Tous', voyage: 'Voyages', weekend: 'Week-ends', sortie: 'Sorties' }[key] || 'Tous';
 }
 
 // ── KML export ─────────────────────────────────────────────────────────────────
@@ -424,17 +427,30 @@ function _escXml(s) {
 window._mmFlyTo = function(lat, lng, tripId) {
   if (!_map) return;
   _map.flyTo([lat, lng], 12, { duration: 1 });
-  // Open the popup for this marker
-  const found = _markers.find(m => m.trip.id === tripId && m.entry.lat == lat && m.entry.lng == lng);
-  if (found) {
-    setTimeout(() => found.marker.openPopup(), 400);
+  // Find pin and open info panel
+  const pin = _allPins.find(p => p.trip.id === tripId && p.lat == lat && p.lng == lng);
+  if (pin) setTimeout(() => _mmShowInfo(pin.trip, pin.entry), 500);
+};
+
+window._mmCloseInfo = function() {
+  if (_infoPanelEl) _infoPanelEl.style.display = 'none';
+};
+
+/** Toggle fold/unfold of a trip group in the sidebar (no filter change). */
+window._mmFoldGroup = function(tripId) {
+  if (_collapsedGroups.has(tripId)) {
+    _collapsedGroups.delete(tripId);
+  } else {
+    _collapsedGroups.add(tripId);
+  }
+  const groupEl = document.getElementById('mm-grp-' + tripId);
+  if (groupEl) {
+    groupEl.classList.toggle('collapsed', _collapsedGroups.has(tripId));
   }
 };
 
-window._mmToggleGroup = function(groupId) {
-  // Extract tripId from groupId: 'mm-grp-{tripId}'
-  const tripId = groupId.replace('mm-grp-', '');
-  // Toggle: click same trip again to show all
+/** Toggle map filter to show only this trip (click again to show all). */
+window._mmFocusTrip = function(tripId) {
   _filters.tripId = (_filters.tripId === tripId) ? 'all' : tripId;
   const sidebar = document.getElementById('mm-sidebar');
   if (sidebar) {
@@ -446,23 +462,6 @@ window._mmToggleGroup = function(groupId) {
 
 window._mmSetType = function(key) {
   _filters.type = key;
-  // Refresh entire sidebar to update button states
-  const sidebar = document.getElementById('mm-sidebar');
-  if (sidebar) {
-    const pins = _visiblePins();
-    sidebar.innerHTML = _sidebarHtml(pins);
-  }
-  _update();
-};
-
-window._mmSetCountry = function(val) {
-  _filters.country = val;
-  _update();
-};
-
-window._mmSetStatus = function(val) {
-  _filters.status = val;
-  // Refresh sidebar for button states
   const sidebar = document.getElementById('mm-sidebar');
   if (sidebar) {
     const pins = _visiblePins();
@@ -473,11 +472,11 @@ window._mmSetStatus = function(val) {
 
 window._mmSetPinType = function(val) {
   _filters.pinType = val;
-  _update();
-};
-
-window._mmSetTrip = function(val) {
-  _filters.tripId = val;
+  const sidebar = document.getElementById('mm-sidebar');
+  if (sidebar) {
+    const pins = _visiblePins();
+    sidebar.innerHTML = _sidebarHtml(pins);
+  }
   _update();
 };
 
@@ -490,7 +489,8 @@ export function renderMyMap() {
   if (!wrap) return;
 
   // Reset filters to default
-  _filters = { type: 'all', country: 'all', status: 'done', pinType: 'all', tripId: 'all' };
+  _filters         = { type: 'all', pinType: 'all', tripId: 'all' };
+  _collapsedGroups = new Set();
 
   // Build pin data
   _buildAllPins();
@@ -504,8 +504,14 @@ export function renderMyMap() {
     <div class="mm-sidebar" id="mm-sidebar">
       ${_sidebarHtml(pins)}
     </div>
-    <div id="mymap" style="flex:1;height:100%;min-width:0"></div>
+    <div style="flex:1;height:100%;position:relative;overflow:hidden">
+      <div id="mymap" style="width:100%;height:100%"></div>
+      <div id="mm-info-panel" class="mm-info-panel" style="display:none;flex-direction:column"></div>
+    </div>
   `;
+
+  // Wire info panel reference
+  _infoPanelEl = null;
 
   // Destroy any stale map instance first
   destroyMyMap();
@@ -514,6 +520,8 @@ export function renderMyMap() {
   requestAnimationFrame(() => {
     const mapEl = document.getElementById('mymap');
     if (!mapEl) return;
+
+    _infoPanelEl = document.getElementById('mm-info-panel');
 
     _map = L.map('mymap', {
       center:      [46.5, 2.5],
