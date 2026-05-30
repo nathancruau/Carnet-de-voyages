@@ -112,7 +112,7 @@ function _mmShowInfo(trip, entry) {
         ${entry.photos.slice(0, 6).map(p =>
           `<img src="${_esc(p.url)}" onclick="window.open(this.src,'_blank')"
             style="height:80px;min-width:80px;border-radius:8px;object-fit:cover;cursor:pointer;flex-shrink:0;border:1px solid var(--c3)"
-            onerror="this.style.display='none">`
+            onerror="this.style.display='none'">`
         ).join('')}
        </div>`
     : '';

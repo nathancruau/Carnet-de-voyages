@@ -38,6 +38,19 @@
   </div>
 
   <script src="vendor/leaflet.js"></script>
-  <script type="module" src="js/app.js?v=2"></script>
+  <script>
+    window.addEventListener('error', function(e) {
+      document.body.innerHTML = '<div style="font-family:monospace;padding:24px;background:#fee;border:2px solid red;margin:20px;border-radius:8px">'
+        + '<b>Erreur JavaScript :</b><br>' + (e.message || '') + '<br>'
+        + (e.filename ? e.filename.split('/').pop() + ':' + e.lineno : '')
+        + '</div>';
+    });
+    window.addEventListener('unhandledrejection', function(e) {
+      document.body.innerHTML = '<div style="font-family:monospace;padding:24px;background:#fee;border:2px solid red;margin:20px;border-radius:8px">'
+        + '<b>Erreur Promise :</b><br>' + (e.reason?.message || String(e.reason))
+        + '</div>';
+    });
+  </script>
+  <script type="module" src="js/app.js?v=3"></script>
 </body>
 </html>
