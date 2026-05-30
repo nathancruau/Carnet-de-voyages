@@ -62,9 +62,14 @@ export function renderMapCal(tripId) {
         <div class="mini-cal" id="mini-cal"></div>
         <div class="days-list-header" style="display:flex;align-items:center;justify-content:space-between;padding:4px 14px 2px;flex-shrink:0">
           <span style="font-size:11px;font-weight:600;color:var(--ink4);text-transform:uppercase;letter-spacing:.04em">Jours</span>
-          <button class="bc" id="add-day-top-btn" data-action="add-day"
-            style="padding:2px 8px;font-size:13px;line-height:1.4;border-radius:8px;font-weight:700"
-            title="Ajouter un jour / étape">＋</button>
+          <div style="display:flex;gap:4px;align-items:center">
+            <button class="bc" id="fold-all-btn"
+              style="padding:2px 7px;font-size:12px;line-height:1.4;border-radius:8px;font-weight:700"
+              title="Tout plier / déplier">⊟</button>
+            <button class="bc" id="add-day-top-btn" data-action="add-day"
+              style="padding:2px 8px;font-size:13px;line-height:1.4;border-radius:8px;font-weight:700"
+              title="Ajouter un jour / étape">＋</button>
+          </div>
         </div>
         <div class="days-scroll" id="days-list"></div>
       </div>
@@ -109,6 +114,25 @@ export function renderMapCal(tripId) {
       const collapsed = lp.classList.toggle('collapsed');
       lpToggle.textContent = collapsed ? '▶' : '◀';
       setTimeout(() => { if (_map) _map.invalidateSize(); }, 280);
+    });
+  }
+
+  // Wire fold-all / unfold-all button
+  const foldAllBtn = panel.querySelector('#fold-all-btn');
+  if (foldAllBtn) {
+    foldAllBtn.addEventListener('click', () => {
+      const trip2 = getTrip(tripId);
+      if (!trip2) return;
+      if (_openDayIds.size > 0) {
+        _openDayIds.clear();
+        foldAllBtn.textContent = '⊞';
+      } else {
+        (trip2.days || []).forEach(d => _openDayIds.add(d.id));
+        foldAllBtn.textContent = '⊟';
+      }
+      _closeEDP();
+      _renderDaysList(tripId);
+      _renderMiniCal(tripId);
     });
   }
 
@@ -190,6 +214,10 @@ function _initMap(tripId) {
       if (_pendingMapClick) {
         _pendingMapClick(e.latlng.lat, e.latlng.lng);
         _pendingMapClick = null;
+      } else if (_openDayIds.size > 0) {
+        // Direct map click → add event to last open day
+        const lastDayId = [..._openDayIds].at(-1);
+        _openAddEventModal(lastDayId, tripId, { lat: e.latlng.lat, lng: e.latlng.lng });
       }
     });
 
@@ -235,6 +263,8 @@ function _refreshMapPins(tripId) {
   for (const day of (trip.days || [])) {
     (day.items || []).forEach((item, itemIdx) => {
       if (item.lat != null && item.lng != null) {
+        // Skip if event is at the exact same position as the day's number marker (avoids overlap)
+        if (item.lat === day.lat && item.lng === day.lng) return;
         const evtIcon = L.divIcon({
           className: '',
           html: `<div style="background:${day.color || '#0d9488'};border:2px solid #fff;border-radius:50%;width:24px;height:24px;display:flex;align-items:center;justify-content:center;font-size:13px;box-shadow:0 1px 4px rgba(0,0,0,.4);cursor:pointer">${tIc(item.type)}</div>`,
