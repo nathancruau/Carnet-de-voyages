@@ -195,7 +195,16 @@ html,body{height:100%;font-family:var(--fn);background:var(--c);color:var(--ink)
 .lp-toggle-btn:hover{background:var(--c2);color:var(--ink)}
 
 /* Mini calendar */
-.mini-cal{padding:12px;border-bottom:1px solid var(--c3);flex-shrink:0}
+.mini-cal{padding:12px;border-bottom:1px solid var(--c3);flex-shrink:0;overflow:hidden;transition:max-height .25s ease,padding .25s ease,border-color .25s ease;max-height:600px}
+.mini-cal.cal-collapsed{max-height:0;padding-top:0;padding-bottom:0;border-bottom-color:transparent}
+.cal-hdr{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:5px 14px;flex-shrink:0;cursor:pointer;user-select:none;
+  border-bottom:1px solid var(--c3);
+}
+.cal-hdr:hover{background:var(--c2)}
+.cal-hdr-lbl{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.05em;color:var(--ink4)}
+.cal-hdr-btn{background:none;border:none;cursor:pointer;color:var(--ink4);font-size:11px;padding:0;line-height:1;pointer-events:none}
 .mc-nav{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
 .mc-mn{font-family:var(--sf);font-size:13px;font-weight:700}
 .mc-arr{

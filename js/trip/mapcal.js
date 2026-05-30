@@ -55,6 +55,10 @@ export function renderMapCal(tripId) {
           <h3 id="lp-title" style="font-family:var(--sf);font-size:15px;font-weight:700;color:var(--ink)">Planning</h3>
           <p style="font-size:11px;color:var(--ink4);margin-top:2px">Cliquez sur un événement pour les détails</p>
         </div>
+        <div class="cal-hdr" id="cal-hdr">
+          <span class="cal-hdr-lbl">Calendrier</span>
+          <span class="cal-hdr-btn" id="cal-toggle">▲</span>
+        </div>
         <div class="mini-cal" id="mini-cal"></div>
         <div class="days-list-header" style="display:flex;align-items:center;justify-content:space-between;padding:4px 14px 2px;flex-shrink:0">
           <span style="font-size:11px;font-weight:600;color:var(--ink4);text-transform:uppercase;letter-spacing:.04em">Jours</span>
@@ -105,6 +109,18 @@ export function renderMapCal(tripId) {
       const collapsed = lp.classList.toggle('collapsed');
       lpToggle.textContent = collapsed ? '▶' : '◀';
       setTimeout(() => { if (_map) _map.invalidateSize(); }, 280);
+    });
+  }
+
+  // Wire calendar collapse toggle
+  const calHdr = panel.querySelector('#cal-hdr');
+  if (calHdr) {
+    calHdr.addEventListener('click', () => {
+      const cal = panel.querySelector('#mini-cal');
+      const btn = panel.querySelector('#cal-toggle');
+      if (!cal) return;
+      const collapsed = cal.classList.toggle('cal-collapsed');
+      if (btn) btn.textContent = collapsed ? '▼' : '▲';
     });
   }
 
