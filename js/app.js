@@ -2,11 +2,11 @@
    CARNET DE VOYAGES — App Entry Point & Router
    ============================================================ */
 
-import { loadData } from './store.js?v=5';
-import { renderHome } from './home.js?v=5';
-import { renderMyMap, destroyMyMap } from './mymap.js?v=5';
-import { openTrip, destroyTripMap } from './trip/trip.js?v=5';
-import { closeModal } from './utils.js?v=5';
+import { loadData } from './store.js';
+import { renderHome } from './home.js';
+import { renderMyMap, destroyMyMap } from './mymap.js';
+import { openTrip, destroyTripMap } from './trip/trip.js';
+import { closeModal } from './utils.js';
 
 // ── Current state ──────────────────────────────────────────────────────────────
 export let currentScreen = 'home';
