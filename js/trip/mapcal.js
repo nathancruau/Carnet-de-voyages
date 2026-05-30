@@ -242,10 +242,11 @@ function _refreshMapPins(tripId) {
   _routeLayers.forEach(l => { try { _map.removeLayer(l); } catch (_) {} });
   _routeLayers = [];
 
-  const days = (trip.days || []).filter(d => d.lat != null && d.lng != null);
+  const days = (trip.days || []).filter(d => _getDayMarkerPos(d) !== null);
 
   days.forEach(day => {
-    const marker = L.marker([day.lat, day.lng], {
+    const pos = _getDayMarkerPos(day);
+    const marker = L.marker([pos.lat, pos.lng], {
       icon: _makeDayIcon(day),
     });
 
@@ -261,10 +262,11 @@ function _refreshMapPins(tripId) {
 
   // Add separate event-level markers for events that have their own coordinates
   for (const day of (trip.days || [])) {
+    // First item with coords is covered by the number pin — skip its standalone marker
+    const firstItemWithCoords = (day.items || []).find(it => it.lat != null && it.lng != null);
     (day.items || []).forEach((item, itemIdx) => {
       if (item.lat != null && item.lng != null) {
-        // Skip if event is at the exact same position as the day's number marker (avoids overlap)
-        if (item.lat === day.lat && item.lng === day.lng) return;
+        if (item === firstItemWithCoords) return;
         const evtIcon = L.divIcon({
           className: '',
           html: `<div style="background:${day.color || '#0d9488'};border:2px solid #fff;border-radius:50%;width:24px;height:24px;display:flex;align-items:center;justify-content:center;font-size:13px;box-shadow:0 1px 4px rgba(0,0,0,.4);cursor:pointer">${tIc(item.type)}</div>`,
@@ -297,9 +299,10 @@ function _refreshMapPins(tripId) {
 
   // Fit bounds if we have pins
   if (days.length === 1) {
-    _map.setView([days[0].lat, days[0].lng], 10, { animate: true });
+    const pos0 = _getDayMarkerPos(days[0]);
+    _map.setView([pos0.lat, pos0.lng], 10, { animate: true });
   } else if (days.length > 1) {
-    const bounds = days.map(d => [d.lat, d.lng]);
+    const bounds = days.map(d => { const p = _getDayMarkerPos(d); return [p.lat, p.lng]; });
     _map.fitBounds(bounds, { padding: [40, 40], maxZoom: 12 });
   }
 }
@@ -317,6 +320,14 @@ function _makeDayIcon(day) {
     iconAnchor: [14, 36],
     popupAnchor:[0, -38],
   });
+}
+
+// Returns effective map position for the day number pin: first event coords, or day fallback
+function _getDayMarkerPos(day) {
+  const firstPin = (day.items || []).find(it => it.lat != null && it.lng != null);
+  if (firstPin) return { lat: firstPin.lat, lng: firstPin.lng };
+  if (day.lat != null && day.lng != null) return { lat: day.lat, lng: day.lng };
+  return null;
 }
 
 function _dayPopupHtml(day) {
@@ -936,12 +947,13 @@ function _selectDay(dayId, tripId) {
   const dayEl = document.querySelector(`[data-day-id="${dayId}"][data-action="select-day"]`);
   if (dayEl) dayEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 
-  // Fly map to day coords
+  // Fly map to day coords (derived from first event or day fallback)
   const trip = getTrip(tripId);
   if (trip) {
     const day = (trip.days || []).find(d => d.id === dayId);
-    if (day && day.lat != null && day.lng != null && _map) {
-      _map.flyTo([day.lat, day.lng], Math.max(_map.getZoom(), 10), { duration: 1 });
+    const pos = day ? _getDayMarkerPos(day) : null;
+    if (pos && _map) {
+      _map.flyTo([pos.lat, pos.lng], Math.max(_map.getZoom(), 10), { duration: 1 });
       const marker = _markers[dayId];
       if (marker) setTimeout(() => marker.openPopup(), 800);
     }
@@ -1014,10 +1026,22 @@ function _attachLeftPanelListeners(panel) {
 
   panel.addEventListener('dragover', e => {
     if (!_dragEvt) return;
-    const dayItem = e.target.closest('.day-item');
-    if (!dayItem) return;
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
+
+    // Same-day reorder: highlight the specific evt-row being hovered
+    const evtRow = e.target.closest('.evt-row');
+    if (evtRow && evtRow.dataset.dayId === _dragEvt.dayId) {
+      if (_dropTarget !== evtRow) {
+        if (_dropTarget) _dropTarget.classList.remove('drop-target');
+        _dropTarget = evtRow;
+        evtRow.classList.add('drop-target');
+      }
+      return;
+    }
+
+    const dayItem = e.target.closest('.day-item');
+    if (!dayItem) return;
     if (_dropTarget !== dayItem) {
       if (_dropTarget) _dropTarget.classList.remove('drop-target');
       _dropTarget = dayItem;
@@ -1035,6 +1059,16 @@ function _attachLeftPanelListeners(panel) {
     e.preventDefault();
     if (_dropTarget) { _dropTarget.classList.remove('drop-target'); _dropTarget = null; }
     if (!_dragEvt) return;
+
+    // Same-day reorder: drop on a specific evt-row within the same day
+    const evtRow = e.target.closest('.evt-row');
+    if (evtRow && evtRow.dataset.dayId === _dragEvt.dayId) {
+      const targetIdx = parseInt(evtRow.dataset.eventIdx, 10);
+      if (!isNaN(targetIdx)) _reorderEvent(_dragEvt.dayId, _dragEvt.idx, targetIdx, _tripId);
+      _dragEvt = null;
+      return;
+    }
+
     const dayItem = e.target.closest('.day-item');
     if (!dayItem) return;
     const targetDayId = dayItem.dataset.dayId;
@@ -1069,6 +1103,30 @@ function _moveEvent(sourceDayId, evtIdx, targetDayId, tripId) {
   _renderMiniCal(tripId);
   _refreshMapPins(tripId);
   notify('Événement déplacé', '✅');
+}
+
+// ─── Reorder event within same day ───────────────────────────────────────────
+
+function _reorderEvent(dayId, fromIdx, toIdx, tripId) {
+  if (fromIdx === toIdx) return;
+  const trip = getTrip(tripId);
+  if (!trip) return;
+  const day = (trip.days || []).find(d => d.id === dayId);
+  if (!day) return;
+
+  const items = [...(day.items || [])];
+  if (fromIdx < 0 || fromIdx >= items.length || toIdx < 0 || toIdx >= items.length) return;
+
+  const [moved] = items.splice(fromIdx, 1);
+  items.splice(toIdx, 0, moved);
+  day.items = items;
+
+  updateTrip(tripId, { days: trip.days });
+  _activeEvtKey = null;
+  _closeEDP();
+  _renderDaysList(tripId);
+  _refreshMapPins(tripId);
+  notify('Événement réorganisé', '✅');
 }
 
 // ─── Delete event ─────────────────────────────────────────────────────────────
