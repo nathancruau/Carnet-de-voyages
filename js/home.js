@@ -16,7 +16,7 @@ import {
   typeBadge,
   generateDays,
 } from './utils.js';
-import { navigateToTrip, goMyMap } from './app.js';
+// navigateToTrip / goMyMap accessed via window globals (set by app.js) to avoid circular import
 import { importFile } from './import.js';
 
 // ── Module state ───────────────────────────────────────────────────────────────
@@ -718,7 +718,7 @@ function _attachListeners(wrap) {
 
     switch (action) {
       case 'open-mymap':
-        goMyMap();
+        window.goMyMap();
         break;
 
       case 'open-import':
@@ -739,7 +739,7 @@ function _attachListeners(wrap) {
         break;
 
       case 'open-trip':
-        navigateToTrip(target.dataset.tripId);
+        window.navigateToTrip(target.dataset.tripId);
         break;
 
       case 'filter':
