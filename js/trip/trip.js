@@ -42,7 +42,7 @@ export async function openTrip(id) {
  * Destroy the Leaflet map instance when leaving the trip screen.
  */
 export async function destroyTripMap() {
-  const { destroyMap } = await import('./mapcal.js?v=5');
+  const { destroyMap } = await import('./mapcal.js');
   destroyMap();
 }
 
@@ -177,19 +177,19 @@ async function _renderActiveTab(tabId, tripId) {
   if (!tripId) return;
   try {
     if (tabId === 'mapcal') {
-      const { renderMapCal } = await import('./mapcal.js?v=5');
+      const { renderMapCal } = await import('./mapcal.js');
       renderMapCal(tripId);
     } else if (tabId === 'journal') {
-      const { renderJournal } = await import('./journal.js?v=5');
+      const { renderJournal } = await import('./journal.js');
       renderJournal(tripId);
     } else if (tabId === 'budget') {
-      const { renderBudget } = await import('./budget.js?v=5');
+      const { renderBudget } = await import('./budget.js');
       renderBudget(tripId);
     } else if (tabId === 'tricount') {
-      const { renderTricount } = await import('./tricount.js?v=5');
+      const { renderTricount } = await import('./tricount.js');
       renderTricount(tripId);
     } else if (tabId === 'packing') {
-      const { renderPacking } = await import('./packing.js?v=5');
+      const { renderPacking } = await import('./packing.js');
       renderPacking(tripId);
     }
   } catch (err) {
