@@ -1,12 +1,8 @@
-// Remplissez ces valeurs avec votre configuration Firebase.
-// Obtenez-les sur https://console.firebase.google.com
-// → Project Settings → General → Your apps → Add app (Web) → Config
-
 export const firebaseConfig = {
-  apiKey:            "YOUR_API_KEY",
-  authDomain:        "YOUR_PROJECT_ID.firebaseapp.com",
-  projectId:         "YOUR_PROJECT_ID",
-  storageBucket:     "YOUR_PROJECT_ID.firebasestorage.app",
-  messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
-  appId:             "YOUR_APP_ID",
+  apiKey:            "AIzaSyChPf4ooGrJQ_GbzM35NrNSOcNLJT-d8ZI",
+  authDomain:        "carnet-de-voyage-2dc04.firebaseapp.com",
+  projectId:         "carnet-de-voyage-2dc04",
+  storageBucket:     "carnet-de-voyage-2dc04.firebasestorage.app",
+  messagingSenderId: "501119166138",
+  appId:             "1:501119166138:web:e7d047d0d75be4e00d4483",
 };
