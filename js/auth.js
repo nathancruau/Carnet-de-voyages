@@ -110,13 +110,23 @@ export async function initAuth(onReady) {
 }
 
 /**
- * Sign in with Google — popup first, redirect fallback if popup is blocked.
- * On iOS Safari, Firebase may redirect the current page instead of opening a
- * popup; the redirect result is processed in initAuth via getRedirectResult.
+ * Sign in with Google.
+ * On iOS/Android: popup opens as a new tab without window.opener, so Firebase
+ * can't post the auth result back to the original tab — the button stays stuck
+ * on "Connexion..." forever. Use redirect instead on mobile; initAuth already
+ * waits for getRedirectResult to settle before deciding to show the login screen,
+ * so there is no redirect loop.
+ * On desktop: popup is preferred (instant, no page reload).
  */
 export async function loginWithGoogle() {
   if (!_auth || !_GoogleProvider) throw new Error('Firebase not initialized');
   const provider = new _GoogleProvider();
+  const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+  if (isMobile) {
+    await _signInRedirectFn(_auth, provider);
+    // Page navigates away — no code runs after this
+    return;
+  }
   try {
     await _signInPopupFn(_auth, provider);
   } catch (err) {
