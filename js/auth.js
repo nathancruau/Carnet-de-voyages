@@ -43,15 +43,14 @@ export async function initAuth(onReady) {
     _signInRedirectFn    = authMod.signInWithRedirect;
     _getRedirectResultFn = authMod.getRedirectResult;
 
-    // CRITICAL: await getRedirectResult BEFORE registering onAuthStateChanged.
-    // If onAuthStateChanged fires first it gets stale null state and drops the
-    // redirect credential, sending the user back to the login screen.
-    try {
-      await Promise.race([
-        _getRedirectResultFn(_auth),
-        new Promise(resolve => setTimeout(resolve, 8000)),
-      ]);
-    } catch (redirectErr) {
+    // Check if a redirect was just initiated (flag set by loginWithGoogle before
+    // the page navigated away). sessionStorage survives same-tab redirect chains.
+    const redirectPending = sessionStorage.getItem('_googleRedirect') === '1';
+    if (redirectPending) sessionStorage.removeItem('_googleRedirect');
+
+    // Always call getRedirectResult to consume the credential if one is pending.
+    // Only block the UI on it when we know we just came back from a redirect.
+    const redirectDone = _getRedirectResultFn(_auth).catch(redirectErr => {
       const code = redirectErr.code || '';
       let msg = redirectErr.message || 'Erreur de connexion';
       if (code === 'auth/unauthorized-domain') {
@@ -59,6 +58,12 @@ export async function initAuth(onReady) {
       }
       console.warn('[auth] Redirect error:', code, msg);
       sessionStorage.setItem('_authRedirectError', msg);
+    });
+
+    if (redirectPending) {
+      // Wait for Firebase to exchange the redirect credential before registering
+      // onAuthStateChanged, so the listener sees the correct user on its first fire.
+      await Promise.race([redirectDone, new Promise(r => setTimeout(r, 8000))]);
     }
 
     authMod.onAuthStateChanged(_auth, async fbUser => {
@@ -79,6 +84,8 @@ export async function initAuth(onReady) {
 // window.opener inside any popup, making signInWithPopup permanently broken.
 export async function loginWithGoogle() {
   if (!_auth || !_GoogleProvider) throw new Error('Firebase not initialized');
+  // Flag survives the redirect chain so initAuth knows to wait for the result.
+  sessionStorage.setItem('_googleRedirect', '1');
   const provider = new _GoogleProvider();
   await _signInRedirectFn(_auth, provider);
 }
