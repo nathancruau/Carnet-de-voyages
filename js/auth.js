@@ -1,11 +1,9 @@
 /**
  * auth.js — Firebase Authentication + Firestore sync
  *
- * getRedirectResult MUST be awaited BEFORE onAuthStateChanged is set up.
- * Firebase processes the OAuth token in getRedirectResult and updates
- * currentUser; only then does onAuthStateChanged fire with the user.
- * Reversing this order causes getRedirectResult to return null because
- * onAuthStateChanged fires first with a stale (null) state.
+ * Deployed on Firebase Hosting: authDomain and app domain are the same
+ * (carnet-de-voyage-2dc04.web.app), so popup/redirect works with no
+ * cross-origin restrictions.
  *
  * If firebase-config.js has placeholder values the app runs in local-only mode.
  */
@@ -56,46 +54,21 @@ export async function initAuth(onReady) {
     _signInRedirectFn    = authMod.signInWithRedirect;
     _getRedirectResultFn = authMod.getRedirectResult;
 
-    // ── Step 1: process any pending redirect result FIRST ─────────────────────
-    // getRedirectResult exchanges the OAuth code for a token and updates
-    // _auth.currentUser. This MUST complete before onAuthStateChanged is
-    // registered; otherwise the listener fires with null (stale state) and
-    // the redirect result is silently dropped.
-    const hadRedirect = !!sessionStorage.getItem('_redirectPending');
-
-    try {
-      await Promise.race([
-        _getRedirectResultFn(_auth),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 8000)),
-      ]);
-    } catch (err) {
-      const code = err.code || '';
-      if (err.message !== 'timeout') {
-        let msg = err.message || 'Erreur de connexion';
-        if (code === 'auth/unauthorized-domain') {
-          msg = 'Domaine non autorisé dans Firebase → Authentication → Authorized domains.';
-        }
-        console.warn('[auth] Redirect error:', code, msg);
-        sessionStorage.setItem('_authRedirectError', msg);
-      } else if (hadRedirect) {
-        console.warn('[auth] Redirect result timed out');
-        sessionStorage.setItem('_authRedirectError',
-          'La connexion a expiré. Réessayez.');
+    // Process any pending redirect result first, then subscribe to auth state.
+    // getRedirectResult must settle before onAuthStateChanged is registered
+    // so the listener sees the correct (post-redirect) user on its first fire.
+    _getRedirectResultFn(_auth).catch(redirectErr => {
+      const code = redirectErr.code || '';
+      let msg = redirectErr.message || 'Erreur de connexion';
+      if (code === 'auth/unauthorized-domain') {
+        msg = 'Domaine non autorisé dans Firebase → Authentication → Authorized domains.';
       }
-    }
+      console.warn('[auth] Redirect error:', code, msg);
+      const errEl = document.getElementById('login-err');
+      if (errEl) errEl.textContent = msg;
+      else sessionStorage.setItem('_authRedirectError', msg);
+    });
 
-    // Clear the redirect flag — we've processed (or timed out) the result
-    sessionStorage.removeItem('_redirectPending');
-
-    // If redirect happened but produced no user, show a diagnostic error
-    if (hadRedirect && !_auth.currentUser) {
-      const msg = sessionStorage.getItem('_authRedirectError')
-        || 'Session non récupérée après connexion. Réessayez.';
-      sessionStorage.setItem('_authRedirectError', msg);
-    }
-
-    // ── Step 2: subscribe to auth state ───────────────────────────────────────
-    // currentUser is now fully resolved (redirect processed above).
     authMod.onAuthStateChanged(_auth, async fbUser => {
       _user = fbUser;
       _uid  = fbUser?.uid ?? null;
@@ -111,19 +84,22 @@ export async function initAuth(onReady) {
 }
 
 /**
- * Sign in with Google — always uses redirect (no popup).
- * Popup requires window.opener.postMessage from firebaseapp.com back to
- * nathancruau.github.io, which is blocked by cross-origin restrictions.
- * Redirect navigates the current tab; getRedirectResult (awaited in initAuth
- * before onAuthStateChanged) processes the result cleanly.
+ * Sign in with Google.
+ * On Firebase Hosting the app domain matches authDomain — popup works fine.
+ * Falls back to redirect if popup is blocked.
  */
 export async function loginWithGoogle() {
   if (!_auth || !_GoogleProvider) throw new Error('Firebase not initialized');
-  // Mark that a redirect is starting so initAuth can diagnose failures
-  sessionStorage.setItem('_redirectPending', '1');
   const provider = new _GoogleProvider();
-  await _signInRedirectFn(_auth, provider);
-  // Page navigates away — no code runs after this
+  try {
+    await _signInPopupFn(_auth, provider);
+  } catch (err) {
+    if (err.code === 'auth/popup-blocked') {
+      await _signInRedirectFn(_auth, provider);
+    } else {
+      throw err;
+    }
+  }
 }
 
 export async function logout() {
@@ -147,7 +123,7 @@ async function _loadFromFirestore() {
   try {
     const snap = await Promise.race([
       _getDocFn(_docFn(_db, 'users', _uid)),
-      new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 3000)),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000)),
     ]);
     return snap.exists() ? snap.data() : null;
   } catch (err) {
