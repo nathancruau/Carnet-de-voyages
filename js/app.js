@@ -111,22 +111,30 @@ function _onAuthReady(user, cloudData) {
   }
 
   // Logged in — wire up sync callback so every saveData() pushes to Firestore
-  setSyncCallback(syncToFirestore);
+  try {
+    setSyncCallback(syncToFirestore);
 
-  if (cloudData) {
-    // Cloud data takes priority
-    setState(cloudData);
-  } else {
-    // First login on this device: upload existing local trips to cloud
-    loadData();
-    const localState = getState();
-    if (localState.trips && localState.trips.length > 0) {
-      syncToFirestore(localState);
+    if (cloudData) {
+      // Cloud data takes priority
+      setState(cloudData);
+    } else {
+      // First login on this device: upload existing local trips to cloud
+      loadData();
+      const localState = getState();
+      if (localState.trips && localState.trips.length > 0) {
+        syncToFirestore(localState);
+      }
     }
-  }
 
-  renderHome();
-  showScreen('home');
+    renderHome();
+    showScreen('home');
+  } catch (err) {
+    console.error('[app] render failed after login:', err);
+    const btn = document.getElementById('login-google-btn');
+    if (btn) { btn.disabled = false; btn.innerHTML = _googleBtnInner(); }
+    const errEl = document.getElementById('login-err');
+    if (errEl) errEl.textContent = 'Erreur lors du chargement. Réessayez.';
+  }
 }
 
 // ── Global bindings (for onclick="" in HTML / modals / map popups) ─────────────

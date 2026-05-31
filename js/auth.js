@@ -125,7 +125,7 @@ async function _loadFromFirestore() {
     // 8s timeout — if Firestore is not set up yet, don't block the login flow
     const snap = await Promise.race([
       _getDocFn(_docFn(_db, 'users', _uid)),
-      new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 8000)),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 3000)),
     ]);
     return snap.exists() ? snap.data() : null;
   } catch (err) {
