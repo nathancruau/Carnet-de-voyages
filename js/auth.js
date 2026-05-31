@@ -2,6 +2,9 @@
  * auth.js — Firebase Authentication + Firestore sync
  *
  * Uses signInWithRedirect (not popup) for reliability on GitHub Pages / mobile.
+ * onAuthStateChanged is wired BEFORE getRedirectResult so the spinner
+ * never blocks even if the redirect result takes time.
+ *
  * If firebase-config.js still has placeholder values, the app runs
  * in local-only mode (no login required, data stays in localStorage).
  */
@@ -54,15 +57,8 @@ export async function initAuth(onReady) {
     _signInRedirectFn    = authMod.signInWithRedirect;
     _getRedirectResultFn = authMod.getRedirectResult;
 
-    // Handle errors from a previous signInWithRedirect call
-    try {
-      await _getRedirectResultFn(_auth);
-    } catch (redirectErr) {
-      console.warn('[auth] Redirect sign-in error:', redirectErr.message);
-      // Store error to display on login screen
-      window._authRedirectError = redirectErr.message;
-    }
-
+    // Wire up listener FIRST — fires immediately with current auth state
+    // and again after a redirect completes. Never blocked by getRedirectResult.
     authMod.onAuthStateChanged(_auth, async fbUser => {
       _user = fbUser;
       _uid  = fbUser?.uid ?? null;
@@ -72,6 +68,12 @@ export async function initAuth(onReady) {
         cloudData = await _loadFromFirestore();
       }
       onReady(fbUser, cloudData);
+    });
+
+    // Non-blocking: surface any redirect error on the login card
+    _getRedirectResultFn(_auth).catch(redirectErr => {
+      console.warn('[auth] Redirect sign-in error:', redirectErr.message);
+      window._authRedirectError = redirectErr.message;
     });
 
   } catch (err) {
@@ -86,7 +88,7 @@ export async function loginWithGoogle() {
   }
   const provider = new _GoogleProvider();
   await _signInRedirectFn(_auth, provider);
-  // Page will redirect to Google — no code runs after this
+  // Page redirects to Google — no code runs after this line
 }
 
 export async function logout() {
