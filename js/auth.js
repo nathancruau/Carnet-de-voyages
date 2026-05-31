@@ -70,10 +70,19 @@ export async function initAuth(onReady) {
       onReady(fbUser, cloudData);
     });
 
-    // Non-blocking: surface any redirect error on the login card
+    // Non-blocking: surface any redirect error on the login card.
+    // Writes directly to #login-err if it's already in the DOM,
+    // otherwise stores in sessionStorage for _renderLogin to pick up.
     _getRedirectResultFn(_auth).catch(redirectErr => {
-      console.warn('[auth] Redirect sign-in error:', redirectErr.message);
-      window._authRedirectError = redirectErr.message;
+      const code = redirectErr.code || '';
+      let msg = redirectErr.message || 'Erreur de connexion';
+      if (code === 'auth/unauthorized-domain') {
+        msg = 'Domaine non autorisé. Ajoutez nathancruau.github.io dans Firebase → Authentication → Authorized domains.';
+      }
+      console.warn('[auth] Redirect error:', code, msg);
+      const errEl = document.getElementById('login-err');
+      if (errEl) errEl.textContent = msg;
+      else sessionStorage.setItem('_authRedirectError', msg);
     });
 
   } catch (err) {
