@@ -1,13 +1,3 @@
-/**
- * auth.js — Firebase Authentication + Firestore sync
- *
- * Deployed on Firebase Hosting: authDomain and app domain are the same
- * (carnet-de-voyage-2dc04.web.app), so popup/redirect works with no
- * cross-origin restrictions.
- *
- * If firebase-config.js has placeholder values the app runs in local-only mode.
- */
-
 import { firebaseConfig } from './firebase-config.js';
 
 const FB = 'https://www.gstatic.com/firebasejs/11.1.0';
@@ -23,7 +13,7 @@ let _uid  = null;
 let _user = null;
 
 let _docFn, _getDocFn, _setDocFn, _signOutFn, _GoogleProvider;
-let _signInPopupFn, _signInRedirectFn, _getRedirectResultFn;
+let _signInRedirectFn, _getRedirectResultFn;
 
 export function isFirebaseConfigured() { return _configured; }
 export function getCurrentUser()       { return _user; }
@@ -50,24 +40,26 @@ export async function initAuth(onReady) {
     _setDocFn            = dbMod.setDoc;
     _signOutFn           = authMod.signOut;
     _GoogleProvider      = authMod.GoogleAuthProvider;
-    _signInPopupFn       = authMod.signInWithPopup;
     _signInRedirectFn    = authMod.signInWithRedirect;
     _getRedirectResultFn = authMod.getRedirectResult;
 
-    // Process any pending redirect result first, then subscribe to auth state.
-    // getRedirectResult must settle before onAuthStateChanged is registered
-    // so the listener sees the correct (post-redirect) user on its first fire.
-    _getRedirectResultFn(_auth).catch(redirectErr => {
+    // CRITICAL: await getRedirectResult BEFORE registering onAuthStateChanged.
+    // If onAuthStateChanged fires first it gets stale null state and drops the
+    // redirect credential, sending the user back to the login screen.
+    try {
+      await Promise.race([
+        _getRedirectResultFn(_auth),
+        new Promise(resolve => setTimeout(resolve, 8000)),
+      ]);
+    } catch (redirectErr) {
       const code = redirectErr.code || '';
       let msg = redirectErr.message || 'Erreur de connexion';
       if (code === 'auth/unauthorized-domain') {
         msg = 'Domaine non autorisé dans Firebase → Authentication → Authorized domains.';
       }
       console.warn('[auth] Redirect error:', code, msg);
-      const errEl = document.getElementById('login-err');
-      if (errEl) errEl.textContent = msg;
-      else sessionStorage.setItem('_authRedirectError', msg);
-    });
+      sessionStorage.setItem('_authRedirectError', msg);
+    }
 
     authMod.onAuthStateChanged(_auth, async fbUser => {
       _user = fbUser;
@@ -83,23 +75,12 @@ export async function initAuth(onReady) {
   }
 }
 
-/**
- * Sign in with Google.
- * On Firebase Hosting the app domain matches authDomain — popup works fine.
- * Falls back to redirect if popup is blocked.
- */
+// Always use redirect — Google's COOP headers on accounts.google.com sever
+// window.opener inside any popup, making signInWithPopup permanently broken.
 export async function loginWithGoogle() {
   if (!_auth || !_GoogleProvider) throw new Error('Firebase not initialized');
   const provider = new _GoogleProvider();
-  try {
-    await _signInPopupFn(_auth, provider);
-  } catch (err) {
-    if (err.code === 'auth/popup-blocked') {
-      await _signInRedirectFn(_auth, provider);
-    } else {
-      throw err;
-    }
-  }
+  await _signInRedirectFn(_auth, provider);
 }
 
 export async function logout() {
