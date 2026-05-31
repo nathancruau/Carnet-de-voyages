@@ -1,7 +1,7 @@
 /**
  * auth.js — Firebase Authentication + Firestore sync
  *
- * Firebase SDK is loaded dynamically to avoid blocking page load.
+ * Uses signInWithRedirect (not popup) for reliability on GitHub Pages / mobile.
  * If firebase-config.js still has placeholder values, the app runs
  * in local-only mode (no login required, data stays in localStorage).
  */
@@ -20,8 +20,7 @@ let _db   = null;
 let _uid  = null;
 let _user = null;
 
-// Firebase API refs populated after dynamic import
-let _docFn, _getDocFn, _setDocFn, _signOutFn, _GoogleProvider, _signInPopupFn;
+let _docFn, _getDocFn, _setDocFn, _signOutFn, _GoogleProvider, _signInRedirectFn, _getRedirectResultFn;
 
 export function isFirebaseConfigured() { return _configured; }
 export function getCurrentUser()       { return _user; }
@@ -47,12 +46,22 @@ export async function initAuth(onReady) {
     _auth = authMod.getAuth(app);
     _db   = dbMod.getFirestore(app);
 
-    _docFn          = dbMod.doc;
-    _getDocFn       = dbMod.getDoc;
-    _setDocFn       = dbMod.setDoc;
-    _signOutFn      = authMod.signOut;
-    _GoogleProvider = authMod.GoogleAuthProvider;
-    _signInPopupFn  = authMod.signInWithPopup;
+    _docFn               = dbMod.doc;
+    _getDocFn            = dbMod.getDoc;
+    _setDocFn            = dbMod.setDoc;
+    _signOutFn           = authMod.signOut;
+    _GoogleProvider      = authMod.GoogleAuthProvider;
+    _signInRedirectFn    = authMod.signInWithRedirect;
+    _getRedirectResultFn = authMod.getRedirectResult;
+
+    // Handle errors from a previous signInWithRedirect call
+    try {
+      await _getRedirectResultFn(_auth);
+    } catch (redirectErr) {
+      console.warn('[auth] Redirect sign-in error:', redirectErr.message);
+      // Store error to display on login screen
+      window._authRedirectError = redirectErr.message;
+    }
 
     authMod.onAuthStateChanged(_auth, async fbUser => {
       _user = fbUser;
@@ -72,11 +81,12 @@ export async function initAuth(onReady) {
 }
 
 export async function loginWithGoogle() {
-  if (!_auth || !_signInPopupFn || !_GoogleProvider) {
+  if (!_auth || !_signInRedirectFn || !_GoogleProvider) {
     throw new Error('Firebase not initialized');
   }
   const provider = new _GoogleProvider();
-  await _signInPopupFn(_auth, provider);
+  await _signInRedirectFn(_auth, provider);
+  // Page will redirect to Google — no code runs after this
 }
 
 export async function logout() {
