@@ -18,6 +18,7 @@ import {
 } from './utils.js';
 // navigateToTrip / goMyMap accessed via window globals (set by app.js) to avoid circular import
 import { importFile } from './import.js';
+import { getCurrentUser, logout } from './auth.js';
 
 // ── Module state ───────────────────────────────────────────────────────────────
 
@@ -308,6 +309,14 @@ function _statsViewHtml(trips) {
 
 function _heroHtml(trips) {
   const s = _calcStats(trips);
+  const user = getCurrentUser();
+  const userHtml = user ? `
+    <div class="user-pill">
+      ${user.photoURL ? `<img src="${_esc(user.photoURL)}" class="user-av" referrerpolicy="no-referrer">` : ''}
+      <span class="user-nm">${_esc(user.displayName || user.email || '')}</span>
+      <button data-action="logout" class="logout-btn">Déconnexion</button>
+    </div>
+  ` : '';
   return `
     <div class="hero">
       <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;width:100%">
@@ -315,7 +324,8 @@ function _heroHtml(trips) {
           <div class="hero-logo">Carnet de Voyages</div>
           <div class="hero-sub">Planifiez, organisez et vivez vos aventures</div>
         </div>
-        <div style="display:flex;gap:8px">
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          ${userHtml}
           <button class="btn-new" data-action="open-import" title="Importer KML/CSV">⬆ Importer</button>
           <button class="btn-new" data-action="export-all" title="Exporter tous les voyages en CSV">⬇ Exporter</button>
           <button class="btn-new" data-action="show-stats">📊 Statistiques</button>
@@ -717,6 +727,14 @@ function _attachListeners(wrap) {
     const action = target.dataset.action;
 
     switch (action) {
+      case 'logout':
+        e.stopPropagation();
+        logout().then(() => {
+          localStorage.removeItem('carnet_voyages_v1');
+          window.location.reload();
+        });
+        break;
+
       case 'open-mymap':
         window.goMyMap();
         break;

@@ -124,6 +124,21 @@ export function getLanguage() {
 /* ── Internal state ── */
 let state = { trips: [] };
 
+let _syncCallback = null;
+
+export function getState() { return state; }
+
+export function setState(data) {
+  if (!data || typeof data !== 'object') return;
+  state = { trips: [], ...data };
+  if (!Array.isArray(state.trips)) state.trips = [];
+  state.trips = state.trips.map(t => _migrateTrip(t));
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
+  catch (e) { console.warn('Carnet: failed to save state', e); }
+}
+
+export function setSyncCallback(fn) { _syncCallback = fn; }
+
 export function loadData() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
@@ -167,6 +182,7 @@ function _migrateTrip(t) {
 export function saveData() {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    if (_syncCallback) _syncCallback(state);
   } catch (e) {
     console.warn('Carnet: failed to save data', e);
   }
