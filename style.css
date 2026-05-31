@@ -1009,7 +1009,7 @@ html,body{height:100%;font-family:var(--fn);background:var(--c);color:var(--ink)
 /* ══════════════════════════════════════════
    LOGIN SCREEN
 ══════════════════════════════════════════ */
-#screen-login{display:flex;align-items:center;justify-content:center;min-height:100vh;background:var(--c)}
+#screen-login.active{align-items:center;justify-content:center;min-height:100vh;background:var(--c)}
 .login-card{text-align:center;padding:48px 40px;max-width:380px;width:100%;background:var(--c);border-radius:20px;box-shadow:0 8px 40px rgba(0,0,0,.10);border:1px solid var(--c3)}
 .login-icon{font-size:52px;margin-bottom:14px}
 .login-logo{font-family:'Lora',serif;font-size:26px;font-weight:700;color:var(--ink);margin-bottom:8px}
