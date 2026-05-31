@@ -1,9 +1,15 @@
 /**
  * auth.js — Firebase Authentication + Firestore sync
  *
- * Login strategy: popup first (instant, no cross-origin storage issue),
- * redirect as fallback only if popup is blocked by the browser.
- * onAuthStateChanged is wired before any async call so the spinner never hangs.
+ * Login strategy: popup first on all platforms.
+ * Falls back to redirect only if popup is explicitly blocked by the browser.
+ *
+ * Key fix for iOS Safari: when signInWithPopup redirects the current page
+ * (iOS can't open a true popup window), onAuthStateChanged fires with null
+ * immediately on reload — BEFORE getRedirectResult has processed the token.
+ * We wait for getRedirectResult to settle before deciding to show the login
+ * screen, preventing the redirect loop where the user sees login and clicks
+ * again before auth has a chance to complete.
  *
  * If firebase-config.js has placeholder values the app runs in local-only mode.
  */
@@ -54,18 +60,11 @@ export async function initAuth(onReady) {
     _signInRedirectFn    = authMod.signInWithRedirect;
     _getRedirectResultFn = authMod.getRedirectResult;
 
-    // Wire up listener first — fires immediately with current auth state,
-    // then again after any popup/redirect completes.
-    authMod.onAuthStateChanged(_auth, async fbUser => {
-      _user = fbUser;
-      _uid  = fbUser?.uid ?? null;
-      let cloudData = null;
-      if (fbUser) cloudData = await _loadFromFirestore();
-      onReady(fbUser, cloudData);
-    });
-
-    // Surface any redirect error on the login card (non-blocking)
-    _getRedirectResultFn(_auth).catch(redirectErr => {
+    // Start processing any pending redirect result immediately.
+    // On iOS Safari, signInWithPopup may redirect the current page instead of
+    // opening a true popup. getRedirectResult exchanges the OAuth code for a
+    // token and updates _auth.currentUser before onAuthStateChanged fires again.
+    const redirectSettled = _getRedirectResultFn(_auth).catch(redirectErr => {
       const code = redirectErr.code || '';
       let msg = redirectErr.message || 'Erreur de connexion';
       if (code === 'auth/unauthorized-domain') {
@@ -75,6 +74,33 @@ export async function initAuth(onReady) {
       const errEl = document.getElementById('login-err');
       if (errEl) errEl.textContent = msg;
       else sessionStorage.setItem('_authRedirectError', msg);
+      return null;
+    });
+
+    authMod.onAuthStateChanged(_auth, async fbUser => {
+      _user = fbUser;
+      _uid  = fbUser?.uid ?? null;
+
+      if (fbUser) {
+        // User is authenticated — load cloud data and show home.
+        const cloudData = await _loadFromFirestore();
+        onReady(fbUser, cloudData);
+        return;
+      }
+
+      // No user yet. Wait for getRedirectResult to settle (up to 6 s) before
+      // concluding there is no authenticated user and showing the login screen.
+      // This prevents the loop: redirect returns → null fires → login shown →
+      // user clicks again → redirect again → loop.
+      await Promise.race([
+        redirectSettled,
+        new Promise(r => setTimeout(r, 6000)),
+      ]);
+
+      // After waiting, re-check: getRedirectResult may have signed the user in.
+      if (_auth.currentUser) return; // onAuthStateChanged will fire again with the user
+
+      onReady(null, null);
     });
 
   } catch (err) {
@@ -84,22 +110,13 @@ export async function initAuth(onReady) {
 }
 
 /**
- * Sign in with Google.
- * On mobile (iOS/Android), popups are unreliable — iOS suspends the popup
- * when the user switches to the notification center to approve a 2FA push,
- * which prevents Firebase from receiving the OAuth token. Redirect survives
- * app-switching and completes the full auth cycle including 2FA.
- * On desktop, popup is preferred (instant, no cross-origin storage issue).
+ * Sign in with Google — popup first, redirect fallback if popup is blocked.
+ * On iOS Safari, Firebase may redirect the current page instead of opening a
+ * popup; the redirect result is processed in initAuth via getRedirectResult.
  */
 export async function loginWithGoogle() {
   if (!_auth || !_GoogleProvider) throw new Error('Firebase not initialized');
   const provider = new _GoogleProvider();
-  const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-  if (isMobile) {
-    await _signInRedirectFn(_auth, provider);
-    // Page navigates away — no code runs after this
-    return;
-  }
   try {
     await _signInPopupFn(_auth, provider);
   } catch (err) {
@@ -131,7 +148,6 @@ export async function syncToFirestore(state) {
 async function _loadFromFirestore() {
   if (!_db || !_uid || !_getDocFn || !_docFn) return null;
   try {
-    // 8s timeout — if Firestore is not set up yet, don't block the login flow
     const snap = await Promise.race([
       _getDocFn(_docFn(_db, 'users', _uid)),
       new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 3000)),
