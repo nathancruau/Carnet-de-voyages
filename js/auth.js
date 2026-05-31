@@ -1,12 +1,11 @@
 /**
  * auth.js — Firebase Authentication + Firestore sync
  *
- * Uses signInWithRedirect (not popup) for reliability on GitHub Pages / mobile.
- * onAuthStateChanged is wired BEFORE getRedirectResult so the spinner
- * never blocks even if the redirect result takes time.
+ * Login strategy: popup first (instant, no cross-origin storage issue),
+ * redirect as fallback only if popup is blocked by the browser.
+ * onAuthStateChanged is wired before any async call so the spinner never hangs.
  *
- * If firebase-config.js still has placeholder values, the app runs
- * in local-only mode (no login required, data stays in localStorage).
+ * If firebase-config.js has placeholder values the app runs in local-only mode.
  */
 
 import { firebaseConfig } from './firebase-config.js';
@@ -23,15 +22,12 @@ let _db   = null;
 let _uid  = null;
 let _user = null;
 
-let _docFn, _getDocFn, _setDocFn, _signOutFn, _GoogleProvider, _signInRedirectFn, _getRedirectResultFn;
+let _docFn, _getDocFn, _setDocFn, _signOutFn, _GoogleProvider;
+let _signInPopupFn, _signInRedirectFn, _getRedirectResultFn;
 
 export function isFirebaseConfigured() { return _configured; }
 export function getCurrentUser()       { return _user; }
 
-/**
- * Initialize Firebase and listen for auth state changes.
- * @param {Function} onReady — called with (user, cloudData|null)
- */
 export async function initAuth(onReady) {
   if (!_configured) {
     onReady(null, null);
@@ -54,30 +50,36 @@ export async function initAuth(onReady) {
     _setDocFn            = dbMod.setDoc;
     _signOutFn           = authMod.signOut;
     _GoogleProvider      = authMod.GoogleAuthProvider;
+    _signInPopupFn       = authMod.signInWithPopup;
     _signInRedirectFn    = authMod.signInWithRedirect;
     _getRedirectResultFn = authMod.getRedirectResult;
 
-    // Wire up listener FIRST — fires immediately with current auth state
-    // and again after a redirect completes. Never blocked by getRedirectResult.
+    // Wire up listener first — fires immediately with current auth state,
+    // then again after any popup/redirect completes.
     authMod.onAuthStateChanged(_auth, async fbUser => {
       _user = fbUser;
       _uid  = fbUser?.uid ?? null;
-
       let cloudData = null;
-      if (fbUser) {
-        cloudData = await _loadFromFirestore();
-      }
+      if (fbUser) cloudData = await _loadFromFirestore();
       onReady(fbUser, cloudData);
     });
 
+<<<<<<< HEAD
     // Non-blocking: surface any redirect error on the login card.
     // Writes directly to #login-err if it's already in the DOM,
     // otherwise stores in sessionStorage for _renderLogin to pick up.
+=======
+    // Surface any redirect error on the login card (non-blocking)
+>>>>>>> d0500fb (fix: popup d'abord, redirect en fallback si popup bloqué)
     _getRedirectResultFn(_auth).catch(redirectErr => {
       const code = redirectErr.code || '';
       let msg = redirectErr.message || 'Erreur de connexion';
       if (code === 'auth/unauthorized-domain') {
+<<<<<<< HEAD
         msg = 'Domaine non autorisé. Ajoutez nathancruau.github.io dans Firebase → Authentication → Authorized domains.';
+=======
+        msg = 'Domaine non autorisé dans Firebase → Authentication → Authorized domains.';
+>>>>>>> d0500fb (fix: popup d'abord, redirect en fallback si popup bloqué)
       }
       console.warn('[auth] Redirect error:', code, msg);
       const errEl = document.getElementById('login-err');
@@ -91,13 +93,24 @@ export async function initAuth(onReady) {
   }
 }
 
+/**
+ * Sign in with Google.
+ * Tries popup first (instant, no cross-origin storage issue).
+ * Falls back to redirect only if the popup is blocked by the browser.
+ */
 export async function loginWithGoogle() {
-  if (!_auth || !_signInRedirectFn || !_GoogleProvider) {
-    throw new Error('Firebase not initialized');
-  }
+  if (!_auth || !_GoogleProvider) throw new Error('Firebase not initialized');
   const provider = new _GoogleProvider();
-  await _signInRedirectFn(_auth, provider);
-  // Page redirects to Google — no code runs after this line
+  try {
+    await _signInPopupFn(_auth, provider);
+  } catch (err) {
+    if (err.code === 'auth/popup-blocked') {
+      await _signInRedirectFn(_auth, provider);
+      // Page navigates away — no code runs after this
+    } else {
+      throw err;
+    }
+  }
 }
 
 export async function logout() {

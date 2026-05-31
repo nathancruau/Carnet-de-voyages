@@ -70,7 +70,7 @@ function _renderLogin() {
   document.getElementById('login-google-btn')?.addEventListener('click', async () => {
     const btn = document.getElementById('login-google-btn');
     const err = document.getElementById('login-err');
-    if (btn) { btn.disabled = true; btn.textContent = 'Redirection vers Google…'; }
+    if (btn) { btn.disabled = true; btn.textContent = 'Connexion…'; }
     if (err) err.textContent = '';
     try {
       await loginWithGoogle();
