@@ -1,15 +1,11 @@
 /**
  * auth.js — Firebase Authentication + Firestore sync
  *
- * Login strategy: popup first on all platforms.
- * Falls back to redirect only if popup is explicitly blocked by the browser.
- *
- * Key fix for iOS Safari: when signInWithPopup redirects the current page
- * (iOS can't open a true popup window), onAuthStateChanged fires with null
- * immediately on reload — BEFORE getRedirectResult has processed the token.
- * We wait for getRedirectResult to settle before deciding to show the login
- * screen, preventing the redirect loop where the user sees login and clicks
- * again before auth has a chance to complete.
+ * getRedirectResult MUST be awaited BEFORE onAuthStateChanged is set up.
+ * Firebase processes the OAuth token in getRedirectResult and updates
+ * currentUser; only then does onAuthStateChanged fire with the user.
+ * Reversing this order causes getRedirectResult to return null because
+ * onAuthStateChanged fires first with a stale (null) state.
  *
  * If firebase-config.js has placeholder values the app runs in local-only mode.
  */
@@ -60,47 +56,52 @@ export async function initAuth(onReady) {
     _signInRedirectFn    = authMod.signInWithRedirect;
     _getRedirectResultFn = authMod.getRedirectResult;
 
-    // Start processing any pending redirect result immediately.
-    // On iOS Safari, signInWithPopup may redirect the current page instead of
-    // opening a true popup. getRedirectResult exchanges the OAuth code for a
-    // token and updates _auth.currentUser before onAuthStateChanged fires again.
-    const redirectSettled = _getRedirectResultFn(_auth).catch(redirectErr => {
-      const code = redirectErr.code || '';
-      let msg = redirectErr.message || 'Erreur de connexion';
-      if (code === 'auth/unauthorized-domain') {
-        msg = 'Domaine non autorisé dans Firebase → Authentication → Authorized domains.';
-      }
-      console.warn('[auth] Redirect error:', code, msg);
-      const errEl = document.getElementById('login-err');
-      if (errEl) errEl.textContent = msg;
-      else sessionStorage.setItem('_authRedirectError', msg);
-      return null;
-    });
+    // ── Step 1: process any pending redirect result FIRST ─────────────────────
+    // getRedirectResult exchanges the OAuth code for a token and updates
+    // _auth.currentUser. This MUST complete before onAuthStateChanged is
+    // registered; otherwise the listener fires with null (stale state) and
+    // the redirect result is silently dropped.
+    const hadRedirect = !!sessionStorage.getItem('_redirectPending');
 
+    try {
+      await Promise.race([
+        _getRedirectResultFn(_auth),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 8000)),
+      ]);
+    } catch (err) {
+      const code = err.code || '';
+      if (err.message !== 'timeout') {
+        let msg = err.message || 'Erreur de connexion';
+        if (code === 'auth/unauthorized-domain') {
+          msg = 'Domaine non autorisé dans Firebase → Authentication → Authorized domains.';
+        }
+        console.warn('[auth] Redirect error:', code, msg);
+        sessionStorage.setItem('_authRedirectError', msg);
+      } else if (hadRedirect) {
+        console.warn('[auth] Redirect result timed out');
+        sessionStorage.setItem('_authRedirectError',
+          'La connexion a expiré. Réessayez.');
+      }
+    }
+
+    // Clear the redirect flag — we've processed (or timed out) the result
+    sessionStorage.removeItem('_redirectPending');
+
+    // If redirect happened but produced no user, show a diagnostic error
+    if (hadRedirect && !_auth.currentUser) {
+      const msg = sessionStorage.getItem('_authRedirectError')
+        || 'Session non récupérée après connexion. Réessayez.';
+      sessionStorage.setItem('_authRedirectError', msg);
+    }
+
+    // ── Step 2: subscribe to auth state ───────────────────────────────────────
+    // currentUser is now fully resolved (redirect processed above).
     authMod.onAuthStateChanged(_auth, async fbUser => {
       _user = fbUser;
       _uid  = fbUser?.uid ?? null;
-
-      if (fbUser) {
-        // User is authenticated — load cloud data and show home.
-        const cloudData = await _loadFromFirestore();
-        onReady(fbUser, cloudData);
-        return;
-      }
-
-      // No user yet. Wait for getRedirectResult to settle (up to 6 s) before
-      // concluding there is no authenticated user and showing the login screen.
-      // This prevents the loop: redirect returns → null fires → login shown →
-      // user clicks again → redirect again → loop.
-      await Promise.race([
-        redirectSettled,
-        new Promise(r => setTimeout(r, 6000)),
-      ]);
-
-      // After waiting, re-check: getRedirectResult may have signed the user in.
-      if (_auth.currentUser) return; // onAuthStateChanged will fire again with the user
-
-      onReady(null, null);
+      let cloudData = null;
+      if (fbUser) cloudData = await _loadFromFirestore();
+      onReady(fbUser, cloudData);
     });
 
   } catch (err) {
@@ -111,19 +112,15 @@ export async function initAuth(onReady) {
 
 /**
  * Sign in with Google — always uses redirect (no popup).
- *
- * signInWithPopup requires window.opener.postMessage to deliver the auth
- * result from Firebase's popup (firebaseapp.com) back to the app
- * (nathancruau.github.io). Cross-origin restrictions between these two
- * domains block that message on both desktop Chrome and iOS Safari, leaving
- * the button stuck on "Connexion..." indefinitely.
- *
- * signInWithRedirect navigates the current tab to Google; initAuth waits
- * for getRedirectResult to settle before showing the login screen, so there
- * is no redirect loop.
+ * Popup requires window.opener.postMessage from firebaseapp.com back to
+ * nathancruau.github.io, which is blocked by cross-origin restrictions.
+ * Redirect navigates the current tab; getRedirectResult (awaited in initAuth
+ * before onAuthStateChanged) processes the result cleanly.
  */
 export async function loginWithGoogle() {
   if (!_auth || !_GoogleProvider) throw new Error('Firebase not initialized');
+  // Mark that a redirect is starting so initAuth can diagnose failures
+  sessionStorage.setItem('_redirectPending', '1');
   const provider = new _GoogleProvider();
   await _signInRedirectFn(_auth, provider);
   // Page navigates away — no code runs after this
