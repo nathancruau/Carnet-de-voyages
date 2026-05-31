@@ -110,33 +110,23 @@ export async function initAuth(onReady) {
 }
 
 /**
- * Sign in with Google.
- * On iOS/Android: popup opens as a new tab without window.opener, so Firebase
- * can't post the auth result back to the original tab — the button stays stuck
- * on "Connexion..." forever. Use redirect instead on mobile; initAuth already
- * waits for getRedirectResult to settle before deciding to show the login screen,
- * so there is no redirect loop.
- * On desktop: popup is preferred (instant, no page reload).
+ * Sign in with Google — always uses redirect (no popup).
+ *
+ * signInWithPopup requires window.opener.postMessage to deliver the auth
+ * result from Firebase's popup (firebaseapp.com) back to the app
+ * (nathancruau.github.io). Cross-origin restrictions between these two
+ * domains block that message on both desktop Chrome and iOS Safari, leaving
+ * the button stuck on "Connexion..." indefinitely.
+ *
+ * signInWithRedirect navigates the current tab to Google; initAuth waits
+ * for getRedirectResult to settle before showing the login screen, so there
+ * is no redirect loop.
  */
 export async function loginWithGoogle() {
   if (!_auth || !_GoogleProvider) throw new Error('Firebase not initialized');
   const provider = new _GoogleProvider();
-  const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-  if (isMobile) {
-    await _signInRedirectFn(_auth, provider);
-    // Page navigates away — no code runs after this
-    return;
-  }
-  try {
-    await _signInPopupFn(_auth, provider);
-  } catch (err) {
-    if (err.code === 'auth/popup-blocked') {
-      await _signInRedirectFn(_auth, provider);
-      // Page navigates away — no code runs after this
-    } else {
-      throw err;
-    }
-  }
+  await _signInRedirectFn(_auth, provider);
+  // Page navigates away — no code runs after this
 }
 
 export async function logout() {
