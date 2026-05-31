@@ -132,7 +132,11 @@ export async function syncToFirestore(state) {
 async function _loadFromFirestore() {
   if (!_db || !_uid || !_getDocFn || !_docFn) return null;
   try {
-    const snap = await _getDocFn(_docFn(_db, 'users', _uid));
+    // 8s timeout — if Firestore is not set up yet, don't block the login flow
+    const snap = await Promise.race([
+      _getDocFn(_docFn(_db, 'users', _uid)),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 8000)),
+    ]);
     return snap.exists() ? snap.data() : null;
   } catch (err) {
     console.warn('[auth] Firestore load failed:', err.message);
