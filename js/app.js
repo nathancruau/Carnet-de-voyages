@@ -84,11 +84,12 @@ function _renderLogin() {
     }
   });
 
-  // Show any error from a previous redirect attempt
-  if (window._authRedirectError) {
+  // Show any error stored before this render (from getRedirectResult .catch)
+  const storedErr = sessionStorage.getItem('_authRedirectError');
+  if (storedErr) {
+    sessionStorage.removeItem('_authRedirectError');
     const err = document.getElementById('login-err');
-    if (err) err.textContent = window._authRedirectError;
-    window._authRedirectError = null;
+    if (err) err.textContent = storedErr;
   }
 }
 
