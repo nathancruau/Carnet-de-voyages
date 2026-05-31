@@ -85,12 +85,21 @@ export async function initAuth(onReady) {
 
 /**
  * Sign in with Google.
- * Tries popup first (instant, no cross-origin storage issue).
- * Falls back to redirect only if the popup is blocked by the browser.
+ * On mobile (iOS/Android), popups are unreliable — iOS suspends the popup
+ * when the user switches to the notification center to approve a 2FA push,
+ * which prevents Firebase from receiving the OAuth token. Redirect survives
+ * app-switching and completes the full auth cycle including 2FA.
+ * On desktop, popup is preferred (instant, no cross-origin storage issue).
  */
 export async function loginWithGoogle() {
   if (!_auth || !_GoogleProvider) throw new Error('Firebase not initialized');
   const provider = new _GoogleProvider();
+  const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+  if (isMobile) {
+    await _signInRedirectFn(_auth, provider);
+    // Page navigates away — no code runs after this
+    return;
+  }
   try {
     await _signInPopupFn(_auth, provider);
   } catch (err) {
