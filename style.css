@@ -24,7 +24,8 @@ html,body{height:100%;font-family:var(--fn);background:var(--c);color:var(--ink)
 
 /* ── Screens ── */
 .screen{display:none;width:100%;height:100vh;flex-direction:column}
-.screen.active{display:flex}
+.screen.active{display:flex;animation:screenFadeIn .18s ease both}
+@keyframes screenFadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
 
 /* ══════════════════════════════════════════
    HOME

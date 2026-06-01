@@ -7,7 +7,7 @@ import { renderHome } from './home.js';
 import { renderMyMap, destroyMyMap } from './mymap.js';
 import { openTrip, destroyTripMap } from './trip/trip.js';
 import { closeModal } from './utils.js';
-import { initAuth, loginWithGoogle, logout, syncToFirestore, isFirebaseConfigured, getCurrentUser } from './auth.js';
+import { initAuth, loginWithGoogle, syncToFirestore, isFirebaseConfigured } from './auth.js';
 
 // ── Current state ──────────────────────────────────────────────────────────────
 export let currentScreen = 'home';
@@ -130,8 +130,10 @@ function _onAuthReady(user, cloudData) {
     showScreen('home');
   } catch (err) {
     console.error('[app] render failed after login:', err);
-    const btn = document.getElementById('login-google-btn');
-    if (btn) { btn.disabled = false; btn.innerHTML = _googleBtnInner(); }
+    // The login form may not exist yet (spinner is still showing).
+    // Render it first so the error message has a place to appear.
+    _renderLogin();
+    showScreen('login');
     const errEl = document.getElementById('login-err');
     if (errEl) errEl.textContent = 'Erreur lors du chargement. Réessayez.';
   }

@@ -1,7 +1,28 @@
+/**
+ * auth.js — Firebase Authentication + Firestore sync
+ *
+ * Authentication strategy: signInWithRedirect (never popup).
+ * Reason: Google enforces Cross-Origin-Opener-Policy: same-origin on
+ * accounts.google.com, which severs window.opener in any popup that
+ * navigates through their auth pages. signInWithPopup is permanently
+ * broken on all browsers as a result.
+ *
+ * Redirect coordination with onAuthStateChanged:
+ * After the OAuth redirect returns, Firebase fires onAuthStateChanged
+ * with null before getRedirectResult has finished processing the
+ * credential. Without special handling this shows the login screen
+ * immediately, dropping the credential. The fix: call getRedirectResult
+ * non-blocking at startup, then inside the first null onAuthStateChanged
+ * callback wait for it to settle before deciding no user is logged in.
+ * On visits with no pending redirect getRedirectResult resolves in
+ * < 100 ms so there is no perceptible delay.
+ */
+
 import { firebaseConfig } from './firebase-config.js';
 
 const FB = 'https://www.gstatic.com/firebasejs/11.1.0';
 
+// False when firebase-config.js still has the placeholder API key.
 const _configured = !!(
   firebaseConfig.apiKey &&
   !firebaseConfig.apiKey.startsWith('YOUR')
@@ -18,8 +39,14 @@ let _signInRedirectFn, _getRedirectResultFn;
 export function isFirebaseConfigured() { return _configured; }
 export function getCurrentUser()       { return _user; }
 
+/**
+ * Initialise Firebase and call onReady(user, cloudData) once the auth
+ * state is known. Called again on every subsequent auth-state change
+ * (login / logout) so the UI stays in sync.
+ */
 export async function initAuth(onReady) {
   if (!_configured) {
+    // No real config — run in local-only mode without any sign-in.
     onReady(null, null);
     return;
   }
@@ -43,43 +70,43 @@ export async function initAuth(onReady) {
     _signInRedirectFn    = authMod.signInWithRedirect;
     _getRedirectResultFn = authMod.getRedirectResult;
 
-    // Start processing any pending redirect credential immediately (non-blocking).
-    // When there is no pending redirect this resolves in <100 ms, so the
-    // onAuthStateChanged callback below will not wait meaningfully.
-    // When coming back from Google sign-in it takes 1-5 s on mobile.
+    // Kick off redirect-result processing immediately (non-blocking).
+    // On a normal page-load this resolves with null in < 100 ms.
+    // After returning from Google OAuth it resolves with the UserCredential
+    // once Firebase has exchanged the auth code for tokens (1–5 s on mobile).
     const redirectDone = _getRedirectResultFn(_auth).catch(redirectErr => {
       const code = redirectErr.code || '';
       let msg = redirectErr.message || 'Erreur de connexion';
       if (code === 'auth/unauthorized-domain') {
-        msg = 'Domaine non autorisé dans Firebase → Authentication → Authorized domains.';
+        msg = 'Domaine non autorisé — vérifiez Firebase → Authentication → Authorized domains.';
       }
-      console.warn('[auth] Redirect error:', code, msg);
+      console.warn('[auth] redirect error:', code, msg);
       sessionStorage.setItem('_authRedirectError', msg);
     });
 
-    // Track last processed UID to prevent double-calling onReady after a redirect
-    // (Firebase fires onAuthStateChanged twice: first null, then the user).
-    let lastUid = undefined;
+    // Deduplication guard: only call onReady when the effective auth state
+    // actually changes. Firebase fires onAuthStateChanged twice after a
+    // redirect: first null (credential not yet processed) then the user
+    // (after getRedirectResult finishes). Without this guard renderHome()
+    // would be called twice.
+    let lastUid = undefined; // undefined = initial, null = logged out, string = uid
 
     authMod.onAuthStateChanged(_auth, async fbUser => {
-      // On the very first null callback, wait for getRedirectResult to settle
-      // before deciding no user is logged in. On a plain page-load with no
-      // pending redirect, redirectDone resolves in <100 ms — no perceptible delay.
-      // On return from Google sign-in it waits until the credential is processed.
       if (!fbUser && lastUid === undefined) {
+        // First callback arrived with no user. Wait for any in-flight
+        // redirect to settle before concluding the user is not logged in.
+        // 5 s safety net in case getRedirectResult hangs on a slow connection.
         await Promise.race([redirectDone, new Promise(r => setTimeout(r, 5000))]);
-        fbUser = _auth.currentUser;
+        fbUser = _auth.currentUser; // re-read after redirect processed
       }
 
       const newUid = fbUser?.uid ?? null;
-      // Skip if the auth state hasn't actually changed (avoids double-render).
-      if (newUid === lastUid && lastUid !== undefined) return;
+      if (newUid === lastUid && lastUid !== undefined) return; // no change
       lastUid = newUid;
 
       _user = fbUser;
       _uid  = newUid;
-      let cloudData = null;
-      if (fbUser) cloudData = await _loadFromFirestore();
+      const cloudData = fbUser ? await _loadFromFirestore() : null;
       onReady(fbUser, cloudData);
     });
 
@@ -89,8 +116,10 @@ export async function initAuth(onReady) {
   }
 }
 
-// Always use redirect — Google's COOP headers on accounts.google.com sever
-// window.opener inside any popup, making signInWithPopup permanently broken.
+/**
+ * Trigger Google OAuth via full-page redirect.
+ * signInWithPopup is intentionally not used — see file header.
+ */
 export async function loginWithGoogle() {
   if (!_auth || !_GoogleProvider) throw new Error('Firebase not initialized');
   const provider = new _GoogleProvider();
@@ -104,6 +133,7 @@ export async function logout() {
   await _signOutFn(_auth);
 }
 
+/** Push the full app state to the user's Firestore document. */
 export async function syncToFirestore(state) {
   if (!_db || !_uid || !_setDocFn || !_docFn) return;
   try {
@@ -113,6 +143,7 @@ export async function syncToFirestore(state) {
   }
 }
 
+/** Load the user's state from Firestore with a 5 s timeout. */
 async function _loadFromFirestore() {
   if (!_db || !_uid || !_getDocFn || !_docFn) return null;
   try {

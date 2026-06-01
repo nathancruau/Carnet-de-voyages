@@ -113,8 +113,7 @@ function _renderTopbar(trip) {
 
   // Companion avatars
   const comps = (trip.companions || []).map(c => {
-    const initials = (c.name || '?').slice(0, 2).toUpperCase();
-    return `<div class="comp-avatar" style="background:${c.color || '#9c9890'}" title="${_esc(c.name)}">${initials}</div>`;
+    return `<div class="comp-avatar" style="background:${c.color || '#9c9890'}" title="${_esc(c.name)}">${_initials(c.name)}</div>`;
   }).join('');
 
   const startLabel = fmtDate(trip.startDate);
@@ -213,4 +212,12 @@ function _esc(s) {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
+}
+
+/** First letter of each word, max 2 chars — matches home.js behaviour */
+function _initials(name) {
+  if (!name) return '?';
+  const parts = name.trim().split(/\s+/);
+  if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
+  return parts[0].slice(0, 2).toUpperCase();
 }
