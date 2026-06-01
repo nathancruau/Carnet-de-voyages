@@ -6,7 +6,7 @@
    ============================================================ */
 
 import { getTrips, TRIP_TYPES, getPinTypes } from './store.js';
-import { fmtDate, fmtDateShort } from './utils.js';
+import { fmtDate, fmtDateShort, trCol } from './utils.js';
 
 // ── PIN type helper (dynamic from settings) ────────────────────────────────────
 
@@ -20,11 +20,23 @@ function _pinTypeMap() {
 let _map             = null;   // Leaflet map instance
 let _markers         = [];     // { marker, trip, entry } objects currently on the map
 let _routeLayers     = [];     // L.Polyline instances for trip routes
+let _legendControl   = null;   // Leaflet legend control
 let _allPins         = [];     // All { trip, entry, lat, lng } built from store
 let _filters         = { type: 'all', pinType: 'all', tripId: 'all' };
 let _showRoutes      = false;  // whether itinerary lines are drawn
 let _collapsedGroups = new Set();  // trip ids whose sidebar group is folded
 let _infoPanelEl     = null;   // info panel DOM element
+
+// Transport mode metadata (mirrors mapcal.js / utils.trCol)
+const _TR_MODES = [
+  { mode: 'car',   emoji: '🚗', label: 'Voiture', dash: false },
+  { mode: 'bus',   emoji: '🚌', label: 'Bus',     dash: false },
+  { mode: 'foot',  emoji: '🚶', label: 'À pied',  dash: false },
+  { mode: 'bike',  emoji: '🚲', label: 'Vélo',    dash: false },
+  { mode: 'plane', emoji: '✈️', label: 'Avion',   dash: true  },
+  { mode: 'ferry', emoji: '⛴️', label: 'Ferry',   dash: true  },
+];
+const _OSRM_PROFILE = { car: 'driving', bus: 'driving', foot: 'foot', bike: 'cycling' };
 
 // ── Country color mapping ──────────────────────────────────────────────────────
 
@@ -377,33 +389,121 @@ function _redrawMarkers(pins) {
   }
 }
 
-// ── Draw itinerary polylines ───────────────────────────────────────────────────
+// ── Collect ordered waypoints from a trip (same logic as mapcal._collectAllWaypoints) ──
 
-function _redrawRoutes(pins) {
+function _buildTripWaypoints(trip) {
+  const wps = [];
+  for (const day of (trip.days || [])) {
+    const itemPins = (day.items || []).filter(it => it.lat != null && it.lng != null);
+    if (itemPins.length > 0) {
+      for (const item of itemPins) {
+        let mode = item.routeMode || 'car';
+        if (item.type === 'drive' && item.transport) mode = item.transport;
+        wps.push({ lat: item.lat, lng: item.lng, mode });
+      }
+    } else if (day.lat != null && day.lng != null) {
+      wps.push({ lat: day.lat, lng: day.lng, mode: day.routeMode || 'car' });
+    }
+  }
+  return wps;
+}
+
+// ── Draw itinerary polylines (same styles as mapcal.js) ───────────────────────
+
+async function _redrawRoutes() {
   for (const layer of _routeLayers) layer.remove();
   _routeLayers = [];
+  _updateLegend();
   if (!_showRoutes || !_map) return;
 
-  // Group pins by trip, preserving insertion order (already day-ordered from _buildAllPins)
-  const byTrip = new Map();
-  for (const pin of pins) {
-    if (!byTrip.has(pin.trip.id)) byTrip.set(pin.trip.id, { trip: pin.trip, coords: [] });
-    byTrip.get(pin.trip.id).coords.push([pin.lat, pin.lng]);
-  }
+  // Build trip list respecting current filters
+  const trips = getTrips().filter(t => {
+    if (t.status !== 'done') return false;
+    if (_filters.tripId !== 'all' && t.id !== _filters.tripId) return false;
+    if (_filters.type   !== 'all' && t.type !== _filters.type)  return false;
+    return true;
+  });
 
-  for (const { trip, coords } of byTrip.values()) {
-    if (coords.length < 2) continue;
-    const color = _colorForFlag(trip.flag);
-    const line = L.polyline(coords, {
-      color,
-      weight:    2.5,
-      opacity:   0.7,
-      dashArray: '7 5',
-      lineJoin:  'round',
-    }).addTo(_map);
-    line.bindTooltip(`${trip.flag || ''} ${trip.name}`, { sticky: true, className: 'mm-route-tooltip' });
-    _routeLayers.push(line);
+  for (const trip of trips) {
+    const wps = _buildTripWaypoints(trip);
+    if (wps.length < 2) continue;
+
+    for (let i = 0; i < wps.length - 1; i++) {
+      if (!_map) return; // navigated away mid-fetch
+      const from = wps[i];
+      const to   = wps[i + 1];
+      const mode = to.mode || 'car';
+      const color = trCol(mode);
+
+      let line = null;
+
+      if (mode === 'plane' || mode === 'ferry') {
+        // Straight dashed line (no road routing for these)
+        line = L.polyline([[from.lat, from.lng], [to.lat, to.lng]], {
+          color, weight: 2, opacity: 0.65, dashArray: '8 5',
+        });
+      } else {
+        try {
+          const profile = _OSRM_PROFILE[mode] || 'driving';
+          const url = `https://router.project-osrm.org/route/v1/${profile}/`
+            + `${from.lng},${from.lat};${to.lng},${to.lat}?overview=full&geometries=geojson`;
+          const resp  = await fetch(url);
+          const data  = await resp.json();
+          const coords = data.routes?.[0]?.geometry?.coordinates;
+          if (coords?.length) {
+            line = L.polyline(coords.map(([lng, lat]) => [lat, lng]), {
+              color, weight: 3.5, opacity: 0.75,
+            });
+          }
+        } catch (_) {}
+
+        if (!line) {
+          // Fallback: straight dashed line if OSRM fails
+          line = L.polyline([[from.lat, from.lng], [to.lat, to.lng]], {
+            color, weight: 2, opacity: 0.5, dashArray: '5 5',
+          });
+        }
+      }
+
+      if (!_map || !line) return;
+      line.bindTooltip(`${trip.flag || ''} ${trip.name}`, { sticky: true, className: 'mm-route-tooltip' });
+      line.addTo(_map);
+      _routeLayers.push(line);
+    }
   }
+}
+
+// ── Legend control ────────────────────────────────────────────────────────────
+
+function _updateLegend() {
+  if (_legendControl) { _legendControl.remove(); _legendControl = null; }
+  if (!_showRoutes || !_map) return;
+
+  const LegendControl = L.Control.extend({
+    onAdd() {
+      const div = L.DomUtil.create('div', 'mm-legend');
+      L.DomEvent.disableClickPropagation(div);
+      div.innerHTML = _TR_MODES.map(m => {
+        const color = trCol(m.mode);
+        const dash  = m.dash ? '6,4' : 'none';
+        return `
+          <div class="mm-legend-row">
+            <svg width="30" height="12" viewBox="0 0 30 12" style="flex-shrink:0">
+              <line x1="2" y1="6" x2="28" y2="6"
+                stroke="${color}" stroke-width="3"
+                stroke-dasharray="${dash}"
+                stroke-linecap="round"/>
+            </svg>
+            <span>${m.emoji} ${m.label}</span>
+          </div>`;
+      }).join('');
+      return div;
+    },
+    onRemove() {},
+  });
+
+  _legendControl = new LegendControl({ position: 'bottomright' });
+  _legendControl.addTo(_map);
 }
 
 // ── Update (re-filter, re-render sidebar + markers) ───────────────────────────
@@ -415,7 +515,7 @@ function _update() {
   if (treeEl) treeEl.innerHTML = _buildSidebarTree(pins);
 
   _redrawMarkers(pins);
-  _redrawRoutes(pins);
+  _redrawRoutes(); // async, fire-and-forget
 }
 
 // ── KML export ─────────────────────────────────────────────────────────────────
@@ -523,13 +623,9 @@ window._mmExportKml = _mmExportKml;
 
 window._mmToggleRoutes = function() {
   _showRoutes = !_showRoutes;
-  // Update button state
   const sidebar = document.getElementById('mm-sidebar');
-  if (sidebar) {
-    const pins = _visiblePins();
-    sidebar.innerHTML = _sidebarHtml(pins);
-  }
-  _redrawRoutes(_visiblePins());
+  if (sidebar) sidebar.innerHTML = _sidebarHtml(_visiblePins());
+  _redrawRoutes(); // async
 };
 
 // ── Public API ─────────────────────────────────────────────────────────────────
@@ -607,11 +703,12 @@ export function renderMyMap() {
     }).addTo(_map);
 
     _redrawMarkers(pins);
-    _redrawRoutes(pins);
+    _redrawRoutes(); // async
   });
 }
 
 export function destroyMyMap() {
+  if (_legendControl) { try { _legendControl.remove(); } catch (_) {} _legendControl = null; }
   if (_map) {
     try { _map.remove(); } catch (_) { /* already removed */ }
     _map = null;

@@ -688,6 +688,8 @@ html,body{height:100%;font-family:var(--fn);background:var(--c);color:var(--ink)
 }
 @keyframes mmInfoIn{from{opacity:0;transform:translateX(16px)}to{opacity:1;transform:translateX(0)}}
 .mm-route-tooltip{background:rgba(0,0,0,.72);color:#fff;border:none;border-radius:6px;font-size:11px;font-weight:700;padding:3px 8px;box-shadow:none}
+.mm-legend{background:rgba(250,247,242,.93);backdrop-filter:blur(6px);border:1.5px solid var(--c3);border-radius:10px;padding:8px 12px;font-family:var(--fn);box-shadow:0 2px 12px rgba(0,0,0,.15);min-width:130px}
+.mm-legend-row{display:flex;align-items:center;gap:7px;padding:2px 0;font-size:11px;font-weight:600;color:var(--ink2)}
 
 /* Leaflet map pane */
 #mymap{flex:1;width:100%;height:100%}
