@@ -1155,3 +1155,68 @@ html,body{height:100%;font-family:var(--fn);background:var(--c);color:var(--ink)
 .comp-pick-btn .comp-avatar{width:36px;height:36px;font-size:14px}
 .comp-pick-taken{opacity:.45;cursor:not-allowed!important;filter:grayscale(.6)}
 .comp-pick-badge{font-size:10px;font-weight:600;color:var(--ink4);margin-top:-4px}
+
+/* ══════════════════════════════════════════
+   COLLABORATION
+══════════════════════════════════════════ */
+
+/* ── Presence dots ── */
+.comp-avatar-wrap{position:relative;display:inline-flex}
+.presence-dot{
+  position:absolute;bottom:0;right:0;
+  width:9px;height:9px;border-radius:50%;
+  background:#22c55e;border:2px solid var(--c);
+  pointer-events:none;
+}
+
+/* ── Activity log button ── */
+.activity-log-btn{
+  background:none;border:1.5px solid var(--c3);border-radius:7px;
+  padding:2px 7px;font-size:13px;cursor:pointer;
+  color:var(--ink3);flex-shrink:0;line-height:1.6;
+  font-family:var(--fn);
+}
+.activity-log-btn:hover{background:var(--c2)}
+
+/* ── Activity log modal ── */
+.activity-list{max-height:320px;overflow-y:auto;margin:8px 0 14px}
+.activity-row{
+  padding:6px 0;border-bottom:1px solid var(--c3);
+  font-size:12px;line-height:1.45;
+}
+.activity-row:last-child{border-bottom:none}
+.activity-actor{font-weight:700;color:var(--teal)}
+.activity-action{color:var(--ink2)}
+.activity-when{color:var(--ink4);font-size:11px}
+
+/* ── Day comments (in planning panel) ── */
+.day-comments{
+  padding:6px 10px 8px;
+  border-top:1px solid var(--c3);
+  margin-top:2px;
+}
+.dc-hdr{
+  font-size:10px;font-weight:700;color:var(--ink4);
+  text-transform:uppercase;letter-spacing:.04em;
+  margin-bottom:5px;
+}
+.dc-list{margin-bottom:5px}
+.dc-item{font-size:11px;color:var(--ink);margin-bottom:3px;line-height:1.4}
+.dc-author{font-weight:700;color:var(--teal)}
+.dc-ts{color:var(--ink4);font-size:10px}
+.dc-input-row{display:flex;gap:4px;align-items:center}
+.dc-input{
+  flex:1;min-width:0;
+  font-size:11px;padding:4px 7px;
+  border:1.5px solid var(--c3);border-radius:6px;
+  background:var(--c);color:var(--ink);
+  outline:none;font-family:var(--fn);
+}
+.dc-input:focus{border-color:var(--teal)}
+.dc-send{
+  background:var(--teal);color:#fff;
+  border:none;border-radius:6px;
+  padding:4px 9px;font-size:13px;cursor:pointer;
+  flex-shrink:0;line-height:1.4;
+}
+.dc-send:hover{background:var(--td)}

@@ -6,7 +6,8 @@
  *   destroyMap()          — destroy the Leaflet instance (called on tab leave)
  */
 
-import { getTrip, updateTrip, saveData, uid, getEventTypes, getLanguage } from '../store.js';
+import { getTrip, updateTrip, saveData, uid, getEventTypes, getLanguage, isTripShared } from '../store.js';
+import { getSharedDocData, submitComment } from '../share.js';
 import {
   notify, showModal, closeModal,
   fmtDate, fmtDateShort,
@@ -626,11 +627,12 @@ function _renderDaysList(tripId) {
     return;
   }
 
-  const html = days.map(day => _dayItemHtml(day)).join('');
+  const sharedDocData = isTripShared(tripId) ? getSharedDocData(tripId) : null;
+  const html = days.map(day => _dayItemHtml(day, sharedDocData)).join('');
   container.innerHTML = html;
 }
 
-function _dayItemHtml(day) {
+function _dayItemHtml(day, sharedDocData = null) {
   const isSelected = _openDayIds.has(day.id);
   const items = day.items || [];
 
@@ -658,10 +660,38 @@ function _dayItemHtml(day) {
         </div>`;
     }).join('');
 
+    // Comments section (shared trips only)
+    let commentsHtml = '';
+    if (sharedDocData) {
+      const comments = (sharedDocData.comments?.[day.id] || [])
+        .slice()
+        .sort((a, b) => new Date(a.ts) - new Date(b.ts));
+      const commentItems = comments.map(c => `
+        <div class="dc-item">
+          <span class="dc-author">${_esc(c.author)}</span>
+          <span class="dc-text"> ${_esc(c.text)}</span>
+          <span class="dc-ts"> · ${_relativeTime(c.ts)}</span>
+        </div>`).join('');
+      const countLabel = comments.length
+        ? `${comments.length} commentaire${comments.length > 1 ? 's' : ''}`
+        : 'Commentaires';
+      commentsHtml = `
+        <div class="day-comments">
+          <div class="dc-hdr">💬 ${countLabel}</div>
+          ${commentItems ? `<div class="dc-list">${commentItems}</div>` : ''}
+          <div class="dc-input-row">
+            <input type="text" class="dc-input" data-day-id="${_esc(day.id)}"
+              placeholder="Ajouter un commentaire…" autocomplete="off">
+            <button class="dc-send" data-action="send-comment" data-day-id="${_esc(day.id)}">→</button>
+          </div>
+        </div>`;
+    }
+
     eventsHtml = `
       <div class="di-body">
         <div class="evt-list">${evtRows}</div>
         <div class="add-evt" data-action="add-event" data-day-id="${day.id}">＋ Ajouter</div>
+        ${commentsHtml}
       </div>`;
   }
 
@@ -1022,6 +1052,31 @@ function _attachLeftPanelListeners(panel) {
       const dayId = target.dataset.dayId;
       const idx   = parseInt(target.dataset.eventIdx, 10);
       if (dayId && !isNaN(idx)) _deleteEvent(dayId, idx, _tripId);
+
+    } else if (action === 'send-comment') {
+      e.stopPropagation();
+      const dayId   = target.dataset.dayId;
+      const inputEl = panel.querySelector(`.dc-input[data-day-id="${dayId}"]`);
+      const text    = inputEl?.value?.trim();
+      if (!text || !dayId) return;
+      inputEl.value = '';
+      submitComment(_tripId, dayId, text).catch(err =>
+        console.warn('[mapcal] submitComment failed:', err),
+      );
+    }
+  });
+
+  // Enter key in comment inputs
+  panel.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && e.target.classList.contains('dc-input')) {
+      e.preventDefault();
+      const dayId = e.target.dataset.dayId;
+      const text  = e.target.value.trim();
+      if (!text || !dayId) return;
+      e.target.value = '';
+      submitComment(_tripId, dayId, text).catch(err =>
+        console.warn('[mapcal] submitComment failed:', err),
+      );
     }
   });
 
@@ -1877,6 +1932,18 @@ function _openAddEventModal(dayId, tripId, prefill = null) {
     updateTopStats(tripId);
     notify('Événement ajouté !', '✅');
   });
+}
+
+// ─── Relative time helper ─────────────────────────────────────────────────────
+
+function _relativeTime(isoTs) {
+  const diff = Date.now() - new Date(isoTs).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return 'à l\'instant';
+  if (mins < 60) return `il y a ${mins} min`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `il y a ${hrs} h`;
+  return `il y a ${Math.floor(hrs / 24)} j`;
 }
 
 // ─── HTML escape ──────────────────────────────────────────────────────────────

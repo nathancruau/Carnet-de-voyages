@@ -8,8 +8,8 @@
  *   updateTopStats(id)  — refresh budget / expense counters in the topbar
  */
 
-import { getTrip } from '../store.js';
-import { fmtDate, notify } from '../utils.js';
+import { getTrip, isTripShared } from '../store.js';
+import { fmtDate, notify, showModal } from '../utils.js';
 
 // ─── Module state ─────────────────────────────────────────────────────────────
 
@@ -111,19 +111,23 @@ function _renderTopbar(trip) {
   const topbar = document.getElementById('topbar');
   if (!topbar) return;
 
-  // Companion avatars
+  // Companion avatars — each wrapped for presence-dot overlay
   const comps = (trip.companions || []).map(c => {
-    return `<div class="comp-avatar" style="background:${c.color || '#9c9890'}" title="${_esc(c.name)}">${_initials(c.name)}</div>`;
+    return `<div class="comp-avatar-wrap" data-comp-id="${_esc(c.id)}">
+      <div class="comp-avatar" style="background:${c.color || '#9c9890'}" title="${_esc(c.name)}">${_initials(c.name)}</div>
+    </div>`;
   }).join('');
 
   const startLabel = fmtDate(trip.startDate);
   const endLabel   = fmtDate(trip.endDate);
+  const isShared   = isTripShared(_tripId);
 
   topbar.innerHTML = `
     <button class="back-btn" id="back-home-btn">← Bibliothèque</button>
     <span class="trip-tag">${_esc(trip.flag || '')} ${_esc(trip.name || 'Voyage')}</span>
     <span class="dates-tag">${startLabel} – ${endLabel}</span>
     ${comps ? `<div class="companions-row" style="display:flex;align-items:center;gap:3px;margin-left:4px">${comps}</div>` : ''}
+    ${isShared ? `<button class="activity-log-btn" id="activity-log-btn" title="Historique des modifications">📋</button>` : ''}
     <div class="top-stat">
       <div class="dot" style="background:var(--teal)"></div>
       <span>Budget :</span>&nbsp;<span id="ts-b">—</span>
@@ -155,6 +159,96 @@ function _renderTopbar(trip) {
     const tab = e.target.closest('.nav-tab');
     if (tab && tab.dataset.tab) switchTab(tab.dataset.tab);
   });
+
+  // Activity log button (shared trips only)
+  if (isShared) {
+    topbar.querySelector('#activity-log-btn')?.addEventListener('click', () => {
+      _openActivityModal(_tripId);
+    });
+
+    // Load initial presence state
+    import('../share.js').then(({ getSharedDocData }) => {
+      const doc = getSharedDocData(_tripId);
+      if (doc?.presence) _updatePresenceDots(_tripId, doc.presence, trip.companions || []);
+    }).catch(() => {});
+  }
+
+  // Hook for share.js to push lightweight presence updates into the topbar
+  window._refreshPresenceDots = (tripId, presenceData) => {
+    if (tripId !== _tripId) return;
+    _updatePresenceDots(tripId, presenceData, trip.companions || []);
+  };
+}
+
+/** Add/remove green presence dots on companion avatars without a full topbar re-render. */
+function _updatePresenceDots(tripId, presenceData, companions) {
+  const TIMEOUT_MS = 2 * 60 * 1000; // 2 minutes
+  const now = Date.now();
+
+  // Build set of online companion IDs
+  const onlineCompIds = new Set();
+  for (const p of Object.values(presenceData || {})) {
+    if (p.companionId && p.lastSeen) {
+      if (now - new Date(p.lastSeen).getTime() < TIMEOUT_MS) {
+        onlineCompIds.add(p.companionId);
+      }
+    }
+  }
+
+  document.querySelectorAll('.comp-avatar-wrap[data-comp-id]').forEach(wrap => {
+    const compId  = wrap.dataset.compId;
+    const online  = onlineCompIds.has(compId);
+    let dot       = wrap.querySelector('.presence-dot');
+    if (online && !dot) {
+      dot = document.createElement('div');
+      dot.className = 'presence-dot';
+      wrap.appendChild(dot);
+    } else if (!online && dot) {
+      dot.remove();
+    }
+  });
+}
+
+async function _openActivityModal(tripId) {
+  const { getSharedDocData } = await import('../share.js');
+  const doc      = getSharedDocData(tripId);
+  const activity = (doc?.activity || [])
+    .sort((a, b) => new Date(b.ts) - new Date(a.ts))
+    .slice(0, 50);
+
+  if (!activity.length) {
+    showModal(`
+      <button class="mc" onclick="closeModal()">✕</button>
+      <h3 class="modal-title">📋 Historique des modifications</h3>
+      <p style="color:var(--ink4);font-size:13px;padding:8px 0">Aucune activité récente.</p>
+      <div class="ma"><button class="bc" onclick="closeModal()">Fermer</button></div>
+    `);
+    return;
+  }
+
+  const rows = activity.map(e => `
+    <div class="activity-row">
+      <span class="activity-actor">${_esc(e.actor)}</span>
+      <span class="activity-action"> ${_esc(e.action)}</span>
+      <span class="activity-when"> · ${_relativeTime(e.ts)}</span>
+    </div>`).join('');
+
+  showModal(`
+    <button class="mc" onclick="closeModal()">✕</button>
+    <h3 class="modal-title">📋 Historique des modifications</h3>
+    <div class="activity-list">${rows}</div>
+    <div class="ma"><button class="bc" onclick="closeModal()">Fermer</button></div>
+  `);
+}
+
+function _relativeTime(isoTs) {
+  const diff = Date.now() - new Date(isoTs).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return 'à l\'instant';
+  if (mins < 60) return `il y a ${mins} min`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `il y a ${hrs} h`;
+  return `il y a ${Math.floor(hrs / 24)} j`;
 }
 
 function _renderPanels() {

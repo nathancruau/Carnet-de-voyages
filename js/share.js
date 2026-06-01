@@ -20,6 +20,7 @@ import {
   listenSharedTrip, createInvite, loadInvite,
   loadSharedTrip, joinSharedTrip,
   isFirebaseConfigured, getCurrentUser,
+  addComment, updatePresence, clearPresence, addActivityEntry,
 } from './auth.js';
 import {
   getTrip, markTripShared, unmarkTripShared, isTripShared,
@@ -30,8 +31,10 @@ import { showModal, closeModal, notify } from './utils.js';
 
 // ── Module state ────────────────────────────────────────────────────────────────
 
-const _listeners     = new Map(); // tripId → unsubscribe fn
-let   _sharedTripIds = [];
+const _listeners      = new Map(); // tripId → unsubscribe fn
+const _sharedDocData  = new Map(); // tripId → latest full Firestore doc
+let   _sharedTripIds  = [];
+let   _presenceInterval = null;    // heartbeat timer
 
 // ── Helpers ─────────────────────────────────────────────────────────────────────
 
@@ -50,6 +53,44 @@ function _genToken() {
   catch { return Math.random().toString(36).slice(2, 11) + Date.now().toString(36); }
 }
 
+// ── Shared doc data accessors ────────────────────────────────────────────────────
+
+/** Returns the latest full Firestore doc snapshot for a shared trip, or null. */
+export function getSharedDocData(tripId) {
+  return _sharedDocData.get(tripId) || null;
+}
+
+/**
+ * Submit a comment on a day — authored as the current user's companion name.
+ * Optimistically updates the local cache so the comment appears immediately.
+ */
+export async function submitComment(tripId, dayId, text) {
+  const user = getCurrentUser();
+  if (!user || !text?.trim()) return;
+  const sharedDoc = _sharedDocData.get(tripId);
+  const authorName = sharedDoc?.members?.[user.uid]?.companionName || user.displayName || 'Moi';
+
+  // Optimistic local update so the comment appears before Firestore confirms
+  if (sharedDoc) {
+    const comment = {
+      id: Date.now().toString(36),
+      author: authorName,
+      text: text.trim(),
+      ts: new Date().toISOString(),
+    };
+    const dayComments = [...(sharedDoc.comments?.[dayId] || []), comment];
+    _sharedDocData.set(tripId, {
+      ...sharedDoc,
+      comments: { ...(sharedDoc.comments || {}), [dayId]: dayComments },
+    });
+    if (typeof window._rerenderCurrentView === 'function') {
+      window._rerenderCurrentView(tripId);
+    }
+  }
+
+  await addComment(tripId, dayId, text.trim(), authorName);
+}
+
 // ── Initialisation ──────────────────────────────────────────────────────────────
 
 /**
@@ -64,6 +105,9 @@ export async function leaveSharedTrip(tripId) {
   const unsub = _listeners.get(tripId);
   _listeners.delete(tripId);
   if (unsub) unsub();
+
+  clearPresence(tripId).catch(() => {});
+  _sharedDocData.delete(tripId);
 
   // Unmark so store.updateTrip no longer pushes edits to the shared doc.
   unmarkTripShared(tripId);
@@ -87,6 +131,13 @@ export async function initSharedTrips(cloudData) {
   setSharedSyncCallback(_onLocalSharedTripEdit);
 
   await Promise.all(_sharedTripIds.map(id => _loadAndListen(id)));
+
+  // Presence heartbeat: refresh every 45 s so peers see us as online
+  if (_presenceInterval) clearInterval(_presenceInterval);
+  _presenceInterval = setInterval(_heartbeat, 45_000);
+
+  // Clean up presence on tab/window close
+  window.addEventListener('beforeunload', _onBeforeUnload, { once: true });
 }
 
 /**
@@ -101,6 +152,15 @@ async function _loadAndListen(tripId) {
 
   markTripShared(tripId);
   replaceTripFromNetwork(tripId, doc.trip);
+  _sharedDocData.set(tripId, doc);
+
+  // Mark current user as present
+  const user = getCurrentUser();
+  if (user) {
+    const member = doc.members?.[user.uid];
+    updatePresence(tripId, member?.companionId || null, member?.companionName || user.displayName)
+      .catch(() => {});
+  }
 
   const unsub = listenSharedTrip(tripId, (data, hasPendingWrites) => {
     _onNetworkUpdate(tripId, data, hasPendingWrites);
@@ -112,6 +172,19 @@ async function _loadAndListen(tripId) {
 
 /** store.js calls this when a shared trip is mutated locally. */
 function _onLocalSharedTripEdit(tripId, tripData) {
+  // Write an activity log entry so collaborators see who made the change
+  const user = getCurrentUser();
+  if (user) {
+    const sharedDoc = _sharedDocData.get(tripId);
+    const actorName = sharedDoc?.members?.[user.uid]?.companionName
+      || user.displayName || 'Quelqu\'un';
+    addActivityEntry(tripId, {
+      actor: actorName,
+      action: 'a modifié le voyage',
+      ts: new Date().toISOString(),
+    }).catch(() => {});
+  }
+
   saveSharedTrip(tripId, tripData).catch(err =>
     console.warn('[share] failed to push shared trip:', err.message),
   );
@@ -122,11 +195,46 @@ function _onNetworkUpdate(tripId, data, hasPendingWrites) {
   // Drop events that arrive after the user left/deleted the trip.
   if (!_listeners.has(tripId)) return;
   if (!data?.trip) return;
+
+  const prevData = _sharedDocData.get(tripId);
+  _sharedDocData.set(tripId, data);
   replaceTripFromNetwork(tripId, data.trip);
 
-  // Skip re-render for the local user's own writes (hasPendingWrites = true)
-  if (!hasPendingWrites && typeof window._rerenderCurrentView === 'function') {
-    window._rerenderCurrentView(tripId);
+  // Lightweight presence-dot refresh (no full re-render needed)
+  if (typeof window._refreshPresenceDots === 'function') {
+    window._refreshPresenceDots(tripId, data.presence || {});
+  }
+
+  // Re-render: only when trip data changed (updatedAt) OR comments changed
+  const tripChanged     = !prevData || prevData.updatedAt !== data.updatedAt;
+  const commentsChanged = JSON.stringify(prevData?.comments) !== JSON.stringify(data.comments);
+
+  if ((!hasPendingWrites && tripChanged) || commentsChanged) {
+    if (typeof window._rerenderCurrentView === 'function') {
+      window._rerenderCurrentView(tripId);
+    }
+  }
+}
+
+/** Refresh presence heartbeat for all active shared trips. */
+function _heartbeat() {
+  const user = getCurrentUser();
+  if (!user) return;
+  for (const tripId of _listeners.keys()) {
+    const sharedDoc = _sharedDocData.get(tripId);
+    const member    = sharedDoc?.members?.[user.uid];
+    updatePresence(tripId, member?.companionId || null, member?.companionName || user.displayName)
+      .catch(() => {});
+  }
+}
+
+/** Called on page/tab close — best-effort presence cleanup. */
+function _onBeforeUnload() {
+  if (_presenceInterval) { clearInterval(_presenceInterval); _presenceInterval = null; }
+  const user = getCurrentUser();
+  if (!user) return;
+  for (const tripId of [..._listeners.keys()]) {
+    clearPresence(tripId).catch(() => {});
   }
 }
 
@@ -182,6 +290,9 @@ export async function openShareModal(tripId) {
           _onNetworkUpdate(tripId, data, hasPendingWrites));
         _listeners.set(tripId, unsub);
       }
+
+      // Mark owner as present
+      updatePresence(tripId, null, user.displayName || 'Organisateur').catch(() => {});
     }
 
     // Always generate a fresh invite token so each share creates a new link

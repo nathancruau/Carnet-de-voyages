@@ -35,6 +35,7 @@ let _user = null;
 
 let _docFn, _getDocFn, _setDocFn, _updateDocFn, _onSnapshotFn, _signOutFn, _GoogleProvider;
 let _signInRedirectFn, _getRedirectResultFn;
+let _arrayUnionFn, _deleteFieldFn;
 
 export function isFirebaseConfigured() { return _configured; }
 export function getCurrentUser()       { return _user; }
@@ -71,6 +72,8 @@ export async function initAuth(onReady) {
     _GoogleProvider      = authMod.GoogleAuthProvider;
     _signInRedirectFn    = authMod.signInWithRedirect;
     _getRedirectResultFn = authMod.getRedirectResult;
+    _arrayUnionFn        = dbMod.arrayUnion;
+    _deleteFieldFn       = dbMod.deleteField;
 
     // Kick off redirect-result processing immediately (non-blocking).
     // On a normal page-load this resolves with null in < 100 ms.
@@ -234,6 +237,53 @@ export async function saveUserSharedTripIds(ids) {
   } catch (err) {
     console.warn('[auth] saveUserSharedTripIds failed:', err.message);
   }
+}
+
+/** Add a comment to a day's thread in a shared trip. */
+export async function addComment(tripId, dayId, text, author) {
+  if (!_db || !_updateDocFn || !_docFn || !_arrayUnionFn) return;
+  const comment = {
+    id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+    author,
+    text,
+    ts: new Date().toISOString(),
+  };
+  await _updateDocFn(_docFn(_db, 'shared_trips', tripId), {
+    [`comments.${dayId}`]: _arrayUnionFn(comment),
+  });
+}
+
+/** Write (or refresh) the current user's presence entry on a shared trip. */
+export async function updatePresence(tripId, companionId, displayName) {
+  if (!_db || !_updateDocFn || !_docFn || !_uid) return;
+  await _updateDocFn(_docFn(_db, 'shared_trips', tripId), {
+    [`presence.${_uid}`]: {
+      companionId: companionId || null,
+      displayName: displayName || 'Invité',
+      lastSeen: new Date().toISOString(),
+    },
+  });
+}
+
+/** Remove the current user's presence from a shared trip. */
+export async function clearPresence(tripId) {
+  if (!_db || !_updateDocFn || !_docFn || !_uid || !_deleteFieldFn) return;
+  try {
+    await _updateDocFn(_docFn(_db, 'shared_trips', tripId), {
+      [`presence.${_uid}`]: _deleteFieldFn(),
+    });
+  } catch (_) {}
+}
+
+/** Append an entry to the shared trip's activity log. */
+export async function addActivityEntry(tripId, entry) {
+  if (!_db || !_updateDocFn || !_docFn || !_arrayUnionFn) return;
+  await _updateDocFn(_docFn(_db, 'shared_trips', tripId), {
+    activity: _arrayUnionFn({
+      ...entry,
+      id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+    }),
+  });
 }
 
 /** Load the user's state from Firestore with a 5 s timeout. */
