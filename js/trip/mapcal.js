@@ -776,6 +776,14 @@ function _startInlineTitleEdit(dayId, tripId) {
 // ─── Event detail panel (EDP) ─────────────────────────────────────────────────
 
 function _openEDP(dayId, evtIdx, tripId) {
+  // Toggle: clicking the same active event closes the panel
+  if (_activeEvtKey && _activeEvtKey.dayId === dayId && _activeEvtKey.idx === evtIdx) {
+    _closeEDP();
+    _activeEvtKey = null;
+    _renderDaysList(tripId);
+    return;
+  }
+
   _activeEvtKey = { dayId, idx: evtIdx };
   _renderDaysList(tripId);
 
@@ -788,8 +796,8 @@ function _openEDP(dayId, evtIdx, tripId) {
   const item = day.items[evtIdx];
   if (!item) return;
 
-  // Remove existing EDP
-  _closeEDP();
+  // Synchronously remove any existing EDP — prevents stacking when clicking fast
+  document.getElementById('edp')?.remove();
 
   const mapCol = document.querySelector('.map-col');
   if (!mapCol) return;
@@ -924,10 +932,13 @@ function _openEDP(dayId, evtIdx, tripId) {
     const d2 = (t2.days || []).find(dx => dx.id === dayId);
     if (!d2) return;
 
-    const oldItem = d2.items[evtIdx];
+    const oldItem  = d2.items[evtIdx];
+    const newEt    = getEventTypes().find(et => et.key === edpType);
     d2.items[evtIdx] = {
       ...oldItem,
       type:      edpType,
+      emoji:     newEt?.emoji || null,
+      color:     newEt?.color || null,
       transport: edpType === 'drive' ? edpTransport : oldItem.transport,
       text,
       time:  time || null,
