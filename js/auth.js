@@ -139,7 +139,7 @@ export async function logout() {
 export async function syncToFirestore(state) {
   if (!_db || !_uid || !_setDocFn || !_docFn) return;
   try {
-    await _setDocFn(_docFn(_db, 'users', _uid), state);
+    await _setDocFn(_docFn(_db, 'users', _uid), state, { merge: true });
   } catch (err) {
     console.warn('[auth] Firestore sync failed:', err.message);
   }
