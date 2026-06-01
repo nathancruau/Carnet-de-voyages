@@ -117,6 +117,15 @@ export function renderMapCal(tripId) {
     });
   }
 
+  // Auto-collapse the left panel on mobile so the map is immediately usable
+  if (window.innerWidth <= 768) {
+    const lp = panel.querySelector('.left-panel');
+    if (lp) {
+      lp.classList.add('collapsed');
+      if (lpToggle) lpToggle.textContent = '▶';
+    }
+  }
+
   // Wire fold-all / unfold-all button
   const foldAllBtn = panel.querySelector('#fold-all-btn');
   if (foldAllBtn) {

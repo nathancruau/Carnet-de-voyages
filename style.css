@@ -178,12 +178,12 @@ html,body{height:100%;font-family:var(--fn);background:var(--c);color:var(--ink)
 .panel.active{display:flex}
 
 /* ── Map + Cal panel ── */
-.mapcal{display:flex;width:100%;height:100%}
+.mapcal{display:flex;width:100%;height:100%;position:relative}
 .left-panel{
   width:292px;display:flex;flex-direction:column;
   background:#fff;border-right:1px solid var(--c3);
   flex-shrink:0;overflow:hidden;
-  transition:width .25s;
+  transition:width .25s,min-width .25s;
 }
 .left-panel.collapsed{width:0;min-width:0;border-right:none}
 .lp-toggle-btn{
@@ -588,7 +588,9 @@ html,body{height:100%;font-family:var(--fn);background:var(--c);color:var(--ink)
   width:280px;min-width:280px;max-width:280px;
   height:100%;background:#fff;border-right:1px solid var(--c3);
   display:flex;flex-direction:column;overflow:hidden;flex-shrink:0;
+  transition:width .25s,min-width .25s;
 }
+.mm-sidebar.collapsed{width:0;min-width:0;border-right:none}
 .mm-sidebar-header{
   display:flex;align-items:center;gap:8px;
   padding:12px 14px 10px;border-bottom:1px solid var(--c3);flex-shrink:0;
@@ -1043,7 +1045,7 @@ html,body{height:100%;font-family:var(--fn);background:var(--c);color:var(--ink)
 
 /* ── Mobile (≤ 768px) ── */
 @media (max-width:768px){
-  /* Home hero */
+  /* ── Home hero ── */
   .hero{padding:16px 14px 12px;gap:10px}
   .hero-logo{font-size:22px}
   .hero-sub{display:none}
@@ -1052,33 +1054,60 @@ html,body{height:100%;font-family:var(--fn);background:var(--c);color:var(--ink)
   .home-sec{padding:12px 12px}
   .trips-grid{grid-template-columns:1fr;gap:10px}
 
-  /* Topbar: 2 rows — info row + tabs row */
+  /* ── Trip cards: bigger action buttons for touch ── */
+  .tc-edit-btn,.tc-share-btn{width:34px;height:34px;font-size:15px;border-radius:8px}
+
+  /* ── Topbar: 2 rows — title row + scrollable tabs row ── */
   .topbar{height:auto;flex-wrap:wrap;padding:6px 10px 4px;gap:4px 6px;align-items:center}
   .trip-tag{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px}
   .dates-tag,.top-stat{display:none}
   .spacer{display:none}
-  /* Nav tabs go to a second row, scrollable */
   .nav-tabs{order:99;width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch;flex-wrap:nowrap;justify-content:flex-start;scrollbar-width:none}
   .nav-tabs::-webkit-scrollbar{display:none}
   .nav-tabs-group-lbl{display:none}
   .nav-tabs-sep{display:none}
-  .nav-tab{padding:6px 12px;font-size:12px;flex-shrink:0}
+  .nav-tab{padding:6px 12px;font-size:12px;flex-shrink:0;min-height:34px;display:flex;align-items:center}
 
-  /* Map panel: left panel auto-collapsed, full-width map */
-  .left-panel{width:280px;position:absolute;z-index:400;height:100%;transform:translateX(-100%);border-right:1.5px solid var(--c3);transition:transform .25s ease,width .25s ease}
+  /* ── Trip map panel: slide-over (absolute) ── */
+  /* .mapcal already has position:relative — the panel slides over the map */
+  .left-panel{
+    position:absolute;top:0;left:0;
+    z-index:400;width:284px!important;height:100%;
+    transform:translateX(-100%);
+    border-right:1.5px solid var(--c3);
+    transition:transform .25s ease;
+  }
   .left-panel:not(.collapsed){transform:translateX(0)}
-  .left-panel.collapsed{width:280px;transform:translateX(-100%)}
-  /* Toggle button stays visible in the map col */
-  .lp-toggle-btn{left:6px}
+  .left-panel.collapsed{transform:translateX(-100%)}
+  /* Toggle button: always visible over the map */
+  .lp-toggle-btn{left:6px;z-index:1002}
 
-  /* Modals */
-  .mbox{max-width:98vw;margin:0;border-radius:14px 14px 0 0;max-height:88vh;position:fixed;bottom:0;left:0;right:0}
+  /* ── MyMap sidebar: same slide-over pattern ── */
+  /* .mymap-wrap already has position:relative via .mapcal approach */
+  .mymap-wrap{position:relative}
+  .mm-sidebar{
+    position:absolute;top:0;left:0;
+    z-index:400;width:280px!important;min-width:280px!important;height:100%;
+    transform:translateX(-100%);
+    border-right:1.5px solid var(--c3);
+    transition:transform .25s ease;
+  }
+  .mm-sidebar:not(.collapsed){transform:translateX(0)}
+  .mm-sidebar.collapsed{transform:translateX(-100%)}
+  #mm-map-col .lp-toggle-btn{left:6px;z-index:1002}
 
-  /* Touch-friendly tap targets */
-  .btn-new,.filter-tab,.back-btn{min-height:38px}
-  .nav-tab{min-height:34px;display:flex;align-items:center}
+  /* ── Modals: sheet from bottom ── */
+  .mbox{max-width:98vw;margin:0;border-radius:14px 14px 0 0;max-height:92vh;position:fixed;bottom:0;left:0;right:0;overflow-y:auto}
 
-  /* Hero buttons wrap tightly */
+  /* ── Share modal: compact on mobile ── */
+  .share-qr{width:140px;height:140px}
+  .share-qr-wrap{padding:6px}
+
+  /* ── Touch-friendly tap targets ── */
+  .btn-new,.filter-tab,.back-btn{min-height:40px}
+  .mm-type-btn{padding:5px 10px;font-size:11px}
+
+  /* ── Hero action buttons ── */
   .hero > div:last-child{flex-wrap:wrap;gap:6px}
 }
 

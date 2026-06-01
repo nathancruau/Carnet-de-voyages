@@ -504,11 +504,33 @@ export function renderMyMap() {
     <div class="mm-sidebar" id="mm-sidebar">
       ${_sidebarHtml(pins)}
     </div>
-    <div style="flex:1;height:100%;position:relative;overflow:hidden">
+    <div class="map-col" id="mm-map-col">
+      <button class="lp-toggle-btn" id="mm-toggle" title="Masquer / afficher le panneau">◀</button>
       <div id="mymap" style="width:100%;height:100%"></div>
       <div id="mm-info-panel" class="mm-info-panel" style="display:none;flex-direction:column"></div>
     </div>
   `;
+
+  // Wire sidebar toggle button
+  const mmToggle = document.getElementById('mm-toggle');
+  if (mmToggle) {
+    mmToggle.addEventListener('click', () => {
+      const sidebar = document.getElementById('mm-sidebar');
+      if (!sidebar) return;
+      const collapsed = sidebar.classList.toggle('collapsed');
+      mmToggle.textContent = collapsed ? '▶' : '◀';
+      setTimeout(() => { if (_map) _map.invalidateSize(); }, 280);
+    });
+  }
+
+  // Auto-collapse on mobile so the map is immediately usable
+  if (window.innerWidth <= 768) {
+    const sidebar = document.getElementById('mm-sidebar');
+    if (sidebar) {
+      sidebar.classList.add('collapsed');
+      if (mmToggle) mmToggle.textContent = '▶';
+    }
+  }
 
   // Wire info panel reference
   _infoPanelEl = null;
