@@ -124,9 +124,36 @@ export function getLanguage() {
 /* ── Internal state ── */
 let state = { trips: [] };
 
-let _syncCallback = null;
+let _syncCallback       = null;
+let _sharedSyncCallback = null; // fn(tripId, tripData) — writes to shared_trips/{tripId}
+const _sharedTripIds    = new Set();
 
 export function getState() { return state; }
+
+/** Whether a trip is being synced via shared_trips/{tripId} (not just personal). */
+export function isTripShared(id)  { return _sharedTripIds.has(id); }
+
+/** Mark a trip as shared so edits also push to shared_trips/{tripId}. */
+export function markTripShared(id) { _sharedTripIds.add(id); }
+
+/** Register the callback invoked when a shared trip is edited locally. */
+export function setSharedSyncCallback(fn) { _sharedSyncCallback = fn; }
+
+/**
+ * Overwrite a trip's data from a network update without triggering any sync.
+ * Used by the real-time listener in share.js.
+ */
+export function replaceTripFromNetwork(id, tripData) {
+  const migrated = _migrateTrip({ ...tripData });
+  const idx = state.trips.findIndex(t => t.id === id);
+  if (idx !== -1) {
+    state.trips[idx] = migrated;
+  } else {
+    state.trips.unshift(migrated);
+  }
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (e) {}
+}
+
 
 export function setState(data) {
   if (!data || typeof data !== 'object') return;
@@ -208,6 +235,10 @@ export function updateTrip(id, updates) {
   if (idx === -1) return null;
   state.trips[idx] = { ...state.trips[idx], ...updates };
   saveData();
+  // For shared trips, also push to the shared Firestore document.
+  if (_sharedSyncCallback && _sharedTripIds.has(id)) {
+    _sharedSyncCallback(id, state.trips[idx]);
+  }
   return state.trips[idx];
 }
 

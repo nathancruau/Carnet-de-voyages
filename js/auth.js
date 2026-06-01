@@ -20,7 +20,8 @@ let _db   = null;
 let _uid  = null;
 let _user = null;
 
-let _docFn, _getDocFn, _setDocFn, _signOutFn, _GoogleProvider, _signInRedirectFn, _getRedirectResultFn;
+let _docFn, _getDocFn, _setDocFn, _updateDocFn, _onSnapshotFn, _signOutFn, _GoogleProvider;
+let _signInRedirectFn, _getRedirectResultFn;
 
 export function isFirebaseConfigured() { return _configured; }
 export function getCurrentUser()       { return _user; }
@@ -49,6 +50,8 @@ export async function initAuth(onReady) {
     _docFn               = dbMod.doc;
     _getDocFn            = dbMod.getDoc;
     _setDocFn            = dbMod.setDoc;
+    _updateDocFn         = dbMod.updateDoc;
+    _onSnapshotFn        = dbMod.onSnapshot;
     _signOutFn           = authMod.signOut;
     _GoogleProvider      = authMod.GoogleAuthProvider;
     _signInRedirectFn    = authMod.signInWithRedirect;
@@ -59,7 +62,6 @@ export async function initAuth(onReady) {
       await _getRedirectResultFn(_auth);
     } catch (redirectErr) {
       console.warn('[auth] Redirect sign-in error:', redirectErr.message);
-      // Store error to display on login screen
       window._authRedirectError = redirectErr.message;
     }
 
@@ -105,6 +107,98 @@ export async function syncToFirestore(state) {
   }
 }
 
+// ── Shared trips ───────────────────────────────────────────────────────────────
+
+/** Write the full shared trip document (first share). */
+export async function initSharedTripInFirestore(tripId, tripData, ownerId) {
+  if (!_db || !_setDocFn || !_docFn) return;
+  await _setDocFn(_docFn(_db, 'shared_trips', tripId), {
+    trip: tripData,
+    ownerId,
+    members: { [ownerId]: { role: 'owner', companionId: null, companionName: 'Organisateur' } },
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  });
+}
+
+/** Merge-update only the trip data in an existing shared document. */
+export async function saveSharedTrip(tripId, tripData) {
+  if (!_db || !_setDocFn || !_docFn) return;
+  await _setDocFn(
+    _docFn(_db, 'shared_trips', tripId),
+    { trip: tripData, updatedAt: new Date().toISOString() },
+    { merge: true },
+  );
+}
+
+/**
+ * Subscribe to real-time updates on a shared trip.
+ * @returns {Function} unsubscribe function
+ */
+export function listenSharedTrip(tripId, callback) {
+  if (!_db || !_onSnapshotFn || !_docFn) return () => {};
+  return _onSnapshotFn(_docFn(_db, 'shared_trips', tripId), snap => {
+    if (snap.exists()) callback(snap.data(), snap.metadata.hasPendingWrites);
+  });
+}
+
+/** Load a shared trip document once (no listener). */
+export async function loadSharedTrip(tripId) {
+  if (!_db || !_getDocFn || !_docFn) return null;
+  try {
+    const snap = await _getDocFn(_docFn(_db, 'shared_trips', tripId));
+    return snap.exists() ? snap.data() : null;
+  } catch (err) {
+    console.warn('[auth] loadSharedTrip failed:', err.message);
+    return null;
+  }
+}
+
+/** Create an invite token document. */
+export async function createInvite(token, tripId) {
+  if (!_db || !_setDocFn || !_docFn || !_uid) return;
+  await _setDocFn(_docFn(_db, 'invites', token), {
+    tripId,
+    createdBy: _uid,
+    createdAt: new Date().toISOString(),
+  });
+}
+
+/** Read an invite token document. */
+export async function loadInvite(token) {
+  if (!_db || !_getDocFn || !_docFn) return null;
+  try {
+    const snap = await _getDocFn(_docFn(_db, 'invites', token));
+    return snap.exists() ? snap.data() : null;
+  } catch (err) {
+    console.warn('[auth] loadInvite failed:', err.message);
+    return null;
+  }
+}
+
+/** Add the current user to the members map of a shared trip. */
+export async function joinSharedTrip(tripId, companionId, companionName) {
+  if (!_db || !_updateDocFn || !_docFn || !_uid) return;
+  await _updateDocFn(_docFn(_db, 'shared_trips', tripId), {
+    [`members.${_uid}`]: { role: 'member', companionId, companionName },
+  });
+}
+
+/** Persist the list of shared trip IDs on the user's personal Firestore document. */
+export async function saveUserSharedTripIds(ids) {
+  if (!_db || !_setDocFn || !_docFn || !_uid) return;
+  try {
+    await _setDocFn(
+      _docFn(_db, 'users', _uid),
+      { sharedTripIds: ids },
+      { merge: true },
+    );
+  } catch (err) {
+    console.warn('[auth] saveUserSharedTripIds failed:', err.message);
+  }
+}
+
+/** Load the user's state from Firestore. */
 async function _loadFromFirestore() {
   if (!_db || !_uid || !_getDocFn || !_docFn) return null;
   try {

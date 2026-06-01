@@ -8,6 +8,17 @@ import { renderMyMap, destroyMyMap } from './mymap.js';
 import { openTrip, destroyTripMap } from './trip/trip.js';
 import { closeModal } from './utils.js';
 import { initAuth, loginWithGoogle, logout, syncToFirestore, isFirebaseConfigured, getCurrentUser } from './auth.js';
+import { initSharedTrips, handlePendingInvite } from './share.js';
+
+// Capture ?invite=TOKEN before anything else, store in sessionStorage, clean URL
+{
+  const params = new URLSearchParams(location.search);
+  const token  = params.get('invite');
+  if (token) {
+    sessionStorage.setItem('_pendingInvite', token);
+    history.replaceState(null, '', location.pathname + location.hash);
+  }
+}
 
 // ── Current state ──────────────────────────────────────────────────────────────
 export let currentScreen = 'home';
@@ -76,10 +87,7 @@ function _renderLogin() {
       await loginWithGoogle();
       // Page redirects to Google — nothing runs after this line
     } catch (e) {
-      if (btn) {
-        btn.disabled = false;
-        btn.innerHTML = _googleBtnInner();
-      }
+      if (btn) { btn.disabled = false; btn.innerHTML = _googleBtnInner(); }
       if (err) err.textContent = e.message || 'Erreur de connexion';
     }
   });
@@ -126,6 +134,9 @@ function _onAuthReady(user, cloudData) {
 
   renderHome();
   showScreen('home');
+
+  // Load shared trips and handle any pending invite link (non-blocking)
+  initSharedTrips(cloudData).then(() => handlePendingInvite(user));
 }
 
 // ── Global bindings (for onclick="" in HTML / modals / map popups) ─────────────
@@ -133,6 +144,15 @@ window.goHome         = goHome;
 window.goMyMap        = goMyMap;
 window.navigateToTrip = navigateToTrip;
 window.closeModal     = closeModal;
+
+// Called by share.js after a remote real-time update to refresh the visible screen
+window._rerenderCurrentView = (updatedTripId) => {
+  if (currentScreen === 'home') {
+    renderHome();
+  } else if (currentScreen === 'app' && currentTripId === updatedTripId) {
+    openTrip(currentTripId);
+  }
+};
 
 // ── Bootstrap ──────────────────────────────────────────────────────────────────
 initAuth(_onAuthReady);
