@@ -18,19 +18,20 @@
 import {
   initSharedTripInFirestore, saveSharedTrip,
   listenSharedTrip, createInvite, loadInvite,
-  loadSharedTrip, joinSharedTrip, saveUserSharedTripIds,
+  loadSharedTrip, joinSharedTrip,
   isFirebaseConfigured, getCurrentUser,
 } from './auth.js';
 import {
   getTrip, markTripShared, unmarkTripShared, isTripShared,
   replaceTripFromNetwork, setSharedSyncCallback,
+  getSharedTripIds, setSharedTripIds,
 } from './store.js';
 import { showModal, closeModal, notify } from './utils.js';
 
 // ── Module state ────────────────────────────────────────────────────────────────
 
 const _listeners     = new Map(); // tripId → unsubscribe fn
-let   _sharedTripIds = [];        // mutable list for saveUserSharedTripIds
+let   _sharedTripIds = [];
 
 // ── Helpers ─────────────────────────────────────────────────────────────────────
 
@@ -67,11 +68,9 @@ export async function leaveSharedTrip(tripId) {
   // Unmark so store.updateTrip no longer pushes edits to the shared doc.
   unmarkTripShared(tripId);
 
-  // Remove from local sharedTripIds list and persist to Firestore.
+  // Remove from local list and persist via store state (syncToFirestore picks it up).
   _sharedTripIds = _sharedTripIds.filter(id => id !== tripId);
-  if (isFirebaseConfigured()) {
-    await saveUserSharedTripIds(_sharedTripIds).catch(() => {});
-  }
+  setSharedTripIds(_sharedTripIds);
 }
 
 /**
@@ -81,9 +80,10 @@ export async function leaveSharedTrip(tripId) {
 export async function initSharedTrips(cloudData) {
   if (!isFirebaseConfigured()) return;
 
-  _sharedTripIds = Array.isArray(cloudData?.sharedTripIds) ? [...cloudData.sharedTripIds] : [];
+  // Read from store state (set by setState(cloudData) before this call) so
+  // sharedTripIds is always in sync with the rest of the persisted state.
+  _sharedTripIds = [...getSharedTripIds()];
 
-  // Wire the callback so store.updateTrip() pushes to shared collection
   setSharedSyncCallback(_onLocalSharedTripEdit);
 
   await Promise.all(_sharedTripIds.map(id => _loadAndListen(id)));
@@ -174,7 +174,7 @@ export async function openShareModal(tripId) {
 
       if (!_sharedTripIds.includes(tripId)) {
         _sharedTripIds.push(tripId);
-        await saveUserSharedTripIds(_sharedTripIds);
+        setSharedTripIds(_sharedTripIds);
       }
 
       if (!_listeners.has(tripId)) {
@@ -270,7 +270,7 @@ export async function handlePendingInvite(user) {
       await _loadAndListen(tripId);
       if (!_sharedTripIds.includes(tripId)) {
         _sharedTripIds.push(tripId);
-        await saveUserSharedTripIds(_sharedTripIds);
+        setSharedTripIds(_sharedTripIds);
       }
       notify('Voyage chargé !', '✅');
       if (typeof window._rerenderCurrentView === 'function') window._rerenderCurrentView();
@@ -332,7 +332,7 @@ function _showCompanionPicker(trip, members, tripId, user) {
 
         if (!_sharedTripIds.includes(tripId)) {
           _sharedTripIds.push(tripId);
-          await saveUserSharedTripIds(_sharedTripIds);
+          setSharedTripIds(_sharedTripIds);
         }
 
         await _loadAndListen(tripId);

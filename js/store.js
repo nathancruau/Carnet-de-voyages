@@ -122,7 +122,7 @@ export function getLanguage() {
 }
 
 /* ── Internal state ── */
-let state = { trips: [] };
+let state = { trips: [], sharedTripIds: [] };
 
 let _syncCallback       = null;
 let _syncTimer          = null;
@@ -135,6 +135,20 @@ export function getState() { return state; }
 export function isTripShared(id)    { return _sharedTripIds.has(id); }
 export function markTripShared(id)  { _sharedTripIds.add(id); }
 export function unmarkTripShared(id){ _sharedTripIds.delete(id); }
+
+/** Read persisted sharedTripIds from state (populated by setState/loadData). */
+export function getSharedTripIds() {
+  return Array.isArray(state.sharedTripIds) ? state.sharedTripIds : [];
+}
+
+/**
+ * Update the sharedTripIds list and persist it via the normal saveData flow
+ * (debounced syncToFirestore) — no separate Firestore call needed.
+ */
+export function setSharedTripIds(ids) {
+  state.sharedTripIds = Array.isArray(ids) ? [...ids] : [];
+  saveData();
+}
 
 /** Register the callback invoked when a shared trip is edited locally. */
 export function setSharedSyncCallback(fn) { _sharedSyncCallback = fn; }
