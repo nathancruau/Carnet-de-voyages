@@ -125,6 +125,7 @@ export function getLanguage() {
 let state = { trips: [] };
 
 let _syncCallback       = null;
+let _syncTimer          = null;
 let _sharedSyncCallback = null; // fn(tripId, tripData) — writes to shared_trips/{tripId}
 const _sharedTripIds    = new Set();
 
@@ -207,15 +208,12 @@ function _migrateTrip(t) {
 }
 
 export function saveData() {
-  // Write to localStorage immediately (synchronous, local — always fast).
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-    if (_syncCallback) _syncCallback(state);
   } catch (e) {
     console.warn('Carnet: failed to save to localStorage', e);
   }
-  // Debounce the Firestore push so rapid successive edits (e.g. dragging a
-  // slider or typing) don't flood the cloud with redundant writes.
+  // Debounce Firestore pushes so rapid edits don't flood the cloud.
   clearTimeout(_syncTimer);
   _syncTimer = setTimeout(() => {
     if (_syncCallback) _syncCallback(state);
