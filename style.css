@@ -572,7 +572,7 @@ html,body{height:100%;font-family:var(--fn);background:var(--c);color:var(--ink)
 .tri-exp-table tr:hover td{background:var(--c2)}
 .payer-chip{font-size:10px;font-weight:700;padding:2px 8px;border-radius:999px;color:#fff}
 .split-chips{display:flex;gap:3px;flex-wrap:wrap}
-.split-chip{font-size:9px;font-weight:700;padding:1px 6px;border-radius:999px;background:var(--c2);color:var(--ink3);border:1px solid var(--c3)}
+.split-chip{font-size:9px;font-weight:700;padding:2px 7px;border-radius:999px;background:var(--c2);color:var(--ink3);border:1px solid var(--c3);display:inline-flex;align-items:center;gap:3px}
 .no-participants{text-align:center;padding:40px;color:var(--ink4);font-size:13px}
 
 /* ══════════════════════════════════════════
