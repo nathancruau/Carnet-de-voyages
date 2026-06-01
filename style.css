@@ -144,7 +144,10 @@ html,body{height:100%;font-family:var(--fn);background:var(--c);color:var(--ink)
 }
 .topbar-row1{
   display:flex;align-items:center;gap:6px;
-  padding:8px 16px 6px;min-height:0;overflow:hidden;
+  padding:8px 16px 6px;min-height:0;overflow:hidden;flex-wrap:nowrap;
+}
+.topbar-right{
+  display:flex;align-items:center;gap:5px;flex-shrink:0;margin-left:auto;
 }
 .topbar-row2{
   display:flex;align-items:center;justify-content:center;
@@ -159,7 +162,7 @@ html,body{height:100%;font-family:var(--fn);background:var(--c);color:var(--ink)
   transition:all .15s;white-space:nowrap;
 }
 .back-btn:hover{background:var(--c3)}
-.trip-tag{font-family:var(--sf);font-size:14px;font-weight:700;color:var(--ink)}
+.trip-tag{font-family:var(--sf);font-size:14px;font-weight:700;color:var(--ink);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .dates-tag{
   font-size:11px;color:var(--ink4);background:var(--c2);
   border:1px solid var(--c3);border-radius:999px;padding:3px 9px;white-space:nowrap;
@@ -792,6 +795,13 @@ html,body{height:100%;font-family:var(--fn);background:var(--c);color:var(--ink)
   font-size:11px;padding:0;line-height:1;margin-left:2px;
 }
 .comp-tag-rm:hover{color:var(--coral)}
+.comp-name-lbl{cursor:pointer;border-radius:3px;padding:1px 3px}
+.comp-name-lbl:hover{background:var(--c3);color:var(--teal)}
+.comp-rename-input{
+  width:90px;border:1.5px solid var(--teal);border-radius:5px;
+  padding:1px 5px;font-size:11px;font-family:var(--fn);outline:none;
+  background:var(--c);color:var(--ink);
+}
 .comp-add-row{display:flex;gap:6px;align-items:center}
 .comp-add-row input{
   flex:1;background:var(--c);border:1.5px solid var(--c3);
@@ -1078,9 +1088,8 @@ html,body{height:100%;font-family:var(--fn);background:var(--c);color:var(--ink)
   /* ── Topbar: compact on mobile ── */
   .topbar-row1{padding:6px 10px 4px;gap:4px}
   .topbar-row2{padding:3px 8px 5px}
-  .trip-tag{font-size:13px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .trip-tag{font-size:13px}
   .dates-tag,.ts-pill{display:none}
-  .spacer{display:none}
   .nav-tabs{overflow-x:auto;-webkit-overflow-scrolling:touch;flex-wrap:nowrap;justify-content:flex-start;scrollbar-width:none}
   .nav-tabs::-webkit-scrollbar{display:none}
   .nav-tabs-group-lbl{display:none}

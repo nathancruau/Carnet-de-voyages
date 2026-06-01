@@ -21,6 +21,7 @@ import {
   loadSharedTrip, joinSharedTrip,
   isFirebaseConfigured, getCurrentUser,
   addComment, updatePresence, clearPresence, addActivityEntry,
+  removeMemberFromSharedTrip,
 } from './auth.js';
 import {
   getTrip, markTripShared, unmarkTripShared, isTripShared,
@@ -58,6 +59,19 @@ function _genToken() {
 /** Returns the latest full Firestore doc snapshot for a shared trip, or null. */
 export function getSharedDocData(tripId) {
   return _sharedDocData.get(tripId) || null;
+}
+
+/**
+ * Remove a companion from a shared trip by their companion ID.
+ * Finds the UID of whoever claimed that companion slot, then revokes Firestore access.
+ */
+export async function removeSharedTripMember(tripId, companionId) {
+  const doc = _sharedDocData.get(tripId);
+  if (!doc?.members) return;
+  const entry = Object.entries(doc.members).find(([, m]) => m.companionId === companionId);
+  if (!entry) return;
+  const [memberUid] = entry;
+  await removeMemberFromSharedTrip(tripId, memberUid);
 }
 
 /**
@@ -197,6 +211,16 @@ function _onNetworkUpdate(tripId, data, hasPendingWrites) {
   if (!data?.trip) return;
 
   const prevData = _sharedDocData.get(tripId);
+
+  // Detect if the current user was removed from members by the owner
+  const user = getCurrentUser();
+  if (user && prevData?.members?.[user.uid] && !data.members?.[user.uid]) {
+    leaveSharedTrip(tripId);
+    notify('Vous avez été retiré de ce voyage partagé.', 'ℹ️');
+    if (typeof window.goHome === 'function') window.goHome();
+    return;
+  }
+
   _sharedDocData.set(tripId, data);
   replaceTripFromNetwork(tripId, data.trip);
 
@@ -276,7 +300,8 @@ export async function openShareModal(tripId) {
   try {
     // First share: create shared_trips document and start listener
     if (!isTripShared(tripId)) {
-      await initSharedTripInFirestore(tripId, trip, user.uid);
+      const ownerName = user.displayName || user.email?.split('@')[0] || 'Organisateur';
+      await initSharedTripInFirestore(tripId, trip, user.uid, ownerName);
       markTripShared(tripId);
       setSharedSyncCallback(_onLocalSharedTripEdit);
 

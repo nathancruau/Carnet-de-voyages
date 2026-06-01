@@ -126,12 +126,13 @@ function _renderTopbar(trip) {
     <div class="topbar-row1">
       <button class="back-btn" id="back-home-btn">← Bibliothèque</button>
       <span class="trip-tag">${_esc(trip.flag || '')} ${_esc(trip.name || 'Voyage')}</span>
-      <span class="dates-tag">${startLabel} – ${endLabel}</span>
-      <div class="spacer"></div>
-      ${comps ? `<div class="companions-row" style="display:flex;align-items:center;gap:3px">${comps}</div>` : ''}
-      ${isShared ? `<button class="activity-log-btn" id="activity-log-btn" title="Historique des modifications">📋</button>` : ''}
-      <span class="ts-pill" title="Budget planifié">💰&nbsp;<span id="ts-b">—</span></span>
-      <span class="ts-pill" title="Dépenses réelles">💳&nbsp;<span id="ts-e">—</span></span>
+      <div class="topbar-right">
+        <span class="dates-tag">${startLabel} – ${endLabel}</span>
+        ${comps ? `<div class="companions-row" style="display:flex;align-items:center;gap:3px">${comps}</div>` : ''}
+        ${isShared ? `<button class="activity-log-btn" id="activity-log-btn" title="Historique des modifications">📋</button>` : ''}
+        <span class="ts-pill" title="Budget planifié">💰&nbsp;<span id="ts-b">—</span></span>
+        <span class="ts-pill" title="Dépenses réelles">💳&nbsp;<span id="ts-e">—</span></span>
+      </div>
     </div>
     <div class="topbar-row2">
       <div class="nav-tabs">

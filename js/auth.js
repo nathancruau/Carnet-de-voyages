@@ -151,14 +151,23 @@ export async function syncToFirestore(state) {
 // ── Shared trips ───────────────────────────────────────────────────────────────
 
 /** Write the full shared trip document (first share). */
-export async function initSharedTripInFirestore(tripId, tripData, ownerId) {
+export async function initSharedTripInFirestore(tripId, tripData, ownerId, ownerName) {
   if (!_db || !_setDocFn || !_docFn) return;
   await _setDocFn(_docFn(_db, 'shared_trips', tripId), {
     trip: tripData,
     ownerId,
-    members: { [ownerId]: { role: 'owner', companionId: null, companionName: 'Organisateur' } },
+    members: { [ownerId]: { role: 'owner', companionId: null, companionName: ownerName || 'Organisateur' } },
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
+  });
+}
+
+/** Remove a specific member (by UID) from a shared trip's members + presence. */
+export async function removeMemberFromSharedTrip(tripId, memberUid) {
+  if (!_db || !_updateDocFn || !_docFn || !_deleteFieldFn) return;
+  await _updateDocFn(_docFn(_db, 'shared_trips', tripId), {
+    [`members.${memberUid}`]:  _deleteFieldFn(),
+    [`presence.${memberUid}`]: _deleteFieldFn(),
   });
 }
 

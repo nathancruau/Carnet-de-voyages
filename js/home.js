@@ -7,7 +7,7 @@ import {
   TRIP_TYPES, COMP_COLORS, uid,
   getSettings, updateSettings,
   getEventTypes, DEFAULT_EVENT_TYPES,
-  getLanguage,
+  getLanguage, isTripShared,
 } from './store.js';
 import {
   notify, showModal, closeModal,
@@ -19,7 +19,7 @@ import {
 // navigateToTrip / goMyMap accessed via window globals (set by app.js) to avoid circular import
 import { importFile } from './import.js';
 import { getCurrentUser, logout } from './auth.js';
-import { openShareModal, leaveSharedTrip } from './share.js';
+import { openShareModal, leaveSharedTrip, removeSharedTripMember } from './share.js';
 
 // ── Module state ───────────────────────────────────────────────────────────────
 
@@ -810,7 +810,7 @@ function _compsListHtml() {
       <div class="comp-tag" data-comp-idx="${i}">
         <div class="comp-avatar"
              style="background:${bg};width:18px;height:18px;font-size:9px">${_initials(c.name)}</div>
-        <span>${_esc(c.name)}</span>
+        <span class="comp-name-lbl" data-rename-comp="${i}" title="Cliquer pour renommer">${_esc(c.name)}</span>
         <button class="comp-tag-rm" data-remove-comp="${i}" title="Retirer">✕</button>
       </div>
     `;
@@ -1124,12 +1124,16 @@ function _initModalListeners(trip) {
     if (e.key === 'Enter') { e.preventDefault(); addCompFn(); }
   });
 
-  // Remove companion (delegated)
+  // Remove / rename companion (delegated)
   document.getElementById('m-comp-list')?.addEventListener('click', e => {
-    const btn = e.target.closest('[data-remove-comp]');
-    if (!btn) return;
-    _modalComps.splice(parseInt(btn.dataset.removeComp, 10), 1);
-    _refreshCompList();
+    const rmBtn = e.target.closest('[data-remove-comp]');
+    if (rmBtn) {
+      _modalComps.splice(parseInt(rmBtn.dataset.removeComp, 10), 1);
+      _refreshCompList();
+      return;
+    }
+    const lbl = e.target.closest('[data-rename-comp]');
+    if (lbl) _startInlineCompRename(parseInt(lbl.dataset.renameComp, 10));
   });
 
   // Save
@@ -1165,6 +1169,28 @@ function _refreshCompList() {
   // Only replace innerHTML — the click listener on the container
   // was already attached in _initModalListeners and survives innerHTML updates.
   if (list) list.innerHTML = _compsListHtml();
+}
+
+function _startInlineCompRename(idx) {
+  const lbl = document.querySelector(`.comp-name-lbl[data-rename-comp="${idx}"]`);
+  if (!lbl) return;
+  const current = _modalComps[idx]?.name || '';
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.value = current;
+  input.className = 'comp-rename-input';
+  lbl.replaceWith(input);
+  input.focus();
+  input.select();
+  const save = () => {
+    if (_modalComps[idx]) _modalComps[idx].name = input.value.trim() || current;
+    _refreshCompList();
+  };
+  input.addEventListener('blur', save);
+  input.addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
+    if (e.key === 'Escape') { input.removeEventListener('blur', save); _refreshCompList(); }
+  });
 }
 
 // ── Modal: save / delete ───────────────────────────────────────────────────────
@@ -1203,14 +1229,23 @@ function _handleSave() {
   };
 
   if (_editingId) {
-    // Capture old dates before updating
+    // Capture old state before updating
     const existing   = getTrips().find(t => t.id === _editingId);
     const oldStart   = existing?.startDate || null;
     const oldEnd     = existing?.endDate   || null;
     const oldDays    = existing?.days      || [];
     const hadDays    = Array.isArray(existing?.days) && existing.days.length > 0;
+    const oldCompIds = (existing?.companions || []).map(c => c.id);
 
     const updated = updateTrip(_editingId, data);
+
+    // Revoke Firestore access for companions that were removed from a shared trip
+    if (isTripShared(_editingId)) {
+      const newCompIdSet = new Set(_modalComps.map(c => c.id));
+      oldCompIds
+        .filter(id => !newCompIdSet.has(id))
+        .forEach(compId => removeSharedTripMember(_editingId, compId).catch(() => {}));
+    }
 
     if (updated) {
       const dateChanged = data.startDate !== oldStart || data.endDate !== oldEnd;
