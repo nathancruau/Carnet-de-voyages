@@ -111,41 +111,39 @@ function _renderTopbar(trip) {
   const topbar = document.getElementById('topbar');
   if (!topbar) return;
 
-  // Companion avatars — each wrapped for presence-dot overlay
-  const comps = (trip.companions || []).map(c => {
-    return `<div class="comp-avatar-wrap" data-comp-id="${_esc(c.id)}">
+  // Companion avatars — wrapped for presence-dot overlay; UID added later by _enrichSharedTopbar
+  const comps = (trip.companions || []).map(c =>
+    `<div class="comp-avatar-wrap" data-comp-id="${_esc(c.id)}">
       <div class="comp-avatar" style="background:${c.color || '#9c9890'}" title="${_esc(c.name)}">${_initials(c.name)}</div>
-    </div>`;
-  }).join('');
+    </div>`
+  ).join('');
 
   const startLabel = fmtDate(trip.startDate);
   const endLabel   = fmtDate(trip.endDate);
   const isShared   = isTripShared(_tripId);
 
   topbar.innerHTML = `
-    <button class="back-btn" id="back-home-btn">← Bibliothèque</button>
-    <span class="trip-tag">${_esc(trip.flag || '')} ${_esc(trip.name || 'Voyage')}</span>
-    <span class="dates-tag">${startLabel} – ${endLabel}</span>
-    ${comps ? `<div class="companions-row" style="display:flex;align-items:center;gap:3px;margin-left:4px">${comps}</div>` : ''}
-    ${isShared ? `<button class="activity-log-btn" id="activity-log-btn" title="Historique des modifications">📋</button>` : ''}
-    <div class="top-stat">
-      <div class="dot" style="background:var(--teal)"></div>
-      <span>Budget :</span>&nbsp;<span id="ts-b">—</span>
+    <div class="topbar-row1">
+      <button class="back-btn" id="back-home-btn">← Bibliothèque</button>
+      <span class="trip-tag">${_esc(trip.flag || '')} ${_esc(trip.name || 'Voyage')}</span>
+      <span class="dates-tag">${startLabel} – ${endLabel}</span>
+      <div class="spacer"></div>
+      ${comps ? `<div class="companions-row" style="display:flex;align-items:center;gap:3px">${comps}</div>` : ''}
+      ${isShared ? `<button class="activity-log-btn" id="activity-log-btn" title="Historique des modifications">📋</button>` : ''}
+      <span class="ts-pill" title="Budget planifié">💰&nbsp;<span id="ts-b">—</span></span>
+      <span class="ts-pill" title="Dépenses réelles">💳&nbsp;<span id="ts-e">—</span></span>
     </div>
-    <div class="top-stat">
-      <div class="dot" style="background:var(--amb)"></div>
-      <span>Dépenses :</span>&nbsp;<span id="ts-e">—</span>
-    </div>
-    <div class="spacer"></div>
-    <div class="nav-tabs">
-      <span class="nav-tabs-group-lbl">Planifié</span>
-      <div class="nav-tab active" data-tab="mapcal">🗺 Carte &amp; Planning</div>
-      <div class="nav-tab" data-tab="budget">💰 Budget</div>
-      <div class="nav-tab" data-tab="packing">🎒 Bagages</div>
-      <div class="nav-tabs-sep"></div>
-      <span class="nav-tabs-group-lbl">Réel</span>
-      <div class="nav-tab" data-tab="journal">📔 Carnet</div>
-      <div class="nav-tab" data-tab="tricount">💳 Dépenses</div>
+    <div class="topbar-row2">
+      <div class="nav-tabs">
+        <span class="nav-tabs-group-lbl">Planifié</span>
+        <div class="nav-tab active" data-tab="mapcal">🗺 Carte &amp; Planning</div>
+        <div class="nav-tab" data-tab="budget">💰 Budget</div>
+        <div class="nav-tab" data-tab="packing">🎒 Bagages</div>
+        <div class="nav-tabs-sep"></div>
+        <span class="nav-tabs-group-lbl">Réel</span>
+        <div class="nav-tab" data-tab="journal">📔 Carnet</div>
+        <div class="nav-tab" data-tab="tricount">💳 Dépenses</div>
+      </div>
     </div>
   `;
 
@@ -154,51 +152,81 @@ function _renderTopbar(trip) {
     window.goHome && window.goHome();
   });
 
-  // Tab clicks via event delegation
+  // Tab clicks via event delegation on the whole topbar
   topbar.addEventListener('click', e => {
     const tab = e.target.closest('.nav-tab');
     if (tab && tab.dataset.tab) switchTab(tab.dataset.tab);
   });
 
-  // Activity log button (shared trips only)
+  // Shared-trip extras
   if (isShared) {
     topbar.querySelector('#activity-log-btn')?.addEventListener('click', () => {
       _openActivityModal(_tripId);
     });
-
-    // Load initial presence state
-    import('../share.js').then(({ getSharedDocData }) => {
-      const doc = getSharedDocData(_tripId);
-      if (doc?.presence) _updatePresenceDots(_tripId, doc.presence, trip.companions || []);
-    }).catch(() => {});
+    // Add owner avatar + map UIDs → apply initial presence dots
+    _enrichSharedTopbar(_tripId).catch(() => {});
   }
 
-  // Hook for share.js to push lightweight presence updates into the topbar
+  // Called by share.js on every Firestore presence snapshot
   window._refreshPresenceDots = (tripId, presenceData) => {
     if (tripId !== _tripId) return;
-    _updatePresenceDots(tripId, presenceData, trip.companions || []);
+    _updatePresenceDots(presenceData);
   };
 }
 
-/** Add/remove green presence dots on companion avatars without a full topbar re-render. */
-function _updatePresenceDots(tripId, presenceData, companions) {
-  const TIMEOUT_MS = 2 * 60 * 1000; // 2 minutes
-  const now = Date.now();
+/**
+ * For shared trips: add the owner's avatar (if missing) and tag every
+ * companion avatar with data-uid so presence dots can match by UID.
+ */
+async function _enrichSharedTopbar(tripId) {
+  const { getSharedDocData } = await import('../share.js');
+  const doc = getSharedDocData(tripId);
+  if (!doc) return;
 
-  // Build set of online companion IDs
-  const onlineCompIds = new Set();
-  for (const p of Object.values(presenceData || {})) {
-    if (p.companionId && p.lastSeen) {
-      if (now - new Date(p.lastSeen).getTime() < TIMEOUT_MS) {
-        onlineCompIds.add(p.companionId);
+  const members = doc.members || {};
+
+  // Tag each companion avatar with the UID of whoever claimed it
+  document.querySelectorAll('.comp-avatar-wrap[data-comp-id]').forEach(wrap => {
+    const entry = Object.entries(members).find(([, m]) => m.companionId === wrap.dataset.compId);
+    if (entry) wrap.dataset.uid = entry[0];
+  });
+
+  // Add the trip owner's avatar if they don't already have one shown
+  const ownerEntry = Object.entries(members).find(([, m]) => m.role === 'owner');
+  if (ownerEntry) {
+    const [ownerUid, ownerMember] = ownerEntry;
+    if (!document.querySelector(`.comp-avatar-wrap[data-uid="${ownerUid}"]`)) {
+      const row = document.querySelector('.companions-row');
+      if (row) {
+        const wrap = document.createElement('div');
+        wrap.className = 'comp-avatar-wrap';
+        wrap.dataset.uid = ownerUid;
+        const name = ownerMember.companionName || 'Org';
+        wrap.innerHTML = `<div class="comp-avatar" style="background:#0d9488" title="${_esc(name)}">${_initials(name)}</div>`;
+        row.insertBefore(wrap, row.firstChild);
       }
     }
   }
 
-  document.querySelectorAll('.comp-avatar-wrap[data-comp-id]').forEach(wrap => {
-    const compId  = wrap.dataset.compId;
-    const online  = onlineCompIds.has(compId);
-    let dot       = wrap.querySelector('.presence-dot');
+  // Apply initial presence dots now that UIDs are in place
+  if (doc.presence) _updatePresenceDots(doc.presence);
+}
+
+/** Add / remove green presence dots — matched by data-uid on each avatar wrap. */
+function _updatePresenceDots(presenceData) {
+  const TIMEOUT_MS = 2 * 60 * 1000;
+  const now = Date.now();
+
+  const onlineUids = new Set();
+  for (const [uid, p] of Object.entries(presenceData || {})) {
+    if (p.lastSeen && now - new Date(p.lastSeen).getTime() < TIMEOUT_MS) {
+      onlineUids.add(uid);
+    }
+  }
+
+  document.querySelectorAll('.comp-avatar-wrap[data-uid]').forEach(wrap => {
+    const online = onlineUids.has(wrap.dataset.uid);
+    let dot      = wrap.querySelector('.presence-dot');
     if (online && !dot) {
       dot = document.createElement('div');
       dot.className = 'presence-dot';
