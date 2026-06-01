@@ -19,8 +19,10 @@ function _pinTypeMap() {
 // ── Module-level state ─────────────────────────────────────────────────────────
 let _map             = null;   // Leaflet map instance
 let _markers         = [];     // { marker, trip, entry } objects currently on the map
+let _routeLayers     = [];     // L.Polyline instances for trip routes
 let _allPins         = [];     // All { trip, entry, lat, lng } built from store
 let _filters         = { type: 'all', pinType: 'all', tripId: 'all' };
+let _showRoutes      = false;  // whether itinerary lines are drawn
 let _collapsedGroups = new Set();  // trip ids whose sidebar group is folded
 let _infoPanelEl     = null;   // info panel DOM element
 
@@ -322,6 +324,11 @@ function _sidebarHtml(pins) {
       <div style="font-size:11px;color:var(--ink4);font-weight:600;margin-right:4px;flex-shrink:0">Lieu :</div>
       <div class="mm-type-group">${pinTypeFilters}</div>
     </div>
+    <div class="mm-filter-row">
+      <button class="mm-type-btn${_showRoutes ? ' active' : ''}" onclick="_mmToggleRoutes()" style="gap:5px">
+        〰 Itinéraires
+      </button>
+    </div>
 
     <div class="mm-tree" id="mm-tree">
       ${tree}
@@ -370,17 +377,45 @@ function _redrawMarkers(pins) {
   }
 }
 
+// ── Draw itinerary polylines ───────────────────────────────────────────────────
+
+function _redrawRoutes(pins) {
+  for (const layer of _routeLayers) layer.remove();
+  _routeLayers = [];
+  if (!_showRoutes || !_map) return;
+
+  // Group pins by trip, preserving insertion order (already day-ordered from _buildAllPins)
+  const byTrip = new Map();
+  for (const pin of pins) {
+    if (!byTrip.has(pin.trip.id)) byTrip.set(pin.trip.id, { trip: pin.trip, coords: [] });
+    byTrip.get(pin.trip.id).coords.push([pin.lat, pin.lng]);
+  }
+
+  for (const { trip, coords } of byTrip.values()) {
+    if (coords.length < 2) continue;
+    const color = _colorForFlag(trip.flag);
+    const line = L.polyline(coords, {
+      color,
+      weight:    2.5,
+      opacity:   0.7,
+      dashArray: '7 5',
+      lineJoin:  'round',
+    }).addTo(_map);
+    line.bindTooltip(`${trip.flag || ''} ${trip.name}`, { sticky: true, className: 'mm-route-tooltip' });
+    _routeLayers.push(line);
+  }
+}
+
 // ── Update (re-filter, re-render sidebar + markers) ───────────────────────────
 
 function _update() {
   const pins = _visiblePins();
 
-  // Update sidebar tree only
   const treeEl = document.getElementById('mm-tree');
   if (treeEl) treeEl.innerHTML = _buildSidebarTree(pins);
 
-  // Redraw markers
   _redrawMarkers(pins);
+  _redrawRoutes(pins);
 }
 
 // ── KML export ─────────────────────────────────────────────────────────────────
@@ -486,6 +521,17 @@ window._mmSetPinType = function(val) {
 
 window._mmExportKml = _mmExportKml;
 
+window._mmToggleRoutes = function() {
+  _showRoutes = !_showRoutes;
+  // Update button state
+  const sidebar = document.getElementById('mm-sidebar');
+  if (sidebar) {
+    const pins = _visiblePins();
+    sidebar.innerHTML = _sidebarHtml(pins);
+  }
+  _redrawRoutes(_visiblePins());
+};
+
 // ── Public API ─────────────────────────────────────────────────────────────────
 
 export function renderMyMap() {
@@ -561,6 +607,7 @@ export function renderMyMap() {
     }).addTo(_map);
 
     _redrawMarkers(pins);
+    _redrawRoutes(pins);
   });
 }
 
@@ -569,5 +616,6 @@ export function destroyMyMap() {
     try { _map.remove(); } catch (_) { /* already removed */ }
     _map = null;
   }
-  _markers = [];
+  _markers     = [];
+  _routeLayers = [];
 }
