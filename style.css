@@ -1147,6 +1147,8 @@ html,body{height:100%;font-family:var(--fn);background:var(--c);color:var(--ink)
   font-size:12px;font-weight:700;color:var(--ink2);
   transition:border-color .15s,background .15s;
 }
-.comp-pick-btn:hover{border-color:var(--teal);background:var(--tl);color:var(--td)}
+.comp-pick-btn:hover:not(:disabled){border-color:var(--teal);background:var(--tl);color:var(--td)}
 .comp-pick-observer{border-style:dashed}
 .comp-pick-btn .comp-avatar{width:36px;height:36px;font-size:14px}
+.comp-pick-taken{opacity:.45;cursor:not-allowed!important;filter:grayscale(.6)}
+.comp-pick-badge{font-size:10px;font-weight:600;color:var(--ink4);margin-top:-4px}

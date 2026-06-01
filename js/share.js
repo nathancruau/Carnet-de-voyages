@@ -269,8 +269,8 @@ export async function handlePendingInvite(user) {
       return;
     }
 
-    // New member — show companion picker
-    _showCompanionPicker(sharedDoc.trip, tripId, user);
+    // New member — show companion picker (pass members so taken slots are greyed out)
+    _showCompanionPicker(sharedDoc.trip, sharedDoc.members || {}, tripId, user);
 
   } catch (err) {
     console.error('[share] handlePendingInvite failed:', err);
@@ -278,15 +278,27 @@ export async function handlePendingInvite(user) {
   }
 }
 
-function _showCompanionPicker(trip, tripId, user) {
+function _showCompanionPicker(trip, members, tripId, user) {
   const companions = trip.companions || [];
 
-  const compsHtml = companions.map(c => `
-    <button class="comp-pick-btn" data-comp-id="${_esc(c.id)}" data-comp-name="${_esc(c.name)}">
-      <div class="comp-avatar" style="background:${_esc(c.color || '#0d9488')}">${_initials(c.name)}</div>
-      <span>${_esc(c.name)}</span>
-    </button>
-  `).join('');
+  // Collect companion IDs that are already claimed by another member
+  const takenIds = new Set(
+    Object.values(members)
+      .map(m => m.companionId)
+      .filter(Boolean),
+  );
+
+  const compsHtml = companions.map(c => {
+    const taken = takenIds.has(c.id);
+    return `
+      <button class="comp-pick-btn${taken ? ' comp-pick-taken' : ''}"
+        data-comp-id="${_esc(c.id)}" data-comp-name="${_esc(c.name)}"
+        ${taken ? 'disabled' : ''}>
+        <div class="comp-avatar" style="background:${_esc(c.color || '#0d9488')}">${_initials(c.name)}</div>
+        <span>${_esc(c.name)}</span>
+        ${taken ? '<span class="comp-pick-badge">Pris</span>' : ''}
+      </button>`;
+  }).join('');
 
   showModal(`
     <button class="mc" onclick="closeModal()">✕</button>
