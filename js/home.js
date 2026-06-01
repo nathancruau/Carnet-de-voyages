@@ -19,6 +19,7 @@ import {
 // navigateToTrip / goMyMap accessed via window globals (set by app.js) to avoid circular import
 import { importFile } from './import.js';
 import { getCurrentUser, logout } from './auth.js';
+import { openShareModal } from './share.js';
 
 // ── Module state ───────────────────────────────────────────────────────────────
 
@@ -448,10 +449,16 @@ function _tripCardHtml(trip) {
       <div class="tc-body">
         <div class="tc-header">
           <div>${typeBadge(trip.type)}</div>
-          <button class="tc-edit-btn"
-                  data-action="edit-trip"
-                  data-trip-id="${trip.id}"
-                  title="Modifier">✎</button>
+          <div style="display:flex;gap:4px">
+            <button class="tc-share-btn"
+                    data-action="share-trip"
+                    data-trip-id="${trip.id}"
+                    title="Partager">🔗</button>
+            <button class="tc-edit-btn"
+                    data-action="edit-trip"
+                    data-trip-id="${trip.id}"
+                    title="Modifier">✎</button>
+          </div>
         </div>
         <div class="tc-title">${trip.flag || '🌍'} ${_esc(trip.name) || 'Sans titre'}</div>
         <div class="tc-dates">${dateStr}</div>
@@ -749,6 +756,11 @@ function _attachListeners(wrap) {
 
       case 'new-trip':
         openEditTripModal(null);
+        break;
+
+      case 'share-trip':
+        e.stopPropagation();
+        openShareModal(target.dataset.tripId);
         break;
 
       case 'edit-trip':
