@@ -156,6 +156,10 @@ function _mmShowInfo(trip, entry) {
 function _buildAllPins() {
   _allPins = [];
   for (const trip of getTrips()) {
+    // MyMap only shows places from realized trips (status = 'done').
+    // Planned trips are excluded — their pins don't represent visited places.
+    if (trip.status !== 'done') continue;
+
     // Planning item pins (source of truth for journal/carnet)
     for (const day of (trip.days || [])) {
       for (const item of (day.items || [])) {

@@ -1029,3 +1029,55 @@ html,body{height:100%;font-family:var(--fn);background:var(--c);color:var(--ink)
 .user-nm{font-size:12px;font-weight:600;color:rgba(255,255,255,.9);max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .logout-btn{background:rgba(255,255,255,.2);border:1.5px solid rgba(255,255,255,.3);color:rgba(255,255,255,.9);border-radius:6px;padding:3px 9px;font-size:11px;font-weight:700;cursor:pointer;font-family:var(--fn);transition:background .15s}
 .logout-btn:hover{background:rgba(255,255,255,.3)}
+
+/* ══════════════════════════════════════════
+   RESPONSIVE — Tablet & Mobile
+══════════════════════════════════════════ */
+
+/* ── Tablet (≤ 1024px) ── */
+@media (max-width:1024px){
+  .left-panel{width:240px}
+  .nav-tab{padding:5px 9px;font-size:11px}
+  .trips-grid{grid-template-columns:repeat(auto-fill,minmax(220px,1fr))}
+}
+
+/* ── Mobile (≤ 768px) ── */
+@media (max-width:768px){
+  /* Home hero */
+  .hero{padding:16px 14px 12px;gap:10px}
+  .hero-logo{font-size:22px}
+  .hero-sub{display:none}
+  .hs-card{padding:7px 10px;min-width:54px}
+  .hs-v{font-size:17px}
+  .home-sec{padding:12px 12px}
+  .trips-grid{grid-template-columns:1fr;gap:10px}
+
+  /* Topbar: 2 rows — info row + tabs row */
+  .topbar{height:auto;flex-wrap:wrap;padding:6px 10px 4px;gap:4px 6px;align-items:center}
+  .trip-tag{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px}
+  .dates-tag,.top-stat{display:none}
+  .spacer{display:none}
+  /* Nav tabs go to a second row, scrollable */
+  .nav-tabs{order:99;width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch;flex-wrap:nowrap;justify-content:flex-start;scrollbar-width:none}
+  .nav-tabs::-webkit-scrollbar{display:none}
+  .nav-tabs-group-lbl{display:none}
+  .nav-tabs-sep{display:none}
+  .nav-tab{padding:6px 12px;font-size:12px;flex-shrink:0}
+
+  /* Map panel: left panel auto-collapsed, full-width map */
+  .left-panel{width:280px;position:absolute;z-index:400;height:100%;transform:translateX(-100%);border-right:1.5px solid var(--c3);transition:transform .25s ease,width .25s ease}
+  .left-panel:not(.collapsed){transform:translateX(0)}
+  .left-panel.collapsed{width:280px;transform:translateX(-100%)}
+  /* Toggle button stays visible in the map col */
+  .lp-toggle-btn{left:6px}
+
+  /* Modals */
+  .mbox{max-width:98vw;margin:0;border-radius:14px 14px 0 0;max-height:88vh;position:fixed;bottom:0;left:0;right:0}
+
+  /* Touch-friendly tap targets */
+  .btn-new,.filter-tab,.back-btn{min-height:38px}
+  .nav-tab{min-height:34px;display:flex;align-items:center}
+
+  /* Hero buttons wrap tightly */
+  .hero > div:last-child{flex-wrap:wrap;gap:6px}
+}

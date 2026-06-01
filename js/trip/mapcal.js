@@ -108,8 +108,14 @@ export function renderMapCal(tripId) {
   // Wire left panel toggle button
   const lpToggle = panel.querySelector('#lp-toggle');
   if (lpToggle) {
+    // On mobile the left panel starts collapsed so the map uses the full screen.
+    const lp = panel.querySelector('.left-panel');
+    if (lp && window.innerWidth <= 768) {
+      lp.classList.add('collapsed');
+      lpToggle.textContent = '▶';
+    }
+
     lpToggle.addEventListener('click', () => {
-      const lp = panel.querySelector('.left-panel');
       if (!lp) return;
       const collapsed = lp.classList.toggle('collapsed');
       lpToggle.textContent = collapsed ? '▶' : '◀';
@@ -470,6 +476,10 @@ async function _drawRoutes(trip, _days) {
         });
       }
     }
+
+    // Guard: user may have navigated away (destroyMap called) while the
+    // fetch was in flight — _map is null in that case.
+    if (!_map) return;
 
     if (line) {
       line.addTo(_map);
