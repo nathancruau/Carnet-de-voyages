@@ -22,7 +22,7 @@ import {
   isFirebaseConfigured, getCurrentUser,
 } from './auth.js';
 import {
-  getTrip, markTripShared, isTripShared,
+  getTrip, markTripShared, unmarkTripShared, isTripShared,
   replaceTripFromNetwork, setSharedSyncCallback,
 } from './store.js';
 import { showModal, closeModal, notify } from './utils.js';
@@ -57,9 +57,15 @@ function _genToken() {
  * so other collaborators are unaffected.
  */
 export async function leaveSharedTrip(tripId) {
-  // Unsubscribe the real-time listener so the trip can't come back.
+  // Delete from _listeners FIRST — any in-transit Firestore event will see the
+  // map is empty and bail out in _onNetworkUpdate, preventing the trip from
+  // being re-injected into state after the delete.
   const unsub = _listeners.get(tripId);
-  if (unsub) { unsub(); _listeners.delete(tripId); }
+  _listeners.delete(tripId);
+  if (unsub) unsub();
+
+  // Unmark so store.updateTrip no longer pushes edits to the shared doc.
+  unmarkTripShared(tripId);
 
   // Remove from local sharedTripIds list and persist to Firestore.
   _sharedTripIds = _sharedTripIds.filter(id => id !== tripId);
@@ -113,6 +119,8 @@ function _onLocalSharedTripEdit(tripId, tripData) {
 
 /** Firestore listener fires this for every snapshot (local + remote). */
 function _onNetworkUpdate(tripId, data, hasPendingWrites) {
+  // Drop events that arrive after the user left/deleted the trip.
+  if (!_listeners.has(tripId)) return;
   if (!data?.trip) return;
   replaceTripFromNetwork(tripId, data.trip);
 

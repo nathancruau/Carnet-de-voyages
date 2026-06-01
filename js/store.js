@@ -132,10 +132,9 @@ const _sharedTripIds    = new Set();
 export function getState() { return state; }
 
 /** Whether a trip is being synced via shared_trips/{tripId} (not just personal). */
-export function isTripShared(id)  { return _sharedTripIds.has(id); }
-
-/** Mark a trip as shared so edits also push to shared_trips/{tripId}. */
-export function markTripShared(id) { _sharedTripIds.add(id); }
+export function isTripShared(id)    { return _sharedTripIds.has(id); }
+export function markTripShared(id)  { _sharedTripIds.add(id); }
+export function unmarkTripShared(id){ _sharedTripIds.delete(id); }
 
 /** Register the callback invoked when a shared trip is edited locally. */
 export function setSharedSyncCallback(fn) { _sharedSyncCallback = fn; }
