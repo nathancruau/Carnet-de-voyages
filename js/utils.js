@@ -140,12 +140,14 @@ export function generateDays(trip) {
 
 // ── Event type helpers ─────────────────────────────────────────────────────────
 
-export function tCol(t) {
+export function tCol(t, item) {
+  if (item?.color) return item.color;
   const found = getEventTypes().find(et => et.key === t);
   if (found) return found.color;
   return { drive: '#0284c7', visit: '#16a34a', activity: '#d97706', sleep: '#7c3aed' }[t] || '#888';
 }
-export function tIc(t) {
+export function tIc(t, item) {
+  if (item?.emoji) return item.emoji;
   const found = getEventTypes().find(et => et.key === t);
   if (found) return found.emoji;
   return { drive: '🚐', visit: '📍', activity: '⚡', sleep: '🌙' }[t] || '•';

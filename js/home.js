@@ -19,7 +19,7 @@ import {
 // navigateToTrip / goMyMap accessed via window globals (set by app.js) to avoid circular import
 import { importFile } from './import.js';
 import { getCurrentUser, logout } from './auth.js';
-import { openShareModal } from './share.js';
+import { openShareModal, leaveSharedTrip } from './share.js';
 
 // ── Module state ───────────────────────────────────────────────────────────────
 
@@ -1255,7 +1255,9 @@ function _handleDelete() {
 
   if (!confirm(`Supprimer "${name}" ? Cette action est irréversible.`)) return;
 
-  deleteTrip(_editingId);
+  const id = _editingId;
+  leaveSharedTrip(id); // unsubscribe listener + clean sharedTripIds (no-op if not shared)
+  deleteTrip(id);
   closeModal();
   renderHome(_currentFilter);
   notify(`"${name}" supprimé.`, '🗑');

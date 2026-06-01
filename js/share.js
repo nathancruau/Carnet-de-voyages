@@ -29,8 +29,8 @@ import { showModal, closeModal, notify } from './utils.js';
 
 // ── Module state ────────────────────────────────────────────────────────────────
 
-const _listeners    = new Map(); // tripId → unsubscribe fn
-let   _sharedTripIds = [];       // mutable list for saveUserSharedTripIds
+const _listeners     = new Map(); // tripId → unsubscribe fn
+let   _sharedTripIds = [];        // mutable list for saveUserSharedTripIds
 
 // ── Helpers ─────────────────────────────────────────────────────────────────────
 
@@ -50,6 +50,23 @@ function _genToken() {
 }
 
 // ── Initialisation ──────────────────────────────────────────────────────────────
+
+/**
+ * Stop listening to a shared trip and remove it from the user's sharedTripIds.
+ * Called when the user deletes a trip locally — the Firestore doc is kept intact
+ * so other collaborators are unaffected.
+ */
+export async function leaveSharedTrip(tripId) {
+  // Unsubscribe the real-time listener so the trip can't come back.
+  const unsub = _listeners.get(tripId);
+  if (unsub) { unsub(); _listeners.delete(tripId); }
+
+  // Remove from local sharedTripIds list and persist to Firestore.
+  _sharedTripIds = _sharedTripIds.filter(id => id !== tripId);
+  if (isFirebaseConfigured()) {
+    await saveUserSharedTripIds(_sharedTripIds).catch(() => {});
+  }
+}
 
 /**
  * Called once after login with the user's cloudData.

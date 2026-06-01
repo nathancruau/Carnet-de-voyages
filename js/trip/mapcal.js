@@ -284,7 +284,7 @@ function _refreshMapPins(tripId) {
         if (item === firstItemWithCoords) return;
         const evtIcon = L.divIcon({
           className: '',
-          html: `<div style="background:${day.color || '#0d9488'};border:2px solid #fff;border-radius:50%;width:24px;height:24px;display:flex;align-items:center;justify-content:center;font-size:13px;box-shadow:0 1px 4px rgba(0,0,0,.4);cursor:pointer">${tIc(item.type)}</div>`,
+          html: `<div style="background:${day.color || '#0d9488'};border:2px solid #fff;border-radius:50%;width:24px;height:24px;display:flex;align-items:center;justify-content:center;font-size:13px;box-shadow:0 1px 4px rgba(0,0,0,.4);cursor:pointer">${tIc(item.type, item)}</div>`,
           iconSize:   [24, 24],
           iconAnchor: [12, 12],
           popupAnchor:[0, -16],
@@ -347,7 +347,7 @@ function _getDayMarkerPos(day) {
 
 function _dayPopupHtml(day) {
   const items  = (day.items || []).slice(0, 3);
-  const rows   = items.map(it => `<div class="lp-row">${tIc(it.type)} ${_esc(it.text || '')}</div>`).join('');
+  const rows   = items.map(it => `<div class="lp-row">${tIc(it.type, it)} ${_esc(it.text || '')}</div>`).join('');
   const more   = (day.items || []).length > 3
     ? `<div class="lp-row" style="color:var(--ink4)">…et ${day.items.length - 3} de plus</div>`
     : '';
@@ -649,7 +649,7 @@ function _dayItemHtml(day) {
              data-day-id="${day.id}"
              data-event-idx="${idx}"
              style="cursor:grab">
-          <span class="evt-ic" style="color:${tCol(it.type)}">${it.type === 'drive' ? trIc(it.transport || 'car') : tIc(it.type)}</span>
+          <span class="evt-ic" style="color:${tCol(it.type, it)}">${it.type === 'drive' ? trIc(it.transport || 'car') : tIc(it.type, it)}</span>
           <div class="evt-info">
             <div class="evt-txt">${_esc(it.text || '—')}</div>
             <div class="evt-tm">${it.time ? it.time : ''}${it.cost ? (it.time ? ' · ' : '') + Number(it.cost).toLocaleString('fr-FR') + ' €' : ''}</div>
@@ -791,7 +791,7 @@ function _openEDP(dayId, evtIdx, tripId) {
   edp.id        = 'edp';
   edp.innerHTML = `
     <div class="edp-hd">
-      <div class="edp-ic" id="edp-ic">${item.type === 'drive' ? trIc(item.transport || 'car') : tIc(item.type)}</div>
+      <div class="edp-ic" id="edp-ic">${item.type === 'drive' ? trIc(item.transport || 'car') : tIc(item.type, item)}</div>
       <div style="min-width:0;flex:1">
         <div class="edp-title">Modifier l'événement</div>
         <div class="edp-day">${_esc(day.title || 'Jour ' + day.num)} · ${day.date ? fmtDate(day.date) : ''}</div>
@@ -1810,9 +1810,12 @@ function _openAddEventModal(dayId, tripId, prefill = null) {
     const cost  = parseFloat(document.getElementById('ae-cost')?.value || '0') || 0;
     const notes = (document.getElementById('ae-notes')?.value || '').trim();
 
+    const _selEtFinal = evtTypes.find(t => t.key === selType);
     const event = {
       id:        'e_' + uid(),
       type:      selType,
+      emoji:     _selEtFinal?.emoji  || null,
+      color:     _selEtFinal?.color  || null,
       text,
       time,
       cost,
