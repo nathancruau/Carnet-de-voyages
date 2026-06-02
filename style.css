@@ -388,6 +388,7 @@ html,body{height:100%;font-family:var(--fn);background:var(--c);color:var(--ink)
 [data-theme="dark"] .route-dur-tip{
   background:rgba(30,30,30,.92);border-color:rgba(255,255,255,.15);color:#f0f0f0;
 }
+.hide-dur-labels .route-dur-tip{display:none!important}
 
 /* Route loading indicator */
 .route-loading{

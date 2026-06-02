@@ -151,6 +151,7 @@ function _fmtDistance(meters) {
 }
 let _dragEvt          = null;      // { dayId, idx } being dragged
 let _pendingModeChange = null;     // callback for route-mode popup
+let _showDurLabels     = true;     // toggle duration labels on map routes
 
 // ─── Public API ───────────────────────────────────────────────────────────────
 
@@ -208,6 +209,9 @@ export function renderMapCal(tripId) {
         <button class="lp-toggle-btn" id="lp-toggle" title="Masquer / afficher le panneau">◀</button>
         <div id="map" style="width:100%;height:100%"></div>
         <div class="route-loading" id="route-loading" style="display:none">Calcul des itinéraires…</div>
+        <button id="dur-toggle"
+          style="position:absolute;bottom:24px;right:10px;z-index:1001;background:rgba(255,255,255,.92);border:1px solid rgba(0,0,0,.15);border-radius:8px;padding:5px 10px;font-size:11px;font-weight:600;cursor:pointer;box-shadow:0 1px 4px rgba(0,0,0,.15);white-space:nowrap;color:#1a1a1a"
+          title="Afficher/masquer les durées de trajet">⏱ Durées</button>
         <div id="map-srch" style="position:absolute;top:10px;left:50%;transform:translateX(-50%);z-index:1002;width:320px;max-width:calc(100% - 100px);pointer-events:all">
           <div style="display:flex;border-radius:10px;overflow:hidden;box-shadow:0 2px 14px rgba(0,0,0,.22)">
             <input id="ms-input" type="text" placeholder="🔍 Rechercher un lieu…" autocomplete="off"
@@ -282,6 +286,21 @@ export function renderMapCal(tripId) {
     });
   }
 
+  // Wire duration labels toggle button
+  const durToggleBtn = panel.querySelector('#dur-toggle');
+  if (durToggleBtn) {
+    if (!_showDurLabels) {
+      durToggleBtn.style.opacity = '0.45';
+      durToggleBtn.style.textDecoration = 'line-through';
+    }
+    durToggleBtn.addEventListener('click', () => {
+      _showDurLabels = !_showDurLabels;
+      if (_map) _map.getContainer().classList.toggle('hide-dur-labels', !_showDurLabels);
+      durToggleBtn.style.opacity = _showDurLabels ? '1' : '0.45';
+      durToggleBtn.style.textDecoration = _showDurLabels ? '' : 'line-through';
+    });
+  }
+
   // Wire calendar collapse toggle
   const calHdr = panel.querySelector('#cal-hdr');
   if (calHdr) {
@@ -346,6 +365,7 @@ function _initMap(tripId) {
     }
 
     _map = L.map('map', { center, zoom, zoomControl: true });
+    if (!_showDurLabels) _map.getContainer().classList.add('hide-dur-labels');
 
     const _lang = getLanguage();
     const _tileUrl = _lang === 'en'
@@ -589,8 +609,8 @@ async function _drawRoutes(trip, _days) {
     let line = null;
     let dur  = null; // { seconds, meters }
 
-    if (mode === 'plane' || mode === 'train' || mode === 'ferry') {
-      const speedKph = mode === 'plane' ? 800 : mode === 'train' ? 130 : 30;
+    if (mode === 'plane' || mode === 'ferry') {
+      const speedKph = mode === 'plane' ? 800 : 30;
       const meters   = _haversineMeters(from, to);
       dur = { seconds: Math.round(meters / (speedKph * 1000 / 3600)), meters };
       line = L.polyline([[from.lat, from.lng], [to.lat, to.lng]], {
@@ -1953,6 +1973,7 @@ function _openAddEventModal(dayId, tripId, prefill = null) {
       <label>Mode de transport</label>
       <div style="display:flex;gap:6px;flex-wrap:wrap" id="ae-modes">
         <button class="tp sel" data-ae-mode="car"   style="background:${trCol('car')};border-color:${trCol('car')};color:#fff">🚗 Voiture</button>
+        <button class="tp" data-ae-mode="train"  >🚆 Train</button>
         <button class="tp" data-ae-mode="ferry"  >⛴ Ferry</button>
         <button class="tp" data-ae-mode="plane"  >✈ Avion</button>
         <button class="tp" data-ae-mode="bus"    >🚌 Bus</button>
