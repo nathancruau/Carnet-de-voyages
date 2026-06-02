@@ -28,6 +28,7 @@ import {
   getTrip, markTripShared, unmarkTripShared, isTripShared,
   replaceTripFromNetwork, setSharedSyncCallback,
   getSharedTripIds, setSharedTripIds, getSettings,
+  hasPendingLocalChanges,
 } from './store.js';
 import { notifyCollaboratorChange } from './notifications.js';
 import { showModal, closeModal, notify } from './utils.js';
@@ -214,6 +215,7 @@ export async function submitComment(tripId, dayId, text) {
     const comment = {
       id: Date.now().toString(36),
       author: authorName,
+      uid: user.uid,
       text: text.trim(),
       ts: new Date().toISOString(),
     };
@@ -228,6 +230,24 @@ export async function submitComment(tripId, dayId, text) {
   }
 
   await addComment(tripId, dayId, text.trim(), authorName);
+}
+
+/**
+ * Delete a day comment by id. Removes it locally and overwrites the
+ * day's comment array in Firestore (no arrayRemove — filter + rewrite).
+ */
+export async function deleteDayComment(tripId, dayId, commentId) {
+  const sharedDoc = _sharedDocData.get(tripId);
+  if (!sharedDoc) return;
+  const filtered = (sharedDoc.comments?.[dayId] || []).filter(c => c.id !== commentId);
+  _sharedDocData.set(tripId, {
+    ...sharedDoc,
+    comments: { ...(sharedDoc.comments || {}), [dayId]: filtered },
+  });
+  if (typeof window._rerenderCurrentView === 'function') {
+    window._rerenderCurrentView(tripId);
+  }
+  await updateSharedTripFields(tripId, { [`comments.${dayId}`]: filtered });
 }
 
 // ── Initialisation ──────────────────────────────────────────────────────────────
@@ -348,9 +368,9 @@ function _onNetworkUpdate(tripId, data, hasPendingWrites) {
 
   _sharedDocData.set(tripId, data);
   // Only overwrite local trip state when all local writes are confirmed.
-  // Skipping during hasPendingWrites prevents stale server snapshots from
-  // undoing unsaved local edits (e.g. event type change not yet committed).
-  if (!hasPendingWrites) {
+  // hasPendingWrites: Firestore hasn't ACKed the last write yet.
+  // hasPendingLocalChanges: within the 400ms debounce before we've even sent it.
+  if (!hasPendingWrites && !hasPendingLocalChanges()) {
     replaceTripFromNetwork(tripId, data.trip);
   }
 

@@ -263,6 +263,7 @@ export async function addComment(tripId, dayId, text, author) {
   const comment = {
     id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
     author,
+    uid: _user?.uid || null,
     text,
     ts: new Date().toISOString(),
   };

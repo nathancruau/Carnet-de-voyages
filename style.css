@@ -1088,11 +1088,6 @@ html,body{height:100%;font-family:var(--fn);background:var(--c);color:var(--ink)
 .tri-avatar.sm{width:18px;height:18px;font-size:8px}
 .tri-avatar.lg{width:30px;height:30px;font-size:11px}
 .tri-balances{margin-bottom:16px}
-.balance-card{background:#fff;border:1px solid var(--c3);border-radius:8px;padding:8px 10px;display:flex;align-items:center;gap:8px;margin-bottom:6px;box-shadow:var(--sh)}
-.balance-name{flex:1;font-size:12px;font-weight:600;color:var(--ink2)}
-.balance-amount{font-size:13px;font-weight:800}
-.balance-amount.pos{color:var(--grn)}
-.balance-amount.neg{color:var(--coral)}
 .tri-settlements{background:var(--grnl);border:1px solid var(--grn);border-radius:10px;padding:12px}
 .settlement-row{display:flex;align-items:center;gap:6px;padding:4px 0;font-size:12px}
 .sett-arrow{color:var(--ink4);font-size:12px}
@@ -1533,9 +1528,12 @@ a.tl-sv-pill:hover{background:var(--c3);color:var(--ink)}
   margin-bottom:5px;
 }
 .dc-list{margin-bottom:5px}
-.dc-item{font-size:11px;color:var(--ink);margin-bottom:3px;line-height:1.4}
+.dc-item{font-size:11px;color:var(--ink);margin-bottom:3px;line-height:1.4;display:flex;align-items:baseline;gap:2px}
 .dc-author{font-weight:700;color:var(--teal)}
 .dc-ts{color:var(--ink4);font-size:10px}
+.dc-text{flex:1;min-width:0}
+.dc-del{margin-left:auto;flex-shrink:0;background:none;border:none;cursor:pointer;color:var(--ink4);font-size:13px;padding:0 2px;line-height:1;opacity:0.5}
+.dc-del:hover{color:var(--coral);opacity:1}
 .dc-input-row{display:flex;gap:4px;align-items:center}
 .dc-input{
   flex:1;min-width:0;

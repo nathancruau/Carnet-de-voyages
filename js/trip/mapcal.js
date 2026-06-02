@@ -7,7 +7,8 @@
  */
 
 import { getTrip, updateTrip, saveData, uid, getEventTypes, getLanguage, isTripShared } from '../store.js';
-import { getSharedDocData, submitComment } from '../share.js';
+import { getSharedDocData, submitComment, deleteDayComment } from '../share.js';
+import { getCurrentUser } from '../auth.js';
 import {
   notify, showModal, closeModal,
   fmtDate, fmtDateShort,
@@ -26,6 +27,7 @@ let _activeEvtKey = null;          // { dayId, idx } or null
 let _markers      = {};            // dayId → L.Marker
 let _routeLayers  = [];            // polylines / dashed lines on map
 let _routeLoading = false;
+let _drawRouteGen = 0;             // incremented each time _refreshMapPins fires
 let _pendingMapClick = null;       // callback when user clicks map to pick coords
 let _tempSearchPin    = null;       // temporary search result pin
 
@@ -461,7 +463,8 @@ function _refreshMapPins(tripId) {
 
   // Draw routes through all georeferenced waypoints
   if (_collectAllWaypoints(trip).length > 1) {
-    _drawRoutes(trip, days);
+    _drawRouteGen++;
+    _drawRoutes(trip, days, _drawRouteGen);
   }
 
   // Fit bounds if we have pins
@@ -592,7 +595,7 @@ window._mapcalPickMode = function(mode) {
   if (_pendingModeChange) { _pendingModeChange(mode); _pendingModeChange = null; }
 };
 
-async function _drawRoutes(trip, _days) {
+async function _drawRoutes(trip, _days, myGen) {
   if (!_map) return;
 
   const loadEl = document.getElementById('route-loading');
@@ -602,6 +605,7 @@ async function _drawRoutes(trip, _days) {
   const wps = _collectAllWaypoints(trip);
 
   for (let i = 0; i < wps.length - 1; i++) {
+    if (!_map || _drawRouteGen !== myGen) { _routeLoading = false; return; }
     const from = wps[i];
     const to   = wps[i + 1];
     const mode = to.mode || 'car';
@@ -922,15 +926,24 @@ function _dayItemHtml(day, sharedDocData = null) {
     // Comments section (shared trips only)
     let commentsHtml = '';
     if (sharedDocData) {
+      const currentUser = getCurrentUser();
+      const isOwner = currentUser && (
+        sharedDocData.ownerId === currentUser.uid ||
+        sharedDocData.members?.[currentUser.uid]?.role === 'owner'
+      );
       const comments = (sharedDocData.comments?.[day.id] || [])
         .slice()
         .sort((a, b) => new Date(a.ts) - new Date(b.ts));
-      const commentItems = comments.map(c => `
+      const commentItems = comments.map(c => {
+        const canDelete = currentUser && (c.uid === currentUser.uid || isOwner);
+        return `
         <div class="dc-item">
           <span class="dc-author">${_esc(c.author)}</span>
           <span class="dc-text"> ${_esc(c.text)}</span>
           <span class="dc-ts"> · ${_relativeTime(c.ts)}</span>
-        </div>`).join('');
+          ${canDelete ? `<button class="dc-del" data-action="delete-day-comment" data-day-id="${_esc(day.id)}" data-comment-id="${_esc(c.id)}" title="Supprimer">×</button>` : ''}
+        </div>`;
+      }).join('');
       const countLabel = comments.length
         ? `${comments.length} commentaire${comments.length > 1 ? 's' : ''}`
         : 'Commentaires';
@@ -1312,7 +1325,7 @@ function _attachLeftPanelListeners(panel) {
 
     if (action === 'select-day') {
       // Don't trigger select when clicking inputs or interactive elements inside the body
-      if (e.target.closest('.day-flag-input, .dc-input, .dc-send, .add-evt')) return;
+      if (e.target.closest('.day-flag-input, .dc-input, .dc-send, .dc-del, .add-evt')) return;
       const dayId = target.dataset.dayId;
       if (dayId) _selectDay(dayId, _tripId);
 
@@ -1347,6 +1360,16 @@ function _attachLeftPanelListeners(panel) {
       submitComment(_tripId, dayId, text).catch(err =>
         console.warn('[mapcal] submitComment failed:', err),
       );
+
+    } else if (action === 'delete-day-comment') {
+      e.stopPropagation();
+      const dayId     = target.dataset.dayId;
+      const commentId = target.dataset.commentId;
+      if (dayId && commentId) {
+        deleteDayComment(_tripId, dayId, commentId).catch(err =>
+          console.warn('[mapcal] deleteDayComment failed:', err),
+        );
+      }
     }
   });
 
@@ -1368,7 +1391,8 @@ function _attachLeftPanelListeners(panel) {
   let _dropTarget = null;
 
   panel.addEventListener('dragstart', e => {
-    const row = e.target.closest('.evt-row');
+    const el = e.target instanceof Element ? e.target : null;
+    const row = el?.closest('.evt-row');
     if (!row) return;
     _dragEvt = { dayId: row.dataset.dayId, idx: parseInt(row.dataset.eventIdx, 10) };
     e.dataTransfer.effectAllowed = 'move';
@@ -1376,7 +1400,8 @@ function _attachLeftPanelListeners(panel) {
   });
 
   panel.addEventListener('dragend', e => {
-    const row = e.target.closest('.evt-row');
+    const el = e.target instanceof Element ? e.target : null;
+    const row = el?.closest('.evt-row');
     if (row) row.style.opacity = '';
     if (_dropTarget) { _dropTarget.classList.remove('drop-target'); _dropTarget = null; }
     _dragEvt = null;
@@ -1386,9 +1411,10 @@ function _attachLeftPanelListeners(panel) {
     if (!_dragEvt) return;
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
+    const el = e.target instanceof Element ? e.target : null;
 
     // Same-day reorder: highlight the specific evt-row being hovered
-    const evtRow = e.target.closest('.evt-row');
+    const evtRow = el?.closest('.evt-row');
     if (evtRow && evtRow.dataset.dayId === _dragEvt.dayId) {
       if (_dropTarget !== evtRow) {
         if (_dropTarget) _dropTarget.classList.remove('drop-target');
@@ -1398,7 +1424,7 @@ function _attachLeftPanelListeners(panel) {
       return;
     }
 
-    const dayItem = e.target.closest('.day-item');
+    const dayItem = el?.closest('.day-item');
     if (!dayItem) return;
     if (_dropTarget !== dayItem) {
       if (_dropTarget) _dropTarget.classList.remove('drop-target');
@@ -1417,9 +1443,10 @@ function _attachLeftPanelListeners(panel) {
     e.preventDefault();
     if (_dropTarget) { _dropTarget.classList.remove('drop-target'); _dropTarget = null; }
     if (!_dragEvt) return;
+    const el = e.target instanceof Element ? e.target : null;
 
     // Same-day reorder: drop on a specific evt-row within the same day
-    const evtRow = e.target.closest('.evt-row');
+    const evtRow = el?.closest('.evt-row');
     if (evtRow && evtRow.dataset.dayId === _dragEvt.dayId) {
       const targetIdx = parseInt(evtRow.dataset.eventIdx, 10);
       if (!isNaN(targetIdx)) _reorderEvent(_dragEvt.dayId, _dragEvt.idx, targetIdx, _tripId);
@@ -1427,7 +1454,7 @@ function _attachLeftPanelListeners(panel) {
       return;
     }
 
-    const dayItem = e.target.closest('.day-item');
+    const dayItem = el?.closest('.day-item');
     if (!dayItem) return;
     const targetDayId = dayItem.dataset.dayId;
     _moveEvent(_dragEvt.dayId, _dragEvt.idx, targetDayId, _tripId);

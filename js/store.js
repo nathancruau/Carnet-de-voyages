@@ -238,9 +238,13 @@ export function saveData() {
   // Debounce Firestore pushes so rapid edits don't flood the cloud.
   clearTimeout(_syncTimer);
   _syncTimer = setTimeout(() => {
+    _syncTimer = null;
     if (_syncCallback) _syncCallback(state);
   }, 400);
 }
+
+/** True during the 400 ms debounce window before a local edit reaches Firestore. */
+export function hasPendingLocalChanges() { return !!_syncTimer; }
 
 export function getTrips() {
   return state.trips;
