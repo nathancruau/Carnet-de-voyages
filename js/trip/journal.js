@@ -5,6 +5,7 @@
 import { getTrip, updateTrip, uid, getEventTypes, getLanguage, isTripShared } from '../store.js';
 import { notify, showModal, closeModal, fmtDate, fmtDateShort, isoToDate, dateToIso } from '../utils.js';
 import { updateTopStats } from './trip.js';
+import { getCurrentUser } from '../auth.js';
 
 // ── Event type emoji map ──────────────────────────────────────────────────────
 
@@ -83,6 +84,7 @@ let _journalTripId       = null;
 let _activeDayFilter  = null;
 let _observerMode     = false;
 let _journalView      = 'map'; // 'map' | 'timeline'
+let _shareMod         = null;  // cached dynamic import of share.js
 
 export function destroyJournalMap() {
   if (_journalMap) {
@@ -133,7 +135,7 @@ async function _drawJournalRoutes(tripId) {
   if (wps.length < 2) return;
 
   for (let i = 0; i < wps.length - 1; i++) {
-    if (!_journalMap) return; // map may have been destroyed during a previous await
+    if (!_journalMap) return;
     const from = wps[i];
     const to   = wps[i + 1];
     const mode = to.mode || 'car';
@@ -149,7 +151,7 @@ async function _drawJournalRoutes(tripId) {
           + `${from.lng},${from.lat};${to.lng},${to.lat}?overview=full&geometries=geojson`;
         const resp   = await fetch(url);
         const data   = await resp.json();
-        if (!_journalMap) return; // destroyed while fetching
+        if (!_journalMap) return;
         const coords = data.routes?.[0]?.geometry?.coordinates;
         if (coords && coords.length) {
           line = L.polyline(coords.map(([lng, lat]) => [lat, lng]), {
@@ -173,7 +175,12 @@ async function _drawJournalRoutes(tripId) {
 
 // ── Render ────────────────────────────────────────────────────────────────────
 
-export function renderJournal(tripId, isObserver = false) {
+/** Re-render the journal preserving current view and observer state — called by window hook. */
+export function rerenderJournal(tripId) {
+  renderJournal(tripId, _observerMode);
+}
+
+export async function renderJournal(tripId, isObserver = false) {
   _observerMode = isObserver;
   const panel = document.getElementById('panel-journal');
   if (!panel) return;
@@ -184,6 +191,11 @@ export function renderJournal(tripId, isObserver = false) {
   if (!trip) return;
 
   _journalTripId = tripId;
+
+  // Pre-load share module for reactions/comments (resolves from cache instantly after first load)
+  if (isTripShared(tripId) && !_shareMod) {
+    try { _shareMod = await import('../share.js'); } catch (_) {}
+  }
 
   if (_handlers.has(panel)) {
     panel.removeEventListener('click', _handlers.get(panel));
@@ -321,16 +333,18 @@ function _viewToggleHtml(activeView) {
 // ── Timeline view ─────────────────────────────────────────────────────────────
 
 function _renderTimelineView(panel, trip, tripId, isObserver) {
+  const sharedDoc    = isTripShared(tripId) ? _shareMod?.getSharedDocData?.(tripId) : null;
+  const currentUid   = getCurrentUser()?.uid || null;
   panel.innerHTML = `
     <div class="tl-wrap">
       ${_viewToggleHtml('timeline')}
       <div class="tl-scroll" id="tl-scroll">
-        ${_buildTimelineHtml(trip, isObserver)}
+        ${_buildTimelineHtml(trip, isObserver, sharedDoc, currentUid)}
       </div>
     </div>`;
 }
 
-function _buildTimelineHtml(trip, isObserver) {
+function _buildTimelineHtml(trip, isObserver, sharedDoc, currentUid) {
   const days = trip.days || [];
 
   if (isObserver) {
@@ -338,7 +352,7 @@ function _buildTimelineHtml(trip, isObserver) {
     for (const day of days) {
       const items = (day.items || []).filter(it => it.journalData?.validated);
       if (items.length === 0) continue;
-      html += _tlDayHtml(day, items, true);
+      html += _tlDayHtml(day, items, true, sharedDoc, currentUid);
     }
     if (!html) return `
       <div class="tl-empty">
@@ -360,12 +374,12 @@ function _buildTimelineHtml(trip, isObserver) {
   let html = '';
   for (const day of days) {
     if ((day.items || []).length === 0) continue;
-    html += _tlDayHtml(day, day.items, false);
+    html += _tlDayHtml(day, day.items, false, sharedDoc, currentUid);
   }
   return html;
 }
 
-function _tlDayHtml(day, items, isObserver) {
+function _tlDayHtml(day, items, isObserver, sharedDoc, currentUid) {
   const dateLabel = day.date ? fmtDate(day.date) : '';
   const validatedCount = items.filter(i => i.journalData?.validated).length;
 
@@ -385,14 +399,14 @@ function _tlDayHtml(day, items, isObserver) {
       <div class="tl-day-body">`;
 
   items.forEach((item, idx) => {
-    html += _tlItemHtml(day, item, idx, isObserver);
+    html += _tlItemHtml(day, item, idx, isObserver, sharedDoc, currentUid);
   });
 
   html += `</div></div>`;
   return html;
 }
 
-function _tlItemHtml(day, item, itemIdx, isObserver) {
+function _tlItemHtml(day, item, itemIdx, isObserver, sharedDoc, currentUid) {
   const jd        = item.journalData || {};
   const validated = jd.validated;
   const typeIcon  = _eventTypeIcon(item.type);
@@ -418,6 +432,39 @@ function _tlItemHtml(day, item, itemIdx, isObserver) {
       ${validated ? '✓' : '+ Documenter'}
     </button>` : '';
 
+  // Reactions & comments — only on validated items of shared trips
+  let interactionsHtml = '';
+  if (validated && sharedDoc) {
+    const itemReactions  = sharedDoc.reactions?.[item.id] || {};
+    const allComments    = sharedDoc.observerComments || {};
+    const itemComments   = Object.values(allComments).filter(c => c.itemId === item.id);
+    const heartCount     = Object.values(itemReactions).filter(e => e === '❤️').length;
+    const commentCount   = itemComments.length;
+    const myReacted      = currentUid ? itemReactions[currentUid] === '❤️' : false;
+
+    if (isObserver) {
+      interactionsHtml = `
+        <div class="tl-interactions">
+          <button class="tl-react-btn${myReacted ? ' reacted' : ''}"
+                  data-action="toggle-reaction" data-item-id="${_esc(item.id)}">
+            ❤️${heartCount > 0 ? `<span class="tl-react-count">${heartCount}</span>` : ''}
+          </button>
+          <button class="tl-comment-open-btn"
+                  data-action="open-comments"
+                  data-item-id="${_esc(item.id)}"
+                  data-item-text="${_esc(item.text || '')}">
+            💬${commentCount > 0 ? `<span class="tl-react-count">${commentCount}</span>` : ''}
+          </button>
+        </div>`;
+    } else if (heartCount > 0 || commentCount > 0) {
+      interactionsHtml = `
+        <div class="tl-interactions tl-interactions-ro">
+          ${heartCount > 0 ? `<span class="tl-react-ro">❤️ ${heartCount}</span>` : ''}
+          ${commentCount > 0 ? `<span class="tl-react-ro">💬 ${commentCount}</span>` : ''}
+        </div>`;
+    }
+  }
+
   return `
     <div class="tl-item${validated ? ' validated' : ''}">
       <div class="tl-item-card${validated ? ' validated' : ''}">
@@ -430,6 +477,7 @@ function _tlItemHtml(day, item, itemIdx, isObserver) {
         ${photosHtml}
         ${notesHtml}
         ${metaHtml.length > 0 ? `<div class="tl-meta">${metaHtml.join('')}</div>` : ''}
+        ${interactionsHtml}
       </div>
     </div>`;
 }
@@ -697,7 +745,102 @@ function _handleClick(e, tripId) {
 
   if (action === 'validate-item') {
     _openValidateModal(tripId, btn.dataset.dayId, parseInt(btn.dataset.itemIdx, 10));
+    return;
   }
+
+  if (action === 'toggle-reaction') {
+    const itemId = btn.dataset.itemId;
+    if (_shareMod && itemId) {
+      _shareMod.addObserverReaction(tripId, itemId).catch(() => {});
+    }
+    return;
+  }
+
+  if (action === 'open-comments') {
+    const itemId   = btn.dataset.itemId;
+    const itemText = btn.dataset.itemText;
+    _openCommentsModal(tripId, itemId, itemText);
+    return;
+  }
+}
+
+function _openCommentsModal(tripId, itemId, itemText) {
+  if (!_shareMod) return;
+  const sharedDoc    = _shareMod.getSharedDocData?.(tripId);
+  if (!sharedDoc) return;
+
+  const currentUid   = getCurrentUser()?.uid;
+  const allComments  = sharedDoc.observerComments || {};
+  const itemComments = Object.entries(allComments)
+    .filter(([, c]) => c.itemId === itemId)
+    .sort(([, a], [, b]) => a.ts.localeCompare(b.ts));
+
+  function _buildCommentsList() {
+    if (itemComments.length === 0) {
+      return `<div style="font-size:12px;color:var(--ink4);padding:8px 0;text-align:center">Aucun commentaire pour le moment</div>`;
+    }
+    return itemComments.map(([cid, c]) => {
+      const dateLabel = new Date(c.ts).toLocaleString('fr-FR', {
+        day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
+      });
+      const canDelete = c.uid === currentUid;
+      return `
+        <div class="tl-comment-item">
+          <div class="tl-comment-header">
+            <span class="tl-comment-author">${_esc(c.name)}</span>
+            <span class="tl-comment-date">${dateLabel}</span>
+            ${canDelete ? `<button class="tl-comment-del" data-action="delete-comment" data-cid="${_esc(cid)}" title="Supprimer">🗑</button>` : ''}
+          </div>
+          <div class="tl-comment-text">${_esc(c.text)}</div>
+        </div>`;
+    }).join('');
+  }
+
+  showModal(`
+    <button class="mc" onclick="closeModal()">✕</button>
+    <h3 style="font-family:var(--sf);font-size:15px;font-weight:700;margin-bottom:4px">💬 Commentaires</h3>
+    <div style="font-size:12px;color:var(--ink3);margin-bottom:12px;padding:6px 10px;background:var(--c2);border-radius:7px;border:1px solid var(--c3)">${_esc(itemText || '—')}</div>
+    <div id="cmt-list" style="max-height:220px;overflow-y:auto;margin-bottom:4px">${_buildCommentsList()}</div>
+    ${_observerMode ? `
+    <div style="display:flex;gap:8px;margin-top:10px">
+      <input type="text" id="cmt-input" placeholder="Votre commentaire…"
+             style="flex:1;padding:7px 10px;border:1.5px solid var(--c3);border-radius:7px;font-size:12px;background:var(--c);color:var(--ink)"
+             maxlength="300">
+      <button id="cmt-send" class="bs" style="padding:7px 14px;font-size:12px;flex-shrink:0">Envoyer</button>
+    </div>` : ''}
+    <div class="ma" style="margin-top:10px">
+      <button class="bc" onclick="closeModal()">Fermer</button>
+    </div>`);
+
+  // Send comment
+  const sendBtn = document.getElementById('cmt-send');
+  const input   = document.getElementById('cmt-input');
+
+  async function _doSend() {
+    const text = input?.value?.trim();
+    if (!text) return;
+    input.disabled = true;
+    sendBtn.disabled = true;
+    await _shareMod.addObserverComment(tripId, itemId, text).catch(() => {});
+    closeModal();
+    // Re-open with latest data
+    const latestDoc = _shareMod.getSharedDocData?.(tripId);
+    if (latestDoc) _openCommentsModal(tripId, itemId, itemText);
+  }
+
+  sendBtn?.addEventListener('click', _doSend);
+  input?.addEventListener('keydown', e => { if (e.key === 'Enter') _doSend(); });
+
+  // Delete comment
+  document.getElementById('cmt-list')?.addEventListener('click', async e => {
+    const delBtn = e.target.closest('[data-action="delete-comment"]');
+    if (!delBtn) return;
+    const cid = delBtn.dataset.cid;
+    await _shareMod.deleteObserverComment(tripId, cid).catch(() => {});
+    closeModal();
+    const latestDoc = _shareMod.getSharedDocData?.(tripId);
+    if (latestDoc) _openCommentsModal(tripId, itemId, itemText);
+  });
 }
 
 // ── Journal item side panel (EDP) ─────────────────────────────────────────────

@@ -271,6 +271,20 @@ export async function addComment(tripId, dayId, text, author) {
   });
 }
 
+/** Update specific top-level fields in a shared trip document. */
+export async function updateSharedTripFields(tripId, fields) {
+  if (!_db || !_updateDocFn || !_docFn) return;
+  await _updateDocFn(_docFn(_db, 'shared_trips', tripId), fields);
+}
+
+/** Delete a specific field path in a shared trip document. */
+export async function deleteSharedTripField(tripId, fieldPath) {
+  if (!_db || !_updateDocFn || !_docFn || !_deleteFieldFn) return;
+  await _updateDocFn(_docFn(_db, 'shared_trips', tripId), {
+    [fieldPath]: _deleteFieldFn(),
+  });
+}
+
 /** Write (or refresh) the current user's presence entry on a shared trip. */
 export async function updatePresence(tripId, companionId, displayName) {
   if (!_db || !_updateDocFn || !_docFn || !_uid) return;
