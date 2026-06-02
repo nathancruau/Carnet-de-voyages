@@ -212,6 +212,14 @@ function _migrateTrip(t) {
   if (!t.status)               t.status    = 'done';   // legacy trips assumed done
   if (t.countryCode   === undefined) t.countryCode   = '';
   if (t.multiCountry  === undefined) t.multiCountry  = false;
+  // Sortie: ensure pin object exists
+  if (t.type === 'sortie' && !t.pin) {
+    t.pin = {
+      lat: null, lng: null, pinType: 'visit',
+      date: t.startDate || null, time: '',
+      description: '', weather: null, cost: 0, currency: 'EUR',
+    };
+  }
   // Ensure companions have ids
   t.companions = t.companions.map(c => ({
     id:    c.id    || ('c_' + uid()),

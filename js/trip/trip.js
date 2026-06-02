@@ -8,7 +8,7 @@
  *   updateTopStats(id)  — refresh budget / expense counters in the topbar
  */
 
-import { getTrip, isTripShared } from '../store.js';
+import { getTrip, isTripShared, getEventTypes } from '../store.js';
 import { fmtDate, notify, showModal } from '../utils.js';
 
 // ─── Module state ─────────────────────────────────────────────────────────────
@@ -30,6 +30,15 @@ export async function openTrip(id) {
     return;
   }
 
+  if (trip.type === 'sortie') {
+    _renderSortieTopbar(trip);
+    const panels = document.getElementById('panels');
+    if (panels) panels.innerHTML = '';
+    const { renderSortie } = await import('./sortie.js');
+    renderSortie(id);
+    return;
+  }
+
   _renderTopbar(trip);
   _renderPanels();
   updateTopStats(id);
@@ -42,8 +51,10 @@ export async function openTrip(id) {
  * Destroy the Leaflet map instance when leaving the trip screen.
  */
 export async function destroyTripMap() {
-  const { destroyMap } = await import('./mapcal.js');
-  destroyMap();
+  const mapcalMod = await import('./mapcal.js').catch(() => null);
+  mapcalMod?.destroyMap();
+  const sortieMod = await import('./sortie.js').catch(() => null);
+  sortieMod?.destroySortieMap();
 }
 
 /**
@@ -106,6 +117,31 @@ export function updateTopStats(tripId) {
 }
 
 // ─── Internal helpers ─────────────────────────────────────────────────────────
+
+function _renderSortieTopbar(trip) {
+  const topbar = document.getElementById('topbar');
+  if (!topbar) return;
+
+  const pin        = trip.pin || {};
+  const eventTypes = getEventTypes();
+  const et         = eventTypes.find(e => e.key === (pin.pinType || 'visit')) || eventTypes[0];
+  const dateStr    = pin.date
+    ? new Date(pin.date + 'T12:00:00').toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })
+    : '';
+
+  topbar.innerHTML = `
+    <div class="topbar-row1 sortie-topbar-row">
+      <button class="back-btn" id="back-home-btn">← Bibliothèque</button>
+      <span class="trip-tag">${et.emoji} ${_esc(trip.name || 'Sortie')}</span>
+      <div class="topbar-right">
+        ${dateStr ? `<span class="dates-tag">${dateStr}</span>` : ''}
+        ${pin.cost ? `<span class="ts-pill">💶&nbsp;${Number(pin.cost).toLocaleString('fr-FR', { minimumFractionDigits: 2 })} ${_esc(pin.currency || 'EUR')}</span>` : ''}
+      </div>
+    </div>
+  `;
+
+  topbar.querySelector('#back-home-btn').addEventListener('click', () => window.goHome?.());
+}
 
 function _renderTopbar(trip) {
   const topbar = document.getElementById('topbar');

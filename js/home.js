@@ -39,6 +39,18 @@ let _editingId   = null;
 let _photoMode   = 'url';   // 'url' | 'file'
 let _photoBase64 = null;
 
+// ── Sortie modal state ─────────────────────────────────────────────────────────
+let _sortieModalMap    = null;
+let _sortieModalMarker = null;
+let _sortieLat         = null;
+let _sortieLng         = null;
+let _sortieWeather     = null;
+let _sortiePinType     = 'visit';
+let _sortiePhotoMode   = 'url';
+let _sortiePhotoBase64 = null;
+
+const WEATHER_EMOJIS = ['☀️','🌤️','⛅','🌦️','🌧️','⛈️','🌨️','❄️','🌫️','💨','🌈'];
+
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
 function _compColor(index) {
@@ -610,9 +622,59 @@ function _filterTabsHtml(activeFilter, activeTab) {
   return `<div class="filter-tabs">${filterBtns}</div>`;
 }
 
+// ── Sortie card HTML ───────────────────────────────────────────────────────────
+
+function _sortieCardHtml(trip) {
+  const pin        = trip.pin || {};
+  const eventTypes = getEventTypes();
+  const et         = eventTypes.find(e => e.key === (pin.pinType || 'visit')) || eventTypes[0];
+
+  const dateStr = pin.date
+    ? new Date(pin.date + 'T12:00:00').toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' })
+    : (trip.startDate ? fmtDate(trip.startDate) : 'Date non définie');
+
+  const preview = (pin.description || '').slice(0, 80) + ((pin.description || '').length > 80 ? '…' : '');
+
+  let thumbHtml;
+  if (trip.photo) {
+    thumbHtml = `
+      <img class="tc-img sortie-thumb-img" src="${_esc(trip.photo)}" alt=""
+           loading="lazy"
+           onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+      <div class="sortie-thumb" style="background:${et.color};display:none">${et.emoji}</div>
+    `;
+  } else {
+    thumbHtml = `<div class="sortie-thumb" style="background:${et.color}">${et.emoji}</div>`;
+  }
+
+  return `
+    <div class="trip-card sortie-card" data-action="open-trip" data-trip-id="${trip.id}">
+      <div style="position:relative">${thumbHtml}</div>
+      <div class="tc-body">
+        <div class="tc-header">
+          <div>${typeBadge(trip.type)}</div>
+          <button class="tc-edit-btn" data-action="edit-trip" data-trip-id="${trip.id}" title="Modifier">✎</button>
+        </div>
+        <div class="tc-title">${_esc(trip.name || 'Sortie')}</div>
+        <div class="tc-dates">
+          ${dateStr}${pin.time ? ' · ' + pin.time : ''}
+          ${trip.destination ? `<br><span style="color:var(--ink3)">📍 ${_esc(trip.destination)}</span>` : ''}
+        </div>
+        ${preview ? `<div class="sortie-card-desc">${_esc(preview)}</div>` : ''}
+        <div class="tc-stats" style="margin-top:6px">
+          ${pin.weather ? `<span class="tc-s">${pin.weather}</span>` : ''}
+          ${pin.cost ? `<span class="tc-s">💶 ${Number(pin.cost).toLocaleString('fr-FR', { minimumFractionDigits: 2 })} EUR</span>` : ''}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
 // ── Trip card HTML ─────────────────────────────────────────────────────────────
 
 function _tripCardHtml(trip) {
+  if (trip.type === 'sortie') return _sortieCardHtml(trip);
+
   // Photo or colored emoji placeholder
   let imgHtml;
   if (trip.photo) {
@@ -1135,6 +1197,395 @@ function _compsListHtml() {
   }).join('');
 }
 
+// ── Sortie modal ───────────────────────────────────────────────────────────────
+
+function _cleanupSortieModalMap() {
+  if (_sortieModalMap) {
+    try { _sortieModalMap.remove(); } catch (_) {}
+    _sortieModalMap    = null;
+    _sortieModalMarker = null;
+  }
+}
+
+function _updateSortieCoordDisplay() {
+  const el = document.getElementById('sm-coords');
+  if (!el) return;
+  el.textContent = _sortieLat != null
+    ? `${_sortieLat.toFixed(5)}, ${_sortieLng.toFixed(5)}`
+    : 'Aucune position — cliquez sur la carte';
+}
+
+function _buildSortieModalHtml(trip) {
+  const isEdit      = _editingId !== null;
+  const pin         = trip?.pin || {};
+  const name        = trip?.name        || '';
+  const destination = trip?.destination || '';
+  const photo       = trip?.photo       || '';
+
+  // Seed sortie state from existing trip
+  _sortieLat         = pin.lat  ?? null;
+  _sortieLng         = pin.lng  ?? null;
+  _sortieWeather     = pin.weather || null;
+  _sortiePinType     = pin.pinType || 'visit';
+  _sortiePhotoMode   = 'url';
+  _sortiePhotoBase64 = null;
+
+  const coordsText  = _sortieLat != null
+    ? `${_sortieLat.toFixed(5)}, ${_sortieLng.toFixed(5)}`
+    : 'Aucune position — cliquez sur la carte';
+
+  const eventTypes   = getEventTypes();
+  const typePills    = Object.entries(TRIP_TYPES).map(([key, t]) => {
+    const isSel = key === 'sortie';
+    return `<button class="tp${isSel ? ' sel' : ''}"
+                    style="${isSel ? `background:${t.color};border-color:${t.color};color:#fff` : ''}"
+                    data-modal-type="${key}">${t.icon} ${t.label}</button>`;
+  }).join('');
+
+  const pinTypePills = eventTypes.map(et =>
+    `<button class="tp${_sortiePinType === et.key ? ' sel' : ''}"
+             style="${_sortiePinType === et.key ? `background:${et.color};border-color:${et.color};color:#fff` : ''}"
+             data-sortie-pin-type="${et.key}">${et.emoji} ${et.label}</button>`
+  ).join('');
+
+  const weatherHtml = WEATHER_EMOJIS.map(w =>
+    `<button class="sw-btn${_sortieWeather === w ? ' sel' : ''}" data-sortie-weather="${w}" title="${w}">${w}</button>`
+  ).join('');
+
+  const urlTabActive  = _sortiePhotoMode === 'url';
+  const photoPreview  = urlTabActive ? photo : (_sortiePhotoBase64 || '');
+  const showPreview   = urlTabActive ? !!photo : !!_sortiePhotoBase64;
+
+  const photoSection = `
+    <div class="fg">
+      <label>Photo</label>
+      <div style="display:flex;gap:6px;margin-bottom:6px">
+        <button type="button" id="spt-url"
+          style="background:${urlTabActive ? 'var(--teal)' : 'var(--c2)'};color:${urlTabActive ? '#fff' : 'var(--ink3)'};border:1.5px solid ${urlTabActive ? 'var(--teal)' : 'var(--c3)'};border-radius:7px;padding:5px 12px;font-size:12px;font-weight:700;cursor:pointer">
+          🔗 URL</button>
+        <button type="button" id="spt-file"
+          style="background:${urlTabActive ? 'var(--c2)' : 'var(--teal)'};color:${urlTabActive ? 'var(--ink3)' : '#fff'};border:1.5px solid ${urlTabActive ? 'var(--c3)' : 'var(--teal)'};border-radius:7px;padding:5px 12px;font-size:12px;font-weight:700;cursor:pointer">
+          📁 Fichier</button>
+      </div>
+      <div id="sp-url-sec" style="display:${urlTabActive ? 'block' : 'none'}">
+        <input type="url" id="sm-photo" value="${_esc(photo)}" placeholder="https://…" autocomplete="off">
+      </div>
+      <div id="sp-file-sec" style="display:${urlTabActive ? 'none' : 'block'}">
+        <input type="file" id="sm-photo-file" accept="image/*" style="width:100%;padding:6px 0;font-size:12px;cursor:pointer">
+      </div>
+      <img id="sm-photo-preview" class="ip" src="${_esc(photoPreview)}"
+           style="${showPreview ? 'display:block' : 'display:none'}" alt="aperçu"
+           onerror="this.style.display='none'">
+    </div>`;
+
+  return `
+    <h3 style="font-family:'Lora',serif;font-size:18px;font-weight:700;margin-bottom:16px">
+      ${isEdit ? '✎ Modifier la sortie' : '🎯 Nouvelle sortie'}
+    </h3>
+
+    <div class="fg">
+      <label>Type</label>
+      <div class="t-row" id="m-types">${typePills}</div>
+    </div>
+
+    <div class="fg">
+      <label>Nom de la sortie</label>
+      <input type="text" id="sm-name" value="${_esc(name)}"
+             placeholder="Randonnée en forêt, Musée d'Orsay…" autocomplete="off">
+    </div>
+
+    <div class="fg">
+      <label>Lieu <span style="font-weight:400;color:var(--ink4);text-transform:none;font-size:10px">— rechercher ou cliquer sur la carte</span></label>
+      <div style="display:flex;gap:6px;margin-bottom:6px">
+        <input type="text" id="sm-search" placeholder="Chercher un lieu…" autocomplete="off" style="flex:1;min-width:0">
+        <button type="button" id="sm-search-btn" class="bc" style="padding:6px 10px;white-space:nowrap">🔍</button>
+      </div>
+      <div id="sm-map"></div>
+      <div style="font-size:10px;color:var(--ink4);margin-top:4px">📌 <span id="sm-coords">${_esc(coordsText)}</span></div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 14px">
+      <div class="fg">
+        <label>Nom du lieu / destination</label>
+        <input type="text" id="sm-dest" value="${_esc(destination)}"
+               placeholder="Forêt de Fontainebleau…" autocomplete="off">
+      </div>
+      <div></div>
+      <div class="fg">
+        <label>Date</label>
+        <input type="date" id="sm-date" value="${_esc(pin.date || '')}" autocomplete="off">
+      </div>
+      <div class="fg">
+        <label>Heure</label>
+        <input type="time" id="sm-time" value="${_esc(pin.time || '')}" autocomplete="off">
+      </div>
+    </div>
+
+    <div class="fg">
+      <label>Type de point</label>
+      <div class="t-row" id="sm-pin-types">${pinTypePills}</div>
+    </div>
+
+    <div class="fg">
+      <label>Description / notes</label>
+      <textarea id="sm-desc" rows="3" placeholder="Notes sur cette sortie…">${_esc(pin.description || '')}</textarea>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 14px">
+      <div class="fg">
+        <label>Météo</label>
+        <div class="sw-picker" id="sm-weather-picker">${weatherHtml}</div>
+      </div>
+      <div class="fg">
+        <label>Coût (€)</label>
+        <input type="number" id="sm-cost" value="${pin.cost || ''}" min="0" step="0.01" placeholder="0.00">
+      </div>
+    </div>
+
+    ${photoSection}
+
+    <div class="ma">
+      ${isEdit ? `<button class="bd" id="sm-delete">🗑 Supprimer</button>` : ''}
+      <button class="bc" id="sm-cancel">Annuler</button>
+      <button class="bs" id="sm-save">${isEdit ? 'Enregistrer' : 'Créer la sortie'}</button>
+    </div>
+  `;
+}
+
+function _initSortieModalListeners(trip) {
+  // Type pill — switching away from sortie
+  document.getElementById('m-types')?.addEventListener('click', e => {
+    const pill = e.target.closest('[data-modal-type]');
+    if (!pill) return;
+    const newType = pill.dataset.modalType;
+    if (newType === 'sortie') return;
+    _cleanupSortieModalMap();
+    _editingId   = null;   // don't try to overwrite the sortie
+    _modalType   = newType;
+    _modalComps  = [];
+    _modalStatus = 'planning';
+    _modalColor  = '#0d9488';
+    _photoMode   = 'url';
+    _photoBase64 = null;
+    showModal(_buildModalHtml(null));
+    _initModalListeners(null);
+  });
+
+  // Pin type pills
+  document.getElementById('sm-pin-types')?.addEventListener('click', e => {
+    const pill = e.target.closest('[data-sortie-pin-type]');
+    if (!pill) return;
+    _sortiePinType = pill.dataset.sortiePinType;
+    const et = getEventTypes();
+    document.querySelectorAll('#sm-pin-types [data-sortie-pin-type]').forEach(p => {
+      const key  = p.dataset.sortiePinType;
+      const info = et.find(x => x.key === key) || et[0];
+      const sel  = key === _sortiePinType;
+      p.classList.toggle('sel', sel);
+      p.style.background  = sel ? info.color : '';
+      p.style.borderColor = sel ? info.color : '';
+      p.style.color       = sel ? '#fff'     : '';
+    });
+  });
+
+  // Weather picker
+  document.getElementById('sm-weather-picker')?.addEventListener('click', e => {
+    const btn = e.target.closest('[data-sortie-weather]');
+    if (!btn) return;
+    const w = btn.dataset.sortieWeather;
+    _sortieWeather = _sortieWeather === w ? null : w;
+    document.querySelectorAll('#sm-weather-picker [data-sortie-weather]').forEach(b => {
+      b.classList.toggle('sel', b.dataset.sortieWeather === _sortieWeather);
+    });
+  });
+
+  // Photo tabs
+  document.getElementById('spt-url')?.addEventListener('click', () => {
+    _sortiePhotoMode = 'url';
+    _sortiePhotoBase64 = null;
+    document.getElementById('sp-url-sec').style.display  = 'block';
+    document.getElementById('sp-file-sec').style.display = 'none';
+    const btn = document.getElementById('spt-url');
+    const btn2 = document.getElementById('spt-file');
+    if (btn)  { btn.style.background = 'var(--teal)'; btn.style.color = '#fff'; btn.style.borderColor = 'var(--teal)'; }
+    if (btn2) { btn2.style.background = 'var(--c2)'; btn2.style.color = 'var(--ink3)'; btn2.style.borderColor = 'var(--c3)'; }
+    const url = document.getElementById('sm-photo')?.value.trim() || '';
+    const prev = document.getElementById('sm-photo-preview');
+    if (prev) { prev.src = url; prev.style.display = url ? 'block' : 'none'; }
+  });
+
+  document.getElementById('spt-file')?.addEventListener('click', () => {
+    _sortiePhotoMode = 'file';
+    document.getElementById('sp-url-sec').style.display  = 'none';
+    document.getElementById('sp-file-sec').style.display = 'block';
+    const btn = document.getElementById('spt-file');
+    const btn2 = document.getElementById('spt-url');
+    if (btn)  { btn.style.background = 'var(--teal)'; btn.style.color = '#fff'; btn.style.borderColor = 'var(--teal)'; }
+    if (btn2) { btn2.style.background = 'var(--c2)'; btn2.style.color = 'var(--ink3)'; btn2.style.borderColor = 'var(--c3)'; }
+    const prev = document.getElementById('sm-photo-preview');
+    if (prev && _sortiePhotoBase64) { prev.src = _sortiePhotoBase64; prev.style.display = 'block'; }
+    else if (prev) prev.style.display = 'none';
+  });
+
+  document.getElementById('sm-photo')?.addEventListener('input', e => {
+    if (_sortiePhotoMode !== 'url') return;
+    const url  = e.target.value.trim();
+    const prev = document.getElementById('sm-photo-preview');
+    if (prev) { prev.src = url; prev.style.display = url ? 'block' : 'none'; }
+  });
+
+  document.getElementById('sm-photo-file')?.addEventListener('change', ev => {
+    const file = ev.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = e => {
+      _sortiePhotoBase64 = e.target.result;
+      const prev = document.getElementById('sm-photo-preview');
+      if (prev) { prev.src = _sortiePhotoBase64; prev.style.display = 'block'; }
+    };
+    reader.readAsDataURL(file);
+  });
+
+  // Save / cancel / delete
+  document.getElementById('sm-save')?.addEventListener('click', _handleSortieSave);
+  document.getElementById('sm-cancel')?.addEventListener('click', () => { _cleanupSortieModalMap(); closeModal(); });
+  document.getElementById('sm-delete')?.addEventListener('click', _handleDelete);
+
+  // Init map with a small delay so the DOM has fully laid out
+  setTimeout(() => _initSortieModalMap(), 80);
+}
+
+function _initSortieModalMap() {
+  const container = document.getElementById('sm-map');
+  if (!container) return;
+  _cleanupSortieModalMap();
+
+  const hasCoords = _sortieLat != null && _sortieLng != null;
+  const center    = hasCoords ? [_sortieLat, _sortieLng] : [20, 0];
+  const zoom      = hasCoords ? 10 : 2;
+
+  try {
+    _sortieModalMap = L.map('sm-map', { zoomControl: true }).setView(center, zoom);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '© OpenStreetMap', maxZoom: 19,
+    }).addTo(_sortieModalMap);
+
+    if (hasCoords) {
+      _sortieModalMarker = L.marker([_sortieLat, _sortieLng]).addTo(_sortieModalMap);
+    }
+
+    // Click → place pin
+    _sortieModalMap.on('click', e => {
+      _sortieLat = e.latlng.lat;
+      _sortieLng = e.latlng.lng;
+      if (_sortieModalMarker) {
+        _sortieModalMarker.setLatLng([_sortieLat, _sortieLng]);
+      } else {
+        _sortieModalMarker = L.marker([_sortieLat, _sortieLng]).addTo(_sortieModalMap);
+      }
+      _updateSortieCoordDisplay();
+    });
+  } catch (e) {
+    console.warn('[home] sortie modal map error', e);
+  }
+
+  // Search button
+  const searchBtn = document.getElementById('sm-search-btn');
+  const searchIn  = document.getElementById('sm-search');
+
+  const doSearch = async () => {
+    const q = searchIn?.value.trim();
+    if (!q) return;
+    try {
+      const res  = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&limit=1&accept-language=fr`);
+      const data = await res.json();
+      if (data.length > 0) {
+        _sortieLat = parseFloat(data[0].lat);
+        _sortieLng = parseFloat(data[0].lon);
+        _sortieModalMap?.setView([_sortieLat, _sortieLng], 13);
+        if (_sortieModalMarker) {
+          _sortieModalMarker.setLatLng([_sortieLat, _sortieLng]);
+        } else if (_sortieModalMap) {
+          _sortieModalMarker = L.marker([_sortieLat, _sortieLng]).addTo(_sortieModalMap);
+        }
+        _updateSortieCoordDisplay();
+        // Auto-fill destination if empty
+        const destInput = document.getElementById('sm-dest');
+        if (destInput && !destInput.value.trim()) destInput.value = q;
+      } else {
+        notify('Lieu introuvable.', '⚠️');
+      }
+    } catch (_) {
+      notify('Erreur de géocodage.', '⚠️');
+    }
+  };
+
+  searchBtn?.addEventListener('click', doSearch);
+  searchIn?.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); doSearch(); } });
+}
+
+function _handleSortieSave() {
+  const name = (document.getElementById('sm-name')?.value || '').trim();
+  if (!name) {
+    notify('Veuillez saisir un nom de sortie.', '⚠️');
+    document.getElementById('sm-name')?.focus();
+    return;
+  }
+
+  const date        = document.getElementById('sm-date')?.value || null;
+  const time        = (document.getElementById('sm-time')?.value || '').trim();
+  const description = (document.getElementById('sm-desc')?.value || '').trim();
+  const cost        = parseFloat(document.getElementById('sm-cost')?.value || '0') || 0;
+  const destination = (document.getElementById('sm-dest')?.value || '').trim();
+
+  let photo;
+  if (_sortiePhotoMode === 'file' && _sortiePhotoBase64) {
+    photo = _sortiePhotoBase64;
+  } else {
+    photo = (document.getElementById('sm-photo')?.value || '').trim();
+  }
+
+  _cleanupSortieModalMap();
+
+  const pin = {
+    lat:         _sortieLat,
+    lng:         _sortieLng,
+    pinType:     _sortiePinType,
+    date,
+    time,
+    description,
+    weather:     _sortieWeather,
+    cost,
+    currency:    'EUR',
+  };
+
+  const data = {
+    name,
+    destination,
+    photo,
+    color:     '#d97706',
+    flag:      '🎯',
+    type:      'sortie',
+    status:    'done',
+    startDate: date,
+    endDate:   date,
+    pin,
+    companions: [],
+    multiCountry: false,
+  };
+
+  if (_editingId) {
+    updateTrip(_editingId, data);
+    notify('Sortie mise à jour !', '✅');
+  } else {
+    addTrip(data);
+    notify('Sortie créée !', '✅');
+  }
+
+  closeModal();
+  renderHome(_currentFilter);
+}
+
 // ── Modal: build HTML ──────────────────────────────────────────────────────────
 
 function _buildModalHtml(trip) {
@@ -1290,8 +1741,16 @@ function _buildModalHtml(trip) {
 // ── Modal: open ────────────────────────────────────────────────────────────────
 
 export function openEditTripModal(id = null) {
-  _editingId   = id;
-  const trip   = id ? getTrips().find(t => t.id === id) : null;
+  _editingId = id;
+  const trip = id ? getTrips().find(t => t.id === id) : null;
+
+  // Sortie gets its own dedicated form
+  if (trip?.type === 'sortie' || (!trip && _modalType === 'sortie')) {
+    _modalType = 'sortie';
+    showModal(_buildSortieModalHtml(trip), { onClose: _cleanupSortieModalMap });
+    _initSortieModalListeners(trip);
+    return;
+  }
 
   // Reset photo mode state
   _photoMode   = 'url';
@@ -1308,6 +1767,9 @@ export function openEditTripModal(id = null) {
   showModal(_buildModalHtml(trip));
   _initModalListeners(trip);
 }
+
+// Expose on window so sortie.js detail view can call it without circular imports
+window._openEditTripModal = openEditTripModal;
 
 // ── Modal: wire up listeners ───────────────────────────────────────────────────
 
@@ -1405,7 +1867,17 @@ function _initModalListeners(trip) {
   document.getElementById('m-types')?.addEventListener('click', e => {
     const pill = e.target.closest('[data-modal-type]');
     if (!pill) return;
-    _modalType = pill.dataset.modalType;
+    const newType = pill.dataset.modalType;
+
+    // Switch to sortie-specific form
+    if (newType === 'sortie') {
+      _modalType = 'sortie';
+      showModal(_buildSortieModalHtml(null), { onClose: _cleanupSortieModalMap });
+      _initSortieModalListeners(null);
+      return;
+    }
+
+    _modalType = newType;
     document.querySelectorAll('#m-types [data-modal-type]').forEach(p => {
       const key    = p.dataset.modalType;
       const isSel  = key === _modalType;
