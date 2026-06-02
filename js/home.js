@@ -141,6 +141,48 @@ const _DEST_TO_A2 = {
   'venezuela':'VE','paraguay':'PY','salvador':'SV',
 };
 
+// Country name lookup (French) for map tooltips
+const _A2_NAME = {
+  FR:'France',ES:'Espagne',IT:'Italie',DE:'Allemagne',PT:'Portugal',GB:'Royaume-Uni',
+  NL:'Pays-Bas',BE:'Belgique',CH:'Suisse',AT:'Autriche',GR:'Grèce',HR:'Croatie',
+  PL:'Pologne',CZ:'Tchéquie',HU:'Hongrie',RO:'Roumanie',SE:'Suède',NO:'Norvège',
+  DK:'Danemark',FI:'Finlande',IE:'Irlande',IS:'Islande',LU:'Luxembourg',MT:'Malte',
+  CY:'Chypre',AL:'Albanie',RS:'Serbie',SI:'Slovénie',SK:'Slovaquie',BG:'Bulgarie',
+  LT:'Lituanie',LV:'Lettonie',EE:'Estonie',MK:'Macédoine',BA:'Bosnie',ME:'Monténégro',
+  UA:'Ukraine',RU:'Russie',TR:'Turquie',
+  MA:'Maroc',TN:'Tunisie',EG:'Égypte',ZA:'Afrique du Sud',KE:'Kenya',SN:'Sénégal',
+  NG:'Nigéria',TZ:'Tanzanie',GH:'Ghana',CM:'Cameroun',MZ:'Mozambique',AO:'Angola',
+  DZ:'Algérie',LY:'Libye',ET:'Éthiopie',
+  US:'États-Unis',CA:'Canada',MX:'Mexique',BR:'Brésil',AR:'Argentine',CL:'Chili',
+  CO:'Colombie',PE:'Pérou',BO:'Bolivie',UY:'Uruguay',EC:'Équateur',VE:'Venezuela',
+  PY:'Paraguay',CR:'Costa Rica',CU:'Cuba',
+  JP:'Japon',CN:'Chine',KR:'Corée du Sud',TH:'Thaïlande',VN:'Vietnam',ID:'Indonésie',
+  MY:'Malaisie',SG:'Singapour',PH:'Philippines',IN:'Inde',NP:'Népal',LK:'Sri Lanka',
+  BD:'Bangladesh',PK:'Pakistan',TW:'Taïwan',KH:'Cambodge',LA:'Laos',MM:'Myanmar',
+  MN:'Mongolie',KZ:'Kazakhstan',GE:'Géorgie',AM:'Arménie',AZ:'Azerbaïdjan',
+  IL:'Israël',JO:'Jordanie',LB:'Liban',AE:'Émirats arabes unis',SA:'Arabie Saoudite',
+  QA:'Qatar',KW:'Koweït',IR:'Iran',AU:'Australie',NZ:'Nouvelle-Zélande',
+};
+
+// Continent lookup for stats breakdown
+const _A2_CONTINENT = {
+  FR:'EU',ES:'EU',IT:'EU',DE:'EU',PT:'EU',GB:'EU',NL:'EU',BE:'EU',CH:'EU',AT:'EU',
+  GR:'EU',HR:'EU',PL:'EU',CZ:'EU',HU:'EU',RO:'EU',SE:'EU',NO:'EU',DK:'EU',FI:'EU',
+  IE:'EU',IS:'EU',LU:'EU',MT:'EU',CY:'EU',AL:'EU',RS:'EU',SI:'EU',SK:'EU',BG:'EU',
+  LT:'EU',LV:'EU',EE:'EU',MK:'EU',BA:'EU',ME:'EU',UA:'EU',RU:'EU',TR:'EU',MD:'EU',
+  MA:'AF',TN:'AF',EG:'AF',ZA:'AF',KE:'AF',SN:'AF',NG:'AF',TZ:'AF',GH:'AF',CM:'AF',
+  MZ:'AF',AO:'AF',DZ:'AF',LY:'AF',ET:'AF',CI:'AF',SD:'AF',CD:'AF',
+  US:'AM',CA:'AM',MX:'AM',BR:'AM',AR:'AM',CL:'AM',CO:'AM',PE:'AM',BO:'AM',UY:'AM',
+  EC:'AM',VE:'AM',PY:'AM',CR:'AM',CU:'AM',DO:'AM',
+  JP:'AS',CN:'AS',KR:'AS',TH:'AS',VN:'AS',ID:'AS',MY:'AS',SG:'AS',PH:'AS',IN:'AS',
+  NP:'AS',LK:'AS',BD:'AS',PK:'AS',TW:'AS',KH:'AS',LA:'AS',MM:'AS',MN:'AS',KZ:'AS',
+  GE:'AS',AM:'AS',AZ:'AS',IL:'AS',JO:'AS',LB:'AS',AE:'AS',SA:'AS',QA:'AS',KW:'AS',
+  IR:'AS',IQ:'AS',SY:'AS',BN:'AS',
+  AU:'OC',NZ:'OC',PG:'OC',
+};
+const _CONTINENT_LABEL = { EU:'Europe',AF:'Afrique',AM:'Amériques',AS:'Asie',OC:'Océanie' };
+const _CONTINENT_COLOR = { EU:'#0d9488',AF:'#d97706',AM:'#7c3aed',AS:'#0891b2',OC:'#16a34a' };
+
 function _isoFromFlag(flag) {
   if (!flag) return '';
   const pts = [...flag].map(c => c.codePointAt(0)).filter(cp => cp >= 0x1F1E6 && cp <= 0x1F1FF);
@@ -148,39 +190,64 @@ function _isoFromFlag(flag) {
   return pts.slice(0, 2).map(cp => String.fromCharCode(cp - 0x1F1E6 + 65)).join('');
 }
 
-function _getVisitedCodes(trips) {
+function _tripIsoCodes(trip) {
   const codes = new Set();
-  for (const trip of trips) {
-    // Trip-level flag (most reliable source)
-    const tripIso = _isoFromFlag(trip.flag);
-    if (tripIso) codes.add(tripIso);
-
-    // Per-day flags (multi-country trips)
-    for (const day of (trip.days || [])) {
-      if (day.flag) {
-        const iso = _isoFromFlag(day.flag);
-        if (iso) codes.add(iso);
-      }
-    }
-
-    // Fallback: countryCode field or destination text
-    if (trip.countryCode) { codes.add(trip.countryCode.toUpperCase()); continue; }
-    const dest = (trip.destination || '').toLowerCase().trim();
-    if (!dest) continue;
-    if (_DEST_TO_A2[dest]) { codes.add(_DEST_TO_A2[dest]); continue; }
-    const parts = dest.split(/[,\/·\-–]/);
-    let found = false;
-    for (const part of [...parts].reverse()) {
-      const p = part.trim();
-      if (_DEST_TO_A2[p]) { codes.add(_DEST_TO_A2[p]); found = true; break; }
-    }
-    if (!found) {
-      for (const [name, code] of Object.entries(_DEST_TO_A2)) {
-        if (dest.includes(name)) { codes.add(code); break; }
-      }
+  const tripIso = _isoFromFlag(trip.flag);
+  if (tripIso) codes.add(tripIso);
+  for (const day of (trip.days || [])) {
+    if (day.flag) { const iso = _isoFromFlag(day.flag); if (iso) codes.add(iso); }
+  }
+  if (trip.countryCode) { codes.add(trip.countryCode.toUpperCase()); return codes; }
+  const dest = (trip.destination || '').toLowerCase().trim();
+  if (!dest) return codes;
+  if (_DEST_TO_A2[dest]) { codes.add(_DEST_TO_A2[dest]); return codes; }
+  const parts = dest.split(/[,\/·\-–]/);
+  let found = false;
+  for (const part of [...parts].reverse()) {
+    const p = part.trim();
+    if (_DEST_TO_A2[p]) { codes.add(_DEST_TO_A2[p]); found = true; break; }
+  }
+  if (!found) {
+    for (const [name, code] of Object.entries(_DEST_TO_A2)) {
+      if (dest.includes(name)) { codes.add(code); break; }
     }
   }
-  return [...codes];
+  return codes;
+}
+
+// Returns Map<ISO-2, tripCount> — used for intensity coloring
+function _getVisitedMap(trips) {
+  const counts = new Map();
+  for (const trip of trips) {
+    for (const code of _tripIsoCodes(trip)) {
+      counts.set(code, (counts.get(code) || 0) + 1);
+    }
+  }
+  return counts;
+}
+
+function _getVisitedCodes(trips) {
+  return [..._getVisitedMap(trips).keys()];
+}
+
+// ISO-2 → flag emoji
+function _isoToFlag(iso) {
+  if (!iso || iso.length !== 2) return '🌍';
+  return String.fromCodePoint(iso.charCodeAt(0) - 65 + 0x1F1E6, iso.charCodeAt(1) - 65 + 0x1F1E6);
+}
+
+// Count trips per travel season
+function _calcSeasons(trips) {
+  const s = { spring: 0, summer: 0, autumn: 0, winter: 0 };
+  for (const trip of trips) {
+    if (!trip.startDate) continue;
+    const m = parseInt(trip.startDate.slice(5, 7), 10);
+    if (m >= 3 && m <= 5) s.spring++;
+    else if (m >= 6 && m <= 8) s.summer++;
+    else if (m >= 9 && m <= 11) s.autumn++;
+    else s.winter++;
+  }
+  return s;
 }
 
 async function _initWorldMap(trips) {
@@ -191,9 +258,33 @@ async function _initWorldMap(trips) {
       import('https://cdn.jsdelivr.net/npm/topojson-client@3/+esm'),
       fetch('https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json').then(r => r.json()),
     ]);
-    const countries = topoMod.feature(worldData, worldData.objects.countries);
-    const visited   = new Set(_getVisitedCodes(trips));
-    _drawWorldMap(canvas, countries.features, visited);
+    const countries  = topoMod.feature(worldData, worldData.objects.countries);
+    const visitedMap = _getVisitedMap(trips);
+    const { centroids, W, H } = _drawWorldMap(canvas, countries.features, visitedMap);
+
+    // Hover tooltip
+    const tooltip = document.getElementById('wm-tooltip');
+    if (!tooltip) return;
+    canvas.addEventListener('mousemove', e => {
+      const rect = canvas.getBoundingClientRect();
+      const mx = (e.clientX - rect.left) * (W / rect.width);
+      const my = (e.clientY - rect.top)  * (H / rect.height);
+      let best = null, bestDist = 28;
+      for (const c of centroids) {
+        const d = Math.hypot(c.cx - mx, c.cy - my);
+        if (d < bestDist) { bestDist = d; best = c; }
+      }
+      if (best) {
+        tooltip.style.display = 'block';
+        tooltip.style.left = (e.clientX - rect.left + 10) + 'px';
+        tooltip.style.top  = Math.max(0, e.clientY - rect.top - 36) + 'px';
+        const name = _A2_NAME[best.code] || best.code;
+        tooltip.innerHTML = `${_isoToFlag(best.code)} <b>${name}</b> · ${best.count} voyage${best.count > 1 ? 's' : ''}`;
+      } else {
+        tooltip.style.display = 'none';
+      }
+    });
+    canvas.addEventListener('mouseleave', () => { tooltip.style.display = 'none'; });
   } catch (err) {
     console.warn('[stats] world map failed:', err.message);
     const wrap = document.getElementById('world-map-wrap');
@@ -201,9 +292,9 @@ async function _initWorldMap(trips) {
   }
 }
 
-function _drawWorldMap(canvas, features, visitedSet) {
+function _drawWorldMap(canvas, features, visitedMap) {
   const dpr = window.devicePixelRatio || 1;
-  const W   = canvas.clientWidth || 600;
+  const W   = canvas.clientWidth || 640;
   const H   = Math.round(W * 0.46);
   canvas.width  = W * dpr;
   canvas.height = H * dpr;
@@ -212,36 +303,62 @@ function _drawWorldMap(canvas, features, visitedSet) {
   ctx.scale(dpr, dpr);
   ctx.clearRect(0, 0, W, H);
   const isDark = document.documentElement.dataset.theme === 'dark';
+
+  // Intensity palette: 0 visits → muted, 1 → teal-400, 2 → teal-600, 3+ → teal-800
+  const PALETTE_LIGHT = ['#e0dcd4', '#5eead4', '#0d9488', '#0f766e', '#134e4a'];
+  const PALETTE_DARK  = ['#3a3834', '#99f6e4', '#2dd4bf', '#0d9488', '#0f766e'];
+  const palette = isDark ? PALETTE_DARK : PALETTE_LIGHT;
+
   const proj = (lon, lat) => [
     (lon + 180) / 360 * W,
     (85 - lat) / 170 * H,
   ];
+
+  const centroids = [];
+
   for (const feat of features) {
-    const code = _ISO_N_A2[Number(feat.id)] || '';
-    ctx.fillStyle   = visitedSet.has(code) ? (isDark ? '#f0ede6' : '#1c1a17') : (isDark ? '#3a3834' : '#e0dcd4');
+    const code  = _ISO_N_A2[Number(feat.id)] || '';
+    const count = visitedMap.get(code) || 0;
+    const ci    = Math.min(count, palette.length - 1);
+    ctx.fillStyle   = palette[ci];
     ctx.strokeStyle = isDark ? '#252320' : '#faf7f2';
     ctx.lineWidth   = 0.4;
+
     const geom = feat.geometry;
     if (!geom) continue;
     const polys = geom.type === 'Polygon' ? [geom.coordinates] : geom.coordinates;
+
+    // Compute centroid from largest polygon for hover hit-testing
+    let bestRingSize = 0, centX = 0, centY = 0;
+
     for (const poly of polys) {
       const ring = poly[0];
       ctx.beginPath();
       let prevLon = null;
+      let sumX = 0, sumY = 0;
       ring.forEach(([lon, lat], i) => {
         const [x, y] = proj(lon, lat);
-        if (i === 0 || (prevLon !== null && Math.abs(lon - prevLon) > 180)) {
-          ctx.moveTo(x, y);
-        } else {
-          ctx.lineTo(x, y);
-        }
+        sumX += x; sumY += y;
+        if (i === 0 || (prevLon !== null && Math.abs(lon - prevLon) > 180)) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
         prevLon = lon;
       });
       ctx.closePath();
       ctx.fill();
       ctx.stroke();
+      if (ring.length > bestRingSize) {
+        bestRingSize = ring.length;
+        centX = sumX / ring.length;
+        centY = sumY / ring.length;
+      }
+    }
+
+    if (count > 0 && code) {
+      centroids.push({ code, count, cx: centX, cy: centY });
     }
   }
+
+  return { centroids, W, H };
 }
 
 // ── Global search ─────────────────────────────────────────────────────────────
@@ -399,42 +516,59 @@ function _statsViewHtml(trips) {
 
   const s = _calcStats(trips);
 
+  // Dates
   const tripsWithDates = trips.filter(t => t.startDate && t.endDate);
   let avgDays = 0;
+  let longestTrip = null, longestDays = 0;
   if (tripsWithDates.length > 0) {
-    const totalD = tripsWithDates.reduce((sum, t) =>
-      sum + Math.round((new Date(t.endDate + 'T12:00:00') - new Date(t.startDate + 'T12:00:00')) / 86400000) + 1, 0);
+    let totalD = 0;
+    for (const t of tripsWithDates) {
+      const d = Math.round((new Date(t.endDate + 'T12:00:00') - new Date(t.startDate + 'T12:00:00')) / 86400000) + 1;
+      totalD += d;
+      if (d > longestDays) { longestDays = d; longestTrip = t; }
+    }
     avgDays = Math.round(totalD / tripsWithDates.length);
   }
 
-  // Visited countries
-  const visitedCodes = _getVisitedCodes(trips);
-  const visitedCount = visitedCodes.length;
+  // Countries
+  const visitedMap   = _getVisitedMap(trips);
+  const visitedCount = visitedMap.size;
 
-  // Self expenses (non-shared trips only)
-  let selfSpent = 0;
-  for (const t of trips) {
-    if (!isTripShared(t.id)) {
-      for (const exp of (t.realExpenses || [])) {
-        if (exp.type !== 'transfer') selfSpent += Number(exp.amount) || 0;
-      }
-    }
+  // Continent breakdown
+  const continentCount = {};
+  for (const code of visitedMap.keys()) {
+    const cont = _A2_CONTINENT[code];
+    if (cont) continentCount[cont] = (continentCount[cont] || 0) + 1;
   }
 
-  // Top destinations
-  const destCount = {};
-  trips.forEach(t => { const d = (t.destination || '').trim(); if (d) destCount[d] = (destCount[d] || 0) + 1; });
-  const topDests = Object.entries(destCount).sort((a, b) => b[1] - a[1]).slice(0, 5);
+  // Visited flags strip (sorted by visit count desc)
+  const flagsHtml = [...visitedMap.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .map(([code, cnt]) => {
+      const name = _A2_NAME[code] || code;
+      return `<span class="wm-flag-chip" title="${_esc(name)} · ${cnt} voyage${cnt > 1 ? 's' : ''}">${_isoToFlag(code)}</span>`;
+    }).join('');
 
-  // Per year
-  const perYear = {};
-  trips.forEach(t => { const y = (t.startDate || t.createdAt || '').slice(0, 4); if (y) perYear[y] = (perYear[y] || 0) + 1; });
-  const years = Object.keys(perYear).sort();
-  const maxPerYear = Math.max(...Object.values(perYear), 1);
+  // Continent pills
+  const contPillsHtml = Object.entries(continentCount)
+    .sort((a, b) => b[1] - a[1])
+    .map(([cont, cnt]) => {
+      const color = _CONTINENT_COLOR[cont] || '#0d9488';
+      return `<span style="display:inline-flex;align-items:center;gap:4px;padding:2px 9px;border-radius:999px;font-size:11px;font-weight:700;background:${color}22;color:${color};border:1px solid ${color}44">${_CONTINENT_LABEL[cont]} <b>${cnt}</b></span>`;
+    }).join('');
 
-  // Budget total
-  let totalBudget = 0;
-  trips.forEach(t => { if (Array.isArray(t.budgetLines)) totalBudget += t.budgetLines.reduce((s, b) => s + (Number(b.amount) || 0), 0); });
+  // Map intensity legend
+  const legendHtml = `
+    <div style="display:flex;align-items:center;gap:5px;font-size:9px;color:var(--ink4)">
+      <span>1 visite</span>
+      <div style="display:flex;gap:2px">
+        <div style="width:12px;height:10px;border-radius:2px;background:#5eead4"></div>
+        <div style="width:12px;height:10px;border-radius:2px;background:#0d9488"></div>
+        <div style="width:12px;height:10px;border-radius:2px;background:#0f766e"></div>
+        <div style="width:12px;height:10px;border-radius:2px;background:#134e4a"></div>
+      </div>
+      <span>4+ visites</span>
+    </div>`;
 
   // Km
   const kmByMode = _calcKmByMode(trips);
@@ -446,105 +580,169 @@ function _statsViewHtml(trips) {
   const kmRows = Object.entries(kmByMode).sort((a, b) => b[1] - a[1]).map(([mode, dist]) => {
     const meta = MODE_META[mode] || '🚌 ' + mode;
     const pct  = totalKm > 0 ? Math.round((dist / totalKm) * 100) : 0;
-    return `<div style="margin-bottom:8px">
-      <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px">
-        <span>${meta}</span>
+    return `<div style="margin-bottom:9px">
+      <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px">
+        <span style="color:var(--ink2)">${meta}</span>
         <span style="font-weight:700;color:var(--ink)">${Math.round(dist).toLocaleString('fr-FR')} km</span>
       </div>
-      <div style="background:var(--c3);border-radius:4px;height:6px;overflow:hidden">
-        <div style="width:${pct}%;height:100%;background:var(--teal);border-radius:4px"></div>
+      <div style="background:var(--c3);border-radius:4px;height:7px;overflow:hidden">
+        <div style="width:${pct}%;height:100%;background:var(--teal);border-radius:4px;transition:width .4s"></div>
       </div></div>`;
+  }).join('');
+
+  // Top destinations with bar
+  const destCount = {};
+  trips.forEach(t => { const d = (t.destination || '').trim(); if (d) destCount[d] = (destCount[d] || 0) + 1; });
+  const topDests    = Object.entries(destCount).sort((a, b) => b[1] - a[1]).slice(0, 6);
+  const maxDestCnt  = topDests[0]?.[1] || 1;
+  const topDestsHtml = topDests.length
+    ? topDests.map(([dest, cnt]) => {
+        const pct = Math.round((cnt / maxDestCnt) * 100);
+        return `<div style="margin-bottom:8px">
+          <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px">
+            <span style="color:var(--ink2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:70%">${_esc(dest)}</span>
+            <span style="font-weight:700;color:var(--teal);flex-shrink:0">${cnt}×</span>
+          </div>
+          <div style="background:var(--c3);border-radius:4px;height:5px;overflow:hidden">
+            <div style="width:${pct}%;height:100%;background:var(--teal);border-radius:4px;transition:width .4s;opacity:.7"></div>
+          </div></div>`;
+      }).join('')
+    : `<div style="font-size:12px;color:var(--ink4)">Aucune destination renseignée</div>`;
+
+  // Per year bars
+  const perYear = {};
+  trips.forEach(t => { const y = (t.startDate || t.createdAt || '').slice(0, 4); if (y) perYear[y] = (perYear[y] || 0) + 1; });
+  const years      = Object.keys(perYear).sort();
+  const maxPerYear = Math.max(...Object.values(perYear), 1);
+  const perYearBars = years.map(y => {
+    const count = perYear[y];
+    const barH  = Math.max(Math.round((count / maxPerYear) * 72), 8);
+    return `<div style="display:flex;flex-direction:column;align-items:center;gap:3px;min-width:34px">
+      <div style="font-size:10px;font-weight:800;color:var(--teal)">${count}</div>
+      <div style="width:26px;background:var(--teal);border-radius:5px 5px 0 0;height:${barH}px;opacity:.8;transition:height .3s"></div>
+      <div style="font-size:9px;color:var(--ink4);white-space:nowrap">${y}</div>
+    </div>`;
+  }).join('');
+
+  // Seasons
+  const seasons = _calcSeasons(trips);
+  const maxSeason = Math.max(...Object.values(seasons), 1);
+  const seasonData = [
+    { key:'spring', label:'Printemps', emoji:'🌸', color:'#16a34a' },
+    { key:'summer', label:'Été',       emoji:'☀️', color:'#d97706' },
+    { key:'autumn', label:'Automne',   emoji:'🍂', color:'#ea580c' },
+    { key:'winter', label:'Hiver',     emoji:'❄️', color:'#0891b2' },
+  ];
+  const seasonBars = seasonData.map(({ key, label, emoji, color }) => {
+    const cnt  = seasons[key];
+    const barH = Math.max(Math.round((cnt / maxSeason) * 72), cnt > 0 ? 6 : 2);
+    return `<div style="display:flex;flex-direction:column;align-items:center;gap:3px;flex:1">
+      <div style="font-size:10px;font-weight:800;color:${cnt > 0 ? color : 'var(--ink4)'}">${cnt || '—'}</div>
+      <div style="width:30px;border-radius:5px 5px 0 0;height:${barH}px;background:${color};opacity:${cnt > 0 ? .8 : .2};transition:height .3s"></div>
+      <div style="font-size:14px;line-height:1">${emoji}</div>
+      <div style="font-size:9px;color:var(--ink4);text-align:center;white-space:nowrap">${label}</div>
+    </div>`;
   }).join('');
 
   // Spending by month
   const spendByMonth = _calcSpendingByMonth(trips);
   const spendMonths  = Object.keys(spendByMonth).sort().slice(-12);
   const maxSpend     = Math.max(...spendMonths.map(m => spendByMonth[m]), 1);
+  const avgSpendDay  = s.totalDays > 0 ? Math.round(s.totalSpent / s.totalDays) : 0;
   const spendBars = spendMonths.map(m => {
     const val  = spendByMonth[m];
-    const barH = Math.max(Math.round((val / maxSpend) * 60), 4);
+    const barH = Math.max(Math.round((val / maxSpend) * 70), 4);
     const [yr, mo] = m.split('-');
-    const label = new Date(Number(yr), Number(mo) - 1, 1).toLocaleDateString('fr-FR', { month: 'short' }) + ' ' + yr.slice(2);
-    return `<div style="display:flex;flex-direction:column;align-items:center;gap:3px;min-width:32px">
-      <div style="font-size:9px;font-weight:700;color:var(--ink3)">${Math.round(val)}</div>
-      <div style="width:22px;background:var(--amb);border-radius:3px 3px 0 0;height:${barH}px"></div>
-      <div style="font-size:8px;color:var(--ink4);writing-mode:vertical-rl;transform:rotate(180deg);white-space:nowrap">${label}</div>
+    const label = new Date(Number(yr), Number(mo) - 1, 1).toLocaleDateString('fr-FR', { month: 'short' }) + ' \'' + yr.slice(2);
+    return `<div style="display:flex;flex-direction:column;align-items:center;gap:2px;min-width:30px">
+      <div style="font-size:8px;font-weight:700;color:var(--ink3)">${Math.round(val)}</div>
+      <div style="width:20px;background:var(--amb);border-radius:3px 3px 0 0;height:${barH}px;opacity:.85"></div>
+      <div style="font-size:7px;color:var(--ink4);writing-mode:vertical-rl;transform:rotate(180deg);white-space:nowrap">${label}</div>
     </div>`;
   }).join('');
 
-  const perYearBars = years.map(y => {
-    const count = perYear[y];
-    const barH  = Math.max(Math.round((count / maxPerYear) * 80), 8);
-    return `<div style="display:flex;flex-direction:column;align-items:center;gap:4px;min-width:36px">
-      <div style="font-size:10px;font-weight:700;color:var(--ink3)">${count}</div>
-      <div style="width:28px;background:var(--teal);border-radius:4px 4px 0 0;height:${barH}px;transition:height .3s"></div>
-      <div style="font-size:10px;color:var(--ink4);transform:rotate(-45deg);white-space:nowrap;transform-origin:center;margin-top:2px">${y}</div>
-    </div>`;
-  }).join('');
-
-  const topDestsHtml = topDests.length
-    ? topDests.map(([dest, cnt]) => `
-        <div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--c3)">
-          <span style="font-size:13px;color:var(--ink)">${_esc(dest)}</span>
-          <span style="font-size:12px;font-weight:700;color:var(--teal)">${cnt} voyage${cnt > 1 ? 's' : ''}</span>
-        </div>`).join('')
-    : `<div style="font-size:12px;color:var(--ink4)">Aucune destination renseignée</div>`;
-
-  const _sc = 'background:var(--c2);border-radius:10px;padding:9px 14px;text-align:center;min-width:68px';
-  const _sv = 'font-family:var(--sf);font-size:20px;font-weight:700;color:var(--ink)';
-  const _sl = 'font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--ink3);margin-top:2px';
+  // KPI tiles
+  const kpis = [
+    { icon:'✈️', val: trips.length,                                       lbl:'Voyages' },
+    { icon:'📅', val: s.totalDays,                                        lbl:'Jours voyagés' },
+    { icon:'🌍', val: visitedCount,                                       lbl:'Pays visités' },
+    { icon:'📏', val: avgDays > 0 ? avgDays + ' j' : '—',                lbl:'Durée moy.' },
+    ...(totalKm > 0 ? [{ icon:'🛣️', val: Math.round(totalKm).toLocaleString('fr-FR') + ' km', lbl:'Distance estimée' }] : []),
+    ...(s.totalSpent > 0 ? [{ icon:'💶', val: Math.round(s.totalSpent).toLocaleString('fr-FR') + ' €', lbl:'Total dépensé' }] : []),
+    ...(avgSpendDay > 0 ? [{ icon:'📊', val: avgSpendDay + ' €/j',        lbl:'Moy. par jour' }] : []),
+    ...(longestTrip ? [{ icon:'🏆', val: longestDays + ' j',             lbl: _esc((longestTrip.name || 'Voyage').slice(0, 14)) }] : []),
+  ];
+  const kpiHtml = kpis.map(k => `
+    <div class="stat-kpi-tile">
+      <div class="stat-kpi-icon">${k.icon}</div>
+      <div class="stat-kpi-val">${k.val}</div>
+      <div class="stat-kpi-lbl">${k.lbl}</div>
+    </div>`).join('');
 
   return `
-    <div style="max-width:700px;margin:0 auto;padding:8px 0">
-      <div style="font-size:10px;color:var(--ink4);margin-bottom:12px;display:flex;align-items:center;gap:5px">
-        <span>📊</span> Statistiques calculées sur les <strong>${trips.length}</strong> voyage${trips.length > 1 ? 's' : ''} réalisé${trips.length > 1 ? 's' : ''}
+    <div class="stats-wrap">
+      <div style="font-size:10px;color:var(--ink4);margin-bottom:14px">
+        📊 Statistiques sur <strong>${trips.length}</strong> voyage${trips.length > 1 ? 's' : ''} réalisé${trips.length > 1 ? 's' : ''}
       </div>
 
-      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(100px,1fr));gap:10px;margin-bottom:24px">
-        <div style="${_sc}"><div style="${_sv}">${trips.length}</div><div style="${_sl}">Voyages</div></div>
-        <div style="${_sc}"><div style="${_sv}">${s.totalDays}</div><div style="${_sl}">Jours voyagés</div></div>
-        <div style="${_sc}"><div style="${_sv}">${visitedCount}</div><div style="${_sl}">Pays visités</div></div>
-        <div style="${_sc}"><div style="${_sv}">${avgDays}</div><div style="${_sl}">Durée moy. (j)</div></div>
-        ${totalKm > 0 ? `<div style="${_sc}"><div style="${_sv}">${Math.round(totalKm).toLocaleString('fr-FR')}</div><div style="${_sl}">km parcourus</div></div>` : ''}
-        ${s.totalSpent > 0 ? `<div style="${_sc}"><div style="${_sv}">${Math.round(s.totalSpent).toLocaleString('fr-FR')} €</div><div style="${_sl}">Total dépensé</div></div>` : ''}
-        ${selfSpent > 0 && selfSpent !== s.totalSpent ? `<div style="${_sc}"><div style="${_sv}">${Math.round(selfSpent).toLocaleString('fr-FR')} €</div><div style="${_sl}">Dépenses perso.</div></div>` : ''}
-      </div>
+      <!-- KPI grid -->
+      <div class="stat-kpi-grid">${kpiHtml}</div>
 
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
-        <div style="background:var(--c2);border-radius:12px;padding:16px">
-          <h4 style="font-size:13px;font-weight:700;color:var(--ink3);margin-bottom:12px">🏆 Top destinations</h4>
-          ${topDestsHtml}
+      <!-- World map — full width, first -->
+      <div id="world-map-wrap" class="stat-card" style="margin-bottom:14px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px">
+          <h4 class="stat-card-title">🌍 Pays visités</h4>
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+            ${contPillsHtml}
+            ${legendHtml}
+            <span style="font-family:var(--sf);font-size:18px;font-weight:800;color:var(--teal)">${visitedCount}<span style="font-size:11px;font-weight:400;color:var(--ink4)"> / ~195</span></span>
+          </div>
         </div>
-        <div style="background:var(--c2);border-radius:12px;padding:16px">
-          <h4 style="font-size:13px;font-weight:700;color:var(--ink3);margin-bottom:12px">📅 Voyages par année</h4>
+        <div style="position:relative">
+          <canvas id="world-map-canvas" class="world-map-canvas" aria-label="Carte du monde des pays visités"></canvas>
+          <div id="wm-tooltip" class="wm-tooltip"></div>
+        </div>
+        ${flagsHtml ? `<div class="wm-flags-strip">${flagsHtml}</div>` : ''}
+      </div>
+
+      <!-- Row 2: par année + saisons -->
+      <div class="stat-grid-2" style="margin-bottom:14px">
+        <div class="stat-card">
+          <h4 class="stat-card-title">📅 Voyages par année</h4>
           ${years.length > 0
-            ? `<div style="display:flex;align-items:flex-end;gap:6px;height:130px;padding-bottom:26px;overflow-x:auto">${perYearBars}</div>`
+            ? `<div style="display:flex;align-items:flex-end;gap:5px;height:110px;padding-bottom:22px;overflow-x:auto">${perYearBars}</div>`
             : `<div style="font-size:12px;color:var(--ink4)">Aucune date renseignée</div>`}
         </div>
-      </div>
-
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
-        ${totalKm > 0 ? `
-        <div style="background:var(--c2);border-radius:12px;padding:16px">
-          <h4 style="font-size:13px;font-weight:700;color:var(--ink3);margin-bottom:12px">🛣️ Distances par mode (estimation)</h4>
-          ${kmRows}
-          <div style="font-size:10px;color:var(--ink4);margin-top:8px">Total : ${Math.round(totalKm).toLocaleString('fr-FR')} km</div>
-        </div>` : ''}
-        ${spendMonths.length > 0 ? `
-        <div style="background:var(--c2);border-radius:12px;padding:16px">
-          <h4 style="font-size:13px;font-weight:700;color:var(--ink3);margin-bottom:12px">💶 Dépenses par mois</h4>
-          <div style="display:flex;align-items:flex-end;gap:4px;height:100px;padding-bottom:22px;overflow-x:auto">${spendBars}</div>
-          <div style="font-size:10px;color:var(--ink4);margin-top:4px">Total : ${Math.round(s.totalSpent).toLocaleString('fr-FR')} €</div>
-        </div>` : ''}
-      </div>
-
-      <div id="world-map-wrap" style="background:var(--c2);border-radius:12px;padding:16px;margin-bottom:16px">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
-          <h4 style="font-size:13px;font-weight:700;color:var(--ink3)">🌍 Pays visités</h4>
-          <span style="font-family:var(--sf);font-size:18px;font-weight:700;color:var(--teal)">${visitedCount}<span style="font-size:11px;font-weight:400;color:var(--ink4)"> / ~195</span></span>
+        <div class="stat-card">
+          <h4 class="stat-card-title">🌸 Saisons préférées</h4>
+          <div style="display:flex;align-items:flex-end;justify-content:space-around;height:110px;padding-bottom:28px">${seasonBars}</div>
         </div>
-        <canvas id="world-map-canvas" class="world-map-canvas" width="600" height="276" aria-label="Carte du monde des pays visités"></canvas>
       </div>
+
+      <!-- Row 3: top destinations + distances -->
+      <div class="stat-grid-2" style="margin-bottom:14px">
+        <div class="stat-card">
+          <h4 class="stat-card-title">🏆 Top destinations</h4>
+          ${topDestsHtml}
+        </div>
+        ${totalKm > 0 ? `
+        <div class="stat-card">
+          <h4 class="stat-card-title">🛣️ Distances par mode</h4>
+          ${kmRows}
+          <div style="font-size:10px;color:var(--ink4);margin-top:6px">Total estimé : ${Math.round(totalKm).toLocaleString('fr-FR')} km</div>
+        </div>` : ''}
+      </div>
+
+      <!-- Row 4: spending by month -->
+      ${spendMonths.length > 0 ? `
+      <div class="stat-card" style="margin-bottom:14px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+          <h4 class="stat-card-title" style="margin-bottom:0">💶 Dépenses par mois</h4>
+          ${avgSpendDay > 0 ? `<span style="font-size:11px;color:var(--ink4)">moy. <b style="color:var(--amb)">${avgSpendDay} €/j</b></span>` : ''}
+        </div>
+        <div style="display:flex;align-items:flex-end;gap:3px;height:100px;padding-bottom:26px;overflow-x:auto">${spendBars}</div>
+        <div style="font-size:10px;color:var(--ink4);margin-top:4px">Total : <b>${Math.round(s.totalSpent).toLocaleString('fr-FR')} €</b></div>
+      </div>` : ''}
     </div>
   `;
 }
