@@ -890,9 +890,10 @@ html,body{height:100%;font-family:var(--fn);background:var(--c);color:var(--ink)
 /* World map tooltip */
 .wm-tooltip{
   display:none;position:absolute;z-index:10;pointer-events:none;
-  background:var(--ink);color:var(--bg);padding:5px 10px;border-radius:8px;
+  background:#fff;color:#1c1917;border:1.5px solid #e7e5e4;
+  padding:5px 10px;border-radius:8px;
   font-size:12px;font-weight:600;white-space:nowrap;
-  box-shadow:0 4px 12px rgba(0,0,0,.2);
+  box-shadow:0 4px 16px rgba(0,0,0,.12);
 }
 
 /* Visited flags strip */
@@ -902,6 +903,16 @@ html,body{height:100%;font-family:var(--fn);background:var(--c);color:var(--ink)
 }
 .wm-flag-chip{font-size:18px;cursor:default;line-height:1;transition:transform .1s}
 .wm-flag-chip:hover{transform:scale(1.2)}
+
+/* Stats type filter tabs */
+.stats-type-tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px}
+.stt-btn{
+  padding:5px 13px;border-radius:999px;font-size:12px;font-weight:700;
+  border:1.5px solid var(--c3);background:var(--c2);color:var(--ink3);
+  cursor:pointer;font-family:var(--fn);transition:all .12s;
+}
+.stt-btn:hover{border-color:var(--teal);color:var(--td)}
+.stt-btn.active{background:var(--teal);color:#fff;border-color:var(--teal)}
 
 @media(max-width:560px){
   .stat-grid-2{grid-template-columns:1fr}
@@ -1504,4 +1515,4 @@ html,body{height:100%;font-family:var(--fn);background:var(--c);color:var(--ink)
 [data-theme="dark"] .obs-entry{background:var(--c3);border-color:var(--c4)}
 [data-theme="dark"] .stat-card{background:var(--c2);border-color:var(--c4)}
 [data-theme="dark"] .stat-kpi-tile{background:var(--c3);border-color:var(--c4)}
-[data-theme="dark"] .wm-tooltip{background:var(--c4);color:var(--ink)}
+[data-theme="dark"] .wm-tooltip{background:var(--c3);color:var(--ink);border-color:var(--c4)}

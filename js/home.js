@@ -26,6 +26,7 @@ import { openShareModal, leaveSharedTrip, removeSharedTripMember } from './share
 
 let _currentFilter    = 'all';
 let _currentTab       = 'trips';   // 'trips' | 'stats'
+let _statsTypeFilter  = 'all';     // 'all' | 'voyage' | 'weekend' | 'sortie'
 let _listenerAttached = false;
 
 // Companion list being edited in the open modal
@@ -541,13 +542,20 @@ function _statsViewHtml(trips) {
     if (cont) continentCount[cont] = (continentCount[cont] || 0) + 1;
   }
 
-  // Visited flags strip (sorted by visit count desc)
-  const flagsHtml = [...visitedMap.entries()]
-    .sort((a, b) => b[1] - a[1])
-    .map(([code, cnt]) => {
-      const name = _A2_NAME[code] || code;
-      return `<span class="wm-flag-chip" title="${_esc(name)} · ${cnt} voyage${cnt > 1 ? 's' : ''}">${_isoToFlag(code)}</span>`;
-    }).join('');
+  // Visited flags strip — use emoji stored directly on trips (avoids font-support issues)
+  const tripFlagMap = new Map();
+  for (const trip of trips) {
+    if (!trip.flag) continue;
+    const code = _isoFromFlag(trip.flag) || '';
+    const name = (code && _A2_NAME[code]) || trip.destination || trip.flag;
+    const prev = tripFlagMap.get(trip.flag) || { name, count: 0 };
+    tripFlagMap.set(trip.flag, { name, count: prev.count + 1 });
+  }
+  const flagsHtml = [...tripFlagMap.entries()]
+    .sort((a, b) => b[1].count - a[1].count)
+    .map(([flag, { name, count }]) =>
+      `<span class="wm-flag-chip" title="${_esc(name)} · ${count} voyage${count > 1 ? 's' : ''}">${flag}</span>`
+    ).join('');
 
   // Continent pills
   const contPillsHtml = Object.entries(continentCount)
@@ -616,7 +624,7 @@ function _statsViewHtml(trips) {
   const maxPerYear = Math.max(...Object.values(perYear), 1);
   const perYearBars = years.map(y => {
     const count = perYear[y];
-    const barH  = Math.max(Math.round((count / maxPerYear) * 72), 8);
+    const barH  = Math.max(Math.round((count / maxPerYear) * 62), 8);
     return `<div style="display:flex;flex-direction:column;align-items:center;gap:3px;min-width:34px">
       <div style="font-size:10px;font-weight:800;color:var(--teal)">${count}</div>
       <div style="width:26px;background:var(--teal);border-radius:5px 5px 0 0;height:${barH}px;opacity:.8;transition:height .3s"></div>
@@ -635,7 +643,7 @@ function _statsViewHtml(trips) {
   ];
   const seasonBars = seasonData.map(({ key, label, emoji, color }) => {
     const cnt  = seasons[key];
-    const barH = Math.max(Math.round((cnt / maxSeason) * 72), cnt > 0 ? 6 : 2);
+    const barH = Math.max(Math.round((cnt / maxSeason) * 58), cnt > 0 ? 6 : 2);
     return `<div style="display:flex;flex-direction:column;align-items:center;gap:3px;flex:1">
       <div style="font-size:10px;font-weight:800;color:${cnt > 0 ? color : 'var(--ink4)'}">${cnt || '—'}</div>
       <div style="width:30px;border-radius:5px 5px 0 0;height:${barH}px;background:${color};opacity:${cnt > 0 ? .8 : .2};transition:height .3s"></div>
@@ -670,7 +678,7 @@ function _statsViewHtml(trips) {
     ...(totalKm > 0 ? [{ icon:'🛣️', val: Math.round(totalKm).toLocaleString('fr-FR') + ' km', lbl:'Distance estimée' }] : []),
     ...(s.totalSpent > 0 ? [{ icon:'💶', val: Math.round(s.totalSpent).toLocaleString('fr-FR') + ' €', lbl:'Total dépensé' }] : []),
     ...(avgSpendDay > 0 ? [{ icon:'📊', val: avgSpendDay + ' €/j',        lbl:'Moy. par jour' }] : []),
-    ...(longestTrip ? [{ icon:'🏆', val: longestDays + ' j',             lbl: _esc((longestTrip.name || 'Voyage').slice(0, 14)) }] : []),
+    ...(longestTrip ? [{ icon:'🏆', val: longestDays + ' j',             lbl:'Voyage + long' }] : []),
   ];
   const kpiHtml = kpis.map(k => `
     <div class="stat-kpi-tile">
@@ -710,12 +718,12 @@ function _statsViewHtml(trips) {
         <div class="stat-card">
           <h4 class="stat-card-title">📅 Voyages par année</h4>
           ${years.length > 0
-            ? `<div style="display:flex;align-items:flex-end;gap:5px;height:110px;padding-bottom:22px;overflow-x:auto">${perYearBars}</div>`
+            ? `<div style="display:flex;align-items:flex-end;gap:5px;height:110px;padding-bottom:22px;padding-top:16px;overflow-x:auto">${perYearBars}</div>`
             : `<div style="font-size:12px;color:var(--ink4)">Aucune date renseignée</div>`}
         </div>
         <div class="stat-card">
           <h4 class="stat-card-title">🌸 Saisons préférées</h4>
-          <div style="display:flex;align-items:flex-end;justify-content:space-around;height:110px;padding-bottom:28px">${seasonBars}</div>
+          <div style="display:flex;align-items:flex-end;justify-content:space-around;height:110px;padding-bottom:28px;padding-top:16px">${seasonBars}</div>
         </div>
       </div>
 
@@ -1016,12 +1024,25 @@ export function renderHome(filter = _currentFilter) {
   }
 }
 
+function _statsTypeTabs() {
+  const opts = [
+    { key:'all',     label:'Tous' },
+    { key:'voyage',  label:'✈️ Voyages' },
+    { key:'weekend', label:'🌿 Week-ends' },
+    { key:'sortie',  label:'📍 Sorties' },
+  ];
+  return `<div class="stats-type-tabs">${opts.map(o =>
+    `<button class="stt-btn${_statsTypeFilter === o.key ? ' active' : ''}" data-stats-type="${o.key}">${o.label}</button>`
+  ).join('')}</div>`;
+}
+
 function _renderStats() {
   _currentTab = 'stats';
   const wrap = document.getElementById('home-wrap');
   if (!wrap) return;
   const allTrips  = getTrips();
   const doneTrips = allTrips.filter(t => t.status === 'done');
+  const filtered  = _statsTypeFilter === 'all' ? doneTrips : doneTrips.filter(t => t.type === _statsTypeFilter);
 
   wrap.innerHTML = `
     ${_heroHtml(allTrips)}
@@ -1033,7 +1054,8 @@ function _renderStats() {
       ${_filterTabsHtml(_currentFilter, 'stats')}
       <div id="search-results-area" class="sr-area" style="display:none"></div>
       <div id="stats-view" style="padding:8px 0">
-        ${_statsViewHtml(doneTrips)}
+        ${_statsTypeTabs()}
+        ${_statsViewHtml(filtered)}
       </div>
     </div>
   `;
@@ -1043,7 +1065,15 @@ function _renderStats() {
     _listenerAttached = true;
   }
 
-  requestAnimationFrame(() => _initWorldMap(doneTrips));
+  // Type filter tab clicks
+  wrap.querySelectorAll('[data-stats-type]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      _statsTypeFilter = btn.dataset.statsType;
+      _renderStats();
+    });
+  });
+
+  requestAnimationFrame(() => _initWorldMap(filtered));
 }
 
 // ── Export helpers ─────────────────────────────────────────────────────────────
