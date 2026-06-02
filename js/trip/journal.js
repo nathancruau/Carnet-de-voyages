@@ -82,6 +82,7 @@ let _journalTripId       = null;
 
 let _activeDayFilter  = null;
 let _observerMode     = false;
+let _journalView      = 'map'; // 'map' | 'timeline'
 
 export function destroyJournalMap() {
   if (_journalMap) {
@@ -187,32 +188,33 @@ export function renderJournal(tripId, isObserver = false) {
     _handlers.delete(panel);
   }
 
-  if (isObserver) {
+  if (_journalView === 'timeline') {
+    _renderTimelineView(panel, trip, tripId, isObserver);
+  } else if (isObserver) {
     _renderObserverView(panel, trip, tripId);
-    return;
+  } else {
+    panel.innerHTML = `
+      <div class="mapcal">
+        <div class="left-panel" style="width:290px;min-width:240px;max-width:290px;display:flex;flex-direction:column">
+          ${_viewToggleHtml('map')}
+          <div style="padding:8px 14px 4px;flex-shrink:0">
+            <h3 style="font-family:var(--sf);font-size:15px;font-weight:700;color:var(--ink);margin:0">📔 Carnet</h3>
+            <p style="font-size:11px;color:var(--ink4);margin-top:2px">Validez vos activités · les PIN apparaissent sur la carte</p>
+          </div>
+          <div class="days-scroll" id="journal-activities-list" style="flex:1;overflow-y:auto;padding:6px 8px">
+            ${_buildActivitiesHtml(trip)}
+          </div>
+        </div>
+        <div class="map-col" style="flex:1;position:relative">
+          <div id="journal-map" style="width:100%;height:100%"></div>
+        </div>
+      </div>`;
+    _initJournalMap(tripId);
   }
-
-  panel.innerHTML = `
-    <div class="mapcal">
-      <div class="left-panel" style="width:290px;min-width:240px;max-width:290px;display:flex;flex-direction:column">
-        <div style="padding:12px 14px 6px;flex-shrink:0">
-          <h3 style="font-family:var(--sf);font-size:15px;font-weight:700;color:var(--ink);margin:0">📔 Carnet</h3>
-          <p style="font-size:11px;color:var(--ink4);margin-top:2px">Validez vos activités · les PIN apparaissent sur la carte</p>
-        </div>
-        <div class="days-scroll" id="journal-activities-list" style="flex:1;overflow-y:auto;padding:6px 8px">
-          ${_buildActivitiesHtml(trip)}
-        </div>
-      </div>
-      <div class="map-col" style="flex:1;position:relative">
-        <div id="journal-map" style="width:100%;height:100%"></div>
-      </div>
-    </div>`;
 
   const handler = e => _handleClick(e, tripId);
   _handlers.set(panel, handler);
   panel.addEventListener('click', handler);
-
-  _initJournalMap(tripId);
 }
 
 // ── Observer view ─────────────────────────────────────────────────────────────
@@ -234,7 +236,8 @@ function _renderObserverView(panel, trip, tripId) {
   panel.innerHTML = `
     <div class="mapcal">
       <div class="left-panel" style="width:320px;min-width:260px;max-width:320px;display:flex;flex-direction:column">
-        <div style="padding:12px 14px 6px;flex-shrink:0">
+        ${_viewToggleHtml('map')}
+        <div style="padding:8px 14px 4px;flex-shrink:0">
           <h3 style="font-family:var(--sf);font-size:15px;font-weight:700;color:var(--ink);margin:0">📔 Carnet de voyage</h3>
           <p style="font-size:11px;color:var(--ink4);margin-top:2px">Mis à jour en direct par les voyageurs</p>
         </div>
@@ -301,6 +304,132 @@ function _buildObserverFeedHtml(validatedItems) {
     html += `</div>`;
   }
   return html;
+}
+
+// ── View toggle ───────────────────────────────────────────────────────────────
+
+function _viewToggleHtml(activeView) {
+  return `
+    <div class="jn-view-toggle">
+      <button class="jn-view-btn${activeView === 'map' ? ' active' : ''}" data-action="switch-view" data-view="map">🗺 Carte</button>
+      <button class="jn-view-btn${activeView === 'timeline' ? ' active' : ''}" data-action="switch-view" data-view="timeline">📅 Timeline</button>
+    </div>`;
+}
+
+// ── Timeline view ─────────────────────────────────────────────────────────────
+
+function _renderTimelineView(panel, trip, tripId, isObserver) {
+  panel.innerHTML = `
+    <div class="tl-wrap">
+      ${_viewToggleHtml('timeline')}
+      <div class="tl-scroll" id="tl-scroll">
+        ${_buildTimelineHtml(trip, isObserver)}
+      </div>
+    </div>`;
+}
+
+function _buildTimelineHtml(trip, isObserver) {
+  const days = trip.days || [];
+
+  if (isObserver) {
+    let html = '';
+    for (const day of days) {
+      const items = (day.items || []).filter(it => it.journalData?.validated);
+      if (items.length === 0) continue;
+      html += _tlDayHtml(day, items, true);
+    }
+    if (!html) return `
+      <div class="tl-empty">
+        <div style="font-size:40px;margin-bottom:12px">📡</div>
+        <p style="font-size:13px;font-weight:600;color:var(--ink3)">En attente de publications…</p>
+        <p style="font-size:11px;margin-top:6px;color:var(--ink4)">Les voyageurs publieront leurs activités au fil du voyage</p>
+      </div>`;
+    return html;
+  }
+
+  const hasAny = days.some(d => (d.items || []).length > 0);
+  if (!hasAny) return `
+    <div class="tl-empty">
+      <div style="font-size:36px;margin-bottom:8px">📅</div>
+      <p style="font-size:13px;font-weight:600;color:var(--ink3)">Aucune activité planifiée</p>
+      <p style="font-size:11px;margin-top:6px;color:var(--ink4)">Ajoutez des activités dans Carte &amp; Planning pour les retrouver ici</p>
+    </div>`;
+
+  let html = '';
+  for (const day of days) {
+    if ((day.items || []).length === 0) continue;
+    html += _tlDayHtml(day, day.items, false);
+  }
+  return html;
+}
+
+function _tlDayHtml(day, items, isObserver) {
+  const dateLabel = day.date ? fmtDate(day.date) : '';
+  const validatedCount = items.filter(i => i.journalData?.validated).length;
+
+  let html = `
+    <div class="tl-day" id="tl-day-${_esc(day.id)}">
+      <div class="tl-day-hd">
+        <div class="tl-day-dot"></div>
+        <div class="tl-day-info">
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            <span class="tl-day-num">Jour ${day.num}</span>
+            ${!isObserver ? `<span style="font-size:10px;color:var(--ink4);font-weight:600">${validatedCount}/${items.length} documenté${validatedCount !== 1 ? 's' : ''}</span>` : ''}
+          </div>
+          ${day.title ? `<div class="tl-day-title">${_esc(day.title)}</div>` : ''}
+          ${dateLabel ? `<div class="tl-day-date">${dateLabel}</div>` : ''}
+        </div>
+      </div>
+      <div class="tl-day-body">`;
+
+  items.forEach((item, idx) => {
+    html += _tlItemHtml(day, item, idx, isObserver);
+  });
+
+  html += `</div></div>`;
+  return html;
+}
+
+function _tlItemHtml(day, item, itemIdx, isObserver) {
+  const jd        = item.journalData || {};
+  const validated = jd.validated;
+  const typeIcon  = _eventTypeIcon(item.type);
+  const photos    = jd.photos || [];
+
+  const metaHtml = [];
+  if (jd.weather) metaHtml.push(`<span class="tl-meta-pill">${jd.weather}</span>`);
+  if (jd.amount)  metaHtml.push(`<span class="tl-meta-pill">💶 ${jd.amount} €</span>`);
+  if (item.time)  metaHtml.push(`<span class="tl-meta-pill">🕐 ${_esc(item.time)}</span>`);
+
+  const photosHtml = photos.length > 0 ? `
+    <div class="tl-photos">
+      ${photos.map(src => `<img src="${_esc(src)}" class="tl-photo" loading="lazy" onclick="window.open(this.src,'_blank')">`).join('')}
+    </div>` : '';
+
+  const notesHtml = jd.notes
+    ? `<div class="tl-notes">${_esc(jd.notes).replace(/\n/g, '<br>')}</div>` : '';
+
+  const validateBtn = !isObserver ? `
+    <button data-action="validate-item" data-day-id="${_esc(day.id)}" data-item-idx="${itemIdx}"
+      class="tl-validate-btn${validated ? ' validated' : ''}"
+      title="${validated ? 'Modifier' : 'Documenter'}">
+      ${validated ? '✓' : '+ Documenter'}
+    </button>` : '';
+
+  return `
+    <div class="tl-item${validated ? ' validated' : ''}">
+      <div class="tl-item-card${validated ? ' validated' : ''}">
+        <div class="tl-item-hd">
+          <span class="tl-item-icon">${typeIcon}</span>
+          <span class="tl-item-title">${_esc(item.text || '—')}</span>
+          ${item.time ? `<span class="tl-item-time">${_esc(item.time)}</span>` : ''}
+          ${validateBtn}
+        </div>
+        ${photosHtml}
+        ${notesHtml}
+        ${metaHtml.length > 0 ? `<div class="tl-meta">${metaHtml.join('')}</div>` : ''}
+      </div>
+    </div>`;
 }
 
 // ── Day chips ─────────────────────────────────────────────────────────────────
@@ -555,6 +684,14 @@ function _handleClick(e, tripId) {
   if (!btn) return;
 
   const action = btn.dataset.action;
+
+  if (action === 'switch-view') {
+    const newView = btn.dataset.view;
+    if (newView === _journalView) return;
+    _journalView = newView;
+    renderJournal(tripId, _observerMode);
+    return;
+  }
 
   if (action === 'validate-item') {
     _openValidateModal(tripId, btn.dataset.dayId, parseInt(btn.dataset.itemIdx, 10));
