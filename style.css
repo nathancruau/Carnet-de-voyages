@@ -377,6 +377,18 @@ html,body{height:100%;font-family:var(--fn);background:var(--c);color:var(--ink)
 .lp-title{font-family:var(--sf);font-size:12px;font-weight:700;margin-bottom:4px}
 .lp-row{font-size:10px;color:var(--ink3);margin-bottom:3px}
 
+/* Route duration tooltip (permanent label on route lines) */
+.route-dur-tip{
+  background:rgba(255,255,255,.92);border:1px solid rgba(0,0,0,.12);
+  border-radius:10px;padding:2px 8px;font-size:11px;font-weight:600;
+  color:#1a1a1a;white-space:nowrap;box-shadow:0 1px 6px rgba(0,0,0,.14);
+  pointer-events:none;
+}
+.route-dur-tip::before{display:none}
+[data-theme="dark"] .route-dur-tip{
+  background:rgba(30,30,30,.92);border-color:rgba(255,255,255,.15);color:#f0f0f0;
+}
+
 /* Route loading indicator */
 .route-loading{
   position:absolute;bottom:14px;left:50%;transform:translateX(-50%);

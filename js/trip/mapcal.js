@@ -518,6 +518,7 @@ function _collectAllWaypoints(trip) {
 function _bindRouteModeClick(polyline, toWp) {
   const MODES = [
     { key: 'car',   emoji: '🚗', label: 'Voiture' },
+    { key: 'train', emoji: '🚆', label: 'Train' },
     { key: 'bus',   emoji: '🚌', label: 'Bus/Taxi' },
     { key: 'bike',  emoji: '🚲', label: 'Vélo' },
     { key: 'foot',  emoji: '🚶', label: 'À pied' },
@@ -586,24 +587,29 @@ async function _drawRoutes(trip, _days) {
     const mode = to.mode || 'car';
 
     let line = null;
+    let dur  = null; // { seconds, meters }
 
-    if (mode === 'plane' || mode === 'ferry') {
+    if (mode === 'plane' || mode === 'train' || mode === 'ferry') {
+      const speedKph = mode === 'plane' ? 800 : mode === 'train' ? 130 : 30;
+      const meters   = _haversineMeters(from, to);
+      dur = { seconds: Math.round(meters / (speedKph * 1000 / 3600)), meters };
       line = L.polyline([[from.lat, from.lng], [to.lat, to.lng]], {
-        color:     mode === 'plane' ? '#7c3aed' : '#0d9488',
+        color:     trCol(mode),
         weight:    2,
-        opacity:   0.6,
-        dashArray: '6 6',
+        opacity:   0.65,
+        dashArray: '8 6',
       });
     } else {
       try {
         const profile = _osrmProfile(mode);
         const url = `https://router.project-osrm.org/route/v1/${profile}/`
           + `${from.lng},${from.lat};${to.lng},${to.lat}?overview=full&geometries=geojson`;
-        const resp   = await fetch(url);
-        const data   = await resp.json();
-        const coords = data.routes?.[0]?.geometry?.coordinates;
-        if (coords && coords.length) {
-          line = L.polyline(coords.map(([lng, lat]) => [lat, lng]), {
+        const resp  = await fetch(url);
+        const data  = await resp.json();
+        const route = data.routes?.[0];
+        if (route?.geometry?.coordinates?.length) {
+          dur  = { seconds: route.duration, meters: route.distance };
+          line = L.polyline(route.geometry.coordinates.map(([lng, lat]) => [lat, lng]), {
             color:   trCol(mode),
             weight:  4,
             opacity: 0.75,
@@ -626,6 +632,17 @@ async function _drawRoutes(trip, _days) {
       line.addTo(_map);
       _routeLayers.push(line);
       _bindRouteModeClick(line, to);
+
+      // Bind duration as a permanent label centred on the route
+      if (dur) {
+        const label = `${trIc(mode)} ${_fmtDuration(dur.seconds)} · ${_fmtDistance(dur.meters)}`;
+        line.bindTooltip(label, {
+          permanent:  true,
+          direction:  'center',
+          opacity:    0.92,
+          className:  'route-dur-tip',
+        });
+      }
     }
   }
 
@@ -634,7 +651,7 @@ async function _drawRoutes(trip, _days) {
 }
 
 function _osrmProfile(mode) {
-  const map = { car: 'driving', bus: 'driving', foot: 'foot', bike: 'cycling' };
+  const map = { car: 'driving', bus: 'driving', foot: 'foot', bike: 'cycling', train: 'driving' };
   return map[mode] || 'driving';
 }
 
@@ -762,9 +779,8 @@ function _renderDaysList(tripId) {
   const html = days.map(day => _dayItemHtml(day, sharedDocData)).join('');
   container.innerHTML = html;
 
-  // Asynchronously populate weather and durations (non-blocking)
+  // Asynchronously populate weather (non-blocking); durations shown on map routes
   _populateWeather(days);
-  _populateDurations(days);
 }
 
 async function _populateWeather(days) {
@@ -857,10 +873,6 @@ function _dayItemHtml(day, sharedDocData = null) {
   if (isSelected) {
     const evtRows = items.map((it, idx) => {
       const isSelEvt = _activeEvtKey && _activeEvtKey.dayId === day.id && _activeEvtKey.idx === idx;
-      // Render a connector slot after every located item (intra-day); hidden until filled
-      const durSlot = it.lat != null && it.lng != null
-        ? `<div id="dur-${day.id}-${idx}" style="padding:2px 8px 2px 28px;display:none"></div>`
-        : '';
       return `
         <div class="evt-row${isSelEvt ? ' sel-evt' : ''}"
              draggable="true"
@@ -874,7 +886,7 @@ function _dayItemHtml(day, sharedDocData = null) {
             <div class="evt-tm">${it.time ? it.time : ''}${it.cost ? (it.time ? ' · ' : '') + Number(it.cost).toLocaleString('fr-FR') + ' €' : ''}</div>
           </div>
           <button class="evt-del" data-action="delete-event" data-day-id="${day.id}" data-event-idx="${idx}" title="Supprimer">✕</button>
-        </div>${durSlot}`;
+        </div>`;
     }).join('');
 
     // Comments section (shared trips only)
@@ -935,7 +947,6 @@ function _dayItemHtml(day, sharedDocData = null) {
         <span id="wx-${day.id}" style="margin-left:4px;font-size:11px;color:var(--ink3)"></span>
       </div>
       ${eventsHtml}
-      <div id="dur-last-${day.id}" style="padding:2px 8px 4px 8px;display:none"></div>
     </div>`;
 }
 
