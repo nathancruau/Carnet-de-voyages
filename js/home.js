@@ -624,11 +624,13 @@ function _statsViewHtml(trips) {
   const maxPerYear = Math.max(...Object.values(perYear), 1);
   const perYearBars = years.map(y => {
     const count = perYear[y];
-    const barH  = Math.max(Math.round((count / maxPerYear) * 62), 8);
-    return `<div style="display:flex;flex-direction:column;align-items:center;gap:3px;min-width:34px">
-      <div style="font-size:10px;font-weight:800;color:var(--teal)">${count}</div>
-      <div style="width:26px;background:var(--teal);border-radius:5px 5px 0 0;height:${barH}px;opacity:.8;transition:height .3s"></div>
-      <div style="font-size:9px;color:var(--ink4);white-space:nowrap">${y}</div>
+    const barH  = Math.max(Math.round((count / maxPerYear) * 64), 8);
+    return `<div style="display:flex;flex-direction:column;align-items:center;min-width:34px">
+      <div style="display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:82px;gap:2px">
+        <span style="font-size:10px;font-weight:800;color:var(--teal)">${count}</span>
+        <div style="width:26px;background:var(--teal);border-radius:5px 5px 0 0;height:${barH}px;opacity:.8;transition:height .3s"></div>
+      </div>
+      <div style="font-size:9px;color:var(--ink4);white-space:nowrap;margin-top:3px">${y}</div>
     </div>`;
   }).join('');
 
@@ -643,11 +645,13 @@ function _statsViewHtml(trips) {
   ];
   const seasonBars = seasonData.map(({ key, label, emoji, color }) => {
     const cnt  = seasons[key];
-    const barH = Math.max(Math.round((cnt / maxSeason) * 58), cnt > 0 ? 6 : 2);
-    return `<div style="display:flex;flex-direction:column;align-items:center;gap:3px;flex:1">
-      <div style="font-size:10px;font-weight:800;color:${cnt > 0 ? color : 'var(--ink4)'}">${cnt || '—'}</div>
-      <div style="width:30px;border-radius:5px 5px 0 0;height:${barH}px;background:${color};opacity:${cnt > 0 ? .8 : .2};transition:height .3s"></div>
-      <div style="font-size:14px;line-height:1">${emoji}</div>
+    const barH = Math.max(Math.round((cnt / maxSeason) * 60), cnt > 0 ? 6 : 2);
+    return `<div style="display:flex;flex-direction:column;align-items:center;flex:1">
+      <div style="display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:78px;gap:2px">
+        <span style="font-size:10px;font-weight:800;color:${cnt > 0 ? color : 'var(--ink4)'}">${cnt || '—'}</span>
+        <div style="width:30px;border-radius:5px 5px 0 0;height:${barH}px;background:${color};opacity:${cnt > 0 ? .8 : .2};transition:height .3s"></div>
+      </div>
+      <div style="font-size:14px;line-height:1;margin-top:4px">${emoji}</div>
       <div style="font-size:9px;color:var(--ink4);text-align:center;white-space:nowrap">${label}</div>
     </div>`;
   }).join('');
@@ -659,13 +663,15 @@ function _statsViewHtml(trips) {
   const avgSpendDay  = s.totalDays > 0 ? Math.round(s.totalSpent / s.totalDays) : 0;
   const spendBars = spendMonths.map(m => {
     const val  = spendByMonth[m];
-    const barH = Math.max(Math.round((val / maxSpend) * 70), 4);
+    const barH = Math.max(Math.round((val / maxSpend) * 72), 4);
     const [yr, mo] = m.split('-');
     const label = new Date(Number(yr), Number(mo) - 1, 1).toLocaleDateString('fr-FR', { month: 'short' }) + ' \'' + yr.slice(2);
-    return `<div style="display:flex;flex-direction:column;align-items:center;gap:2px;min-width:30px">
-      <div style="font-size:8px;font-weight:700;color:var(--ink3)">${Math.round(val)}</div>
-      <div style="width:20px;background:var(--amb);border-radius:3px 3px 0 0;height:${barH}px;opacity:.85"></div>
-      <div style="font-size:7px;color:var(--ink4);writing-mode:vertical-rl;transform:rotate(180deg);white-space:nowrap">${label}</div>
+    return `<div style="display:flex;flex-direction:column;align-items:center;min-width:26px">
+      <div style="display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:88px;gap:2px">
+        <span style="font-size:8px;font-weight:700;color:var(--ink3)">${Math.round(val)}</span>
+        <div style="width:20px;background:var(--amb);border-radius:3px 3px 0 0;height:${barH}px;opacity:.85"></div>
+      </div>
+      <div style="font-size:7px;color:var(--ink4);writing-mode:vertical-rl;transform:rotate(180deg);white-space:nowrap;margin-top:3px">${label}</div>
     </div>`;
   }).join('');
 
@@ -718,12 +724,12 @@ function _statsViewHtml(trips) {
         <div class="stat-card">
           <h4 class="stat-card-title">📅 Voyages par année</h4>
           ${years.length > 0
-            ? `<div style="display:flex;align-items:flex-end;gap:5px;height:110px;padding-bottom:22px;padding-top:16px;overflow-x:auto">${perYearBars}</div>`
+            ? `<div style="display:flex;gap:5px;overflow-x:auto">${perYearBars}</div>`
             : `<div style="font-size:12px;color:var(--ink4)">Aucune date renseignée</div>`}
         </div>
         <div class="stat-card">
           <h4 class="stat-card-title">🌸 Saisons préférées</h4>
-          <div style="display:flex;align-items:flex-end;justify-content:space-around;height:110px;padding-bottom:28px;padding-top:16px">${seasonBars}</div>
+          <div style="display:flex;justify-content:space-around;gap:4px">${seasonBars}</div>
         </div>
       </div>
 
@@ -748,7 +754,7 @@ function _statsViewHtml(trips) {
           <h4 class="stat-card-title" style="margin-bottom:0">💶 Dépenses par mois</h4>
           ${avgSpendDay > 0 ? `<span style="font-size:11px;color:var(--ink4)">moy. <b style="color:var(--amb)">${avgSpendDay} €/j</b></span>` : ''}
         </div>
-        <div style="display:flex;align-items:flex-end;gap:3px;height:100px;padding-bottom:26px;overflow-x:auto">${spendBars}</div>
+        <div style="display:flex;gap:3px;overflow-x:auto">${spendBars}</div>
         <div style="font-size:10px;color:var(--ink4);margin-top:4px">Total : <b>${Math.round(s.totalSpent).toLocaleString('fr-FR')} €</b></div>
       </div>` : ''}
     </div>
@@ -817,12 +823,22 @@ function _heroHtml(trips) {
 function _filterTabsHtml(activeFilter, activeTab) {
   const tabs = [
     { key: 'all',     label: 'Tous' },
-    { key: 'voyage',  label: 'Voyages' },
-    { key: 'weekend', label: 'Week-ends' },
-    { key: 'sortie',  label: 'Sorties' },
+    { key: 'voyage',  label: '✈️ Voyages' },
+    { key: 'weekend', label: '🌿 Week-ends' },
+    { key: 'sortie',  label: '📍 Sorties' },
   ];
+  if (activeTab === 'stats') {
+    const filterBtns = tabs.map(t =>
+      `<button class="filter-tab${_statsTypeFilter === t.key ? ' active' : ''}"
+               data-stats-type="${t.key}">${t.label}</button>`
+    ).join('');
+    return `<div class="filter-tabs">
+      <button class="filter-tab" data-action="go-home">🏠 Accueil</button>
+      ${filterBtns}
+    </div>`;
+  }
   const filterBtns = tabs.map(t =>
-    `<button class="filter-tab${activeTab === 'trips' && activeFilter === t.key ? ' active' : ''}"
+    `<button class="filter-tab${activeFilter === t.key ? ' active' : ''}"
              data-action="filter" data-filter="${t.key}">${t.label}</button>`
   ).join('');
   return `<div class="filter-tabs">${filterBtns}</div>`;
@@ -1024,17 +1040,6 @@ export function renderHome(filter = _currentFilter) {
   }
 }
 
-function _statsTypeTabs() {
-  const opts = [
-    { key:'all',     label:'Tous' },
-    { key:'voyage',  label:'✈️ Voyages' },
-    { key:'weekend', label:'🌿 Week-ends' },
-    { key:'sortie',  label:'📍 Sorties' },
-  ];
-  return `<div class="stats-type-tabs">${opts.map(o =>
-    `<button class="stt-btn${_statsTypeFilter === o.key ? ' active' : ''}" data-stats-type="${o.key}">${o.label}</button>`
-  ).join('')}</div>`;
-}
 
 function _renderStats() {
   _currentTab = 'stats';
@@ -1051,10 +1056,9 @@ function _renderStats() {
         <h2>Statistiques</h2>
         <button class="btn-new" data-action="new-trip">＋ Nouveau</button>
       </div>
-      ${_filterTabsHtml(_currentFilter, 'stats')}
+      ${_filterTabsHtml(_statsTypeFilter, 'stats')}
       <div id="search-results-area" class="sr-area" style="display:none"></div>
       <div id="stats-view" style="padding:8px 0">
-        ${_statsTypeTabs()}
         ${_statsViewHtml(filtered)}
       </div>
     </div>
@@ -1375,6 +1379,10 @@ function _attachListeners(wrap) {
 
       case 'filter':
         renderHome(target.dataset.filter);
+        break;
+
+      case 'go-home':
+        renderHome(_currentFilter);
         break;
 
       case 'show-stats':
