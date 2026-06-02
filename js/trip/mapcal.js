@@ -13,7 +13,7 @@ import {
   notify, showModal, closeModal,
   fmtDate, fmtDateShort,
   isoToDate, dateToIso, generateDays,
-  tCol, tIc, trIc, trNm, trCol,
+  tCol, tIc, trIc, trNm, trCol, fmtFlag,
   MNS, DOW,
 } from '../utils.js';
 import { updateTopStats } from './trip.js';
@@ -30,6 +30,7 @@ let _routeLoading = false;
 let _drawRouteGen = 0;             // incremented each time _refreshMapPins fires
 let _pendingMapClick = null;       // callback when user clicks map to pick coords
 let _tempSearchPin    = null;       // temporary search result pin
+let _commentDayId    = null;       // day id for the open comment panel (null = closed)
 
 // ─── Weather cache (key: "lat:lng:date") ──────────────────────────────────────
 const _wxCache  = {};
@@ -229,6 +230,17 @@ export function renderMapCal(tripId) {
           </div>
         </div>
       </div>
+      <div class="comment-panel" id="comment-panel">
+        <div class="cmp-hdr">
+          <div class="cmp-day-label" id="cmp-day-label">Commentaires</div>
+          <button class="cmp-close" onclick="window._closeCommentPanel && window._closeCommentPanel()">✕</button>
+        </div>
+        <div class="cmp-body" id="cmp-body"></div>
+        <div class="cmp-footer">
+          <input type="text" id="cmp-input" class="cmp-input" placeholder="Écrire…" autocomplete="off">
+          <button id="cmp-send" class="cmp-send">→</button>
+        </div>
+      </div>
     </div>
   `;
 
@@ -317,6 +329,42 @@ export function renderMapCal(tripId) {
 
   // Wire map search bar
   _initMapSearch(tripId);
+
+  // Wire comment panel send / delete
+  const cmpSend = panel.querySelector('#cmp-send');
+  if (cmpSend) {
+    cmpSend.addEventListener('click', () => {
+      const input = panel.querySelector('#cmp-input');
+      const text = input?.value?.trim();
+      if (!text || !_commentDayId) return;
+      input.value = '';
+      submitComment(tripId, _commentDayId, text)
+        .then(() => _renderCommentList(tripId, _commentDayId))
+        .catch(err => console.warn('[mapcal] cmp submitComment:', err));
+    });
+  }
+  const cmpInput = panel.querySelector('#cmp-input');
+  if (cmpInput) {
+    cmpInput.addEventListener('keydown', e => {
+      if (e.key === 'Enter') cmpSend?.click();
+    });
+  }
+  const cmpPanelEl = panel.querySelector('#comment-panel');
+  if (cmpPanelEl) {
+    cmpPanelEl.addEventListener('click', e => {
+      const btn = e.target instanceof Element ? e.target.closest('[data-cmp-del]') : null;
+      if (!btn) return;
+      const { dayId, commentId } = btn.dataset;
+      if (dayId && commentId) {
+        deleteDayComment(tripId, dayId, commentId)
+          .then(() => _renderCommentList(tripId, dayId))
+          .catch(err => console.warn('[mapcal] cmp deleteDayComment:', err));
+      }
+    });
+  }
+
+  // Re-open comment panel if it was open before this render
+  if (_commentDayId) _openCommentPanel(tripId, _commentDayId);
 }
 
 export function destroyMap() {
@@ -331,6 +379,7 @@ export function destroyMap() {
   _activeEvtKey = null;
   _pendingMapClick = null;
   _dragEvt      = null;
+  _commentDayId = null;
 }
 
 // ─── Map initialization ───────────────────────────────────────────────────────
@@ -923,40 +972,16 @@ function _dayItemHtml(day, sharedDocData = null) {
         </div>`;
     }).join('');
 
-    // Comments section (shared trips only)
+    // Comments badge (shared trips only) — opens side panel on click
     let commentsHtml = '';
     if (sharedDocData) {
-      const currentUser = getCurrentUser();
-      const isOwner = currentUser && (
-        sharedDocData.ownerId === currentUser.uid ||
-        sharedDocData.members?.[currentUser.uid]?.role === 'owner'
-      );
-      const comments = (sharedDocData.comments?.[day.id] || [])
-        .slice()
-        .sort((a, b) => new Date(a.ts) - new Date(b.ts));
-      const commentItems = comments.map(c => {
-        const canDelete = currentUser && (c.uid === currentUser.uid || isOwner);
-        return `
-        <div class="dc-item">
-          <span class="dc-author">${_esc(c.author)}</span>
-          <span class="dc-text"> ${_esc(c.text)}</span>
-          <span class="dc-ts"> · ${_relativeTime(c.ts)}</span>
-          ${canDelete ? `<button class="dc-del" data-action="delete-day-comment" data-day-id="${_esc(day.id)}" data-comment-id="${_esc(c.id)}" title="Supprimer">×</button>` : ''}
-        </div>`;
-      }).join('');
-      const countLabel = comments.length
-        ? `${comments.length} commentaire${comments.length > 1 ? 's' : ''}`
-        : 'Commentaires';
+      const count = (sharedDocData.comments?.[day.id] || []).length;
+      const isOpen = _commentDayId === day.id;
       commentsHtml = `
-        <div class="day-comments">
-          <div class="dc-hdr">💬 ${countLabel}</div>
-          ${commentItems ? `<div class="dc-list">${commentItems}</div>` : ''}
-          <div class="dc-input-row">
-            <input type="text" class="dc-input" data-day-id="${_esc(day.id)}"
-              placeholder="Ajouter un commentaire…" autocomplete="off">
-            <button class="dc-send" data-action="send-comment" data-day-id="${_esc(day.id)}">→</button>
-          </div>
-        </div>`;
+        <button class="dc-toggle${isOpen ? ' dc-toggle-active' : ''}"
+                data-action="open-comments" data-day-id="${_esc(day.id)}">
+          💬${count > 0 ? ` <span class="dc-count">${count}</span>` : ''}
+        </button>`;
     }
 
     const _tripMC = getTrip(_tripId)?.multiCountry;
@@ -996,7 +1021,7 @@ function _dayItemHtml(day, sharedDocData = null) {
         <span class="di-t" style="margin-left:4px">${isSelected ? '▲' : '▼'}</span>
       </div>
       <div class="di-s">
-        ${day.flag && getTrip(_tripId)?.multiCountry ? `<span style="font-size:13px;margin-right:2px">${day.flag}</span>` : ''}
+        ${day.flag && getTrip(_tripId)?.multiCountry ? `<span class="day-flag-chip">${fmtFlag(day.flag)}</span>` : ''}
         ${day.date ? fmtDateShort(day.date) : ''}
         ${day.region ? `<span style="color:var(--ink4)"> · ${_esc(day.region)}</span>` : ''}
         <span id="wx-${day.id}" style="margin-left:4px;font-size:11px;color:var(--ink3)"></span>
@@ -1305,6 +1330,64 @@ function _selectDay(dayId, tripId) {
   }
 }
 
+// ─── Comment panel ────────────────────────────────────────────────────────────
+
+function _openCommentPanel(tripId, dayId) {
+  _commentDayId = dayId;
+  const trip = getTrip(tripId);
+  const day  = (trip?.days || []).find(d => d.id === dayId);
+  const labelEl = document.getElementById('cmp-day-label');
+  if (labelEl) labelEl.textContent = day?.title ? `💬 ${day.title}` : `💬 Jour ${day?.num ?? ''}`;
+  _renderCommentList(tripId, dayId);
+  document.getElementById('comment-panel')?.classList.add('open');
+}
+
+function _renderCommentList(tripId, dayId) {
+  const bodyEl = document.getElementById('cmp-body');
+  if (!bodyEl) return;
+
+  const sharedDocData = getSharedDocData(tripId);
+  if (!sharedDocData) {
+    bodyEl.innerHTML = '<div class="cmp-empty">Partagez ce voyage pour utiliser les commentaires.</div>';
+    return;
+  }
+
+  const currentUser = getCurrentUser();
+  const isOwner = currentUser && (
+    sharedDocData.ownerId === currentUser.uid ||
+    sharedDocData.members?.[currentUser.uid]?.role === 'owner'
+  );
+
+  const comments = (sharedDocData.comments?.[dayId] || [])
+    .slice()
+    .sort((a, b) => new Date(a.ts) - new Date(b.ts));
+
+  if (comments.length === 0) {
+    bodyEl.innerHTML = '<div class="cmp-empty">Aucun commentaire.<br>Soyez le premier&nbsp;!</div>';
+  } else {
+    bodyEl.innerHTML = comments.map(c => {
+      const isMine   = currentUser && c.uid === currentUser.uid;
+      const canDel   = currentUser && (c.uid === currentUser.uid || isOwner);
+      const delBtn   = canDel ? `<button class="cmp-del" data-cmp-del data-day-id="${_esc(dayId)}" data-comment-id="${_esc(c.id)}" title="Supprimer">×</button>` : '';
+      return `
+        <div class="cmp-msg${isMine ? ' cmp-mine' : ''}">
+          <div class="cmp-meta">
+            ${!isMine ? `<span class="cmp-author">${_esc(c.author)}</span>` : ''}
+            <span class="cmp-ts">${_relativeTime(c.ts)}</span>
+            ${delBtn}
+          </div>
+          <div class="cmp-bubble">${_esc(c.text)}</div>
+        </div>`;
+    }).join('');
+    bodyEl.scrollTop = bodyEl.scrollHeight;
+  }
+}
+
+window._closeCommentPanel = function() {
+  document.getElementById('comment-panel')?.classList.remove('open');
+  _commentDayId = null;
+};
+
 // ─── Event delegation for left panel ─────────────────────────────────────────
 
 function _attachLeftPanelListeners(panel) {
@@ -1325,7 +1408,7 @@ function _attachLeftPanelListeners(panel) {
 
     if (action === 'select-day') {
       // Don't trigger select when clicking inputs or interactive elements inside the body
-      if (e.target.closest('.day-flag-input, .dc-input, .dc-send, .dc-del, .add-evt')) return;
+      if (e.target.closest('.day-flag-input, .dc-toggle, .add-evt')) return;
       const dayId = target.dataset.dayId;
       if (dayId) _selectDay(dayId, _tripId);
 
@@ -1350,42 +1433,20 @@ function _attachLeftPanelListeners(panel) {
       const idx   = parseInt(target.dataset.eventIdx, 10);
       if (dayId && !isNaN(idx)) _deleteEvent(dayId, idx, _tripId);
 
-    } else if (action === 'send-comment') {
+    } else if (action === 'open-comments') {
       e.stopPropagation();
-      const dayId   = target.dataset.dayId;
-      const inputEl = panel.querySelector(`.dc-input[data-day-id="${dayId}"]`);
-      const text    = inputEl?.value?.trim();
-      if (!text || !dayId) return;
-      inputEl.value = '';
-      submitComment(_tripId, dayId, text).catch(err =>
-        console.warn('[mapcal] submitComment failed:', err),
-      );
-
-    } else if (action === 'delete-day-comment') {
-      e.stopPropagation();
-      const dayId     = target.dataset.dayId;
-      const commentId = target.dataset.commentId;
-      if (dayId && commentId) {
-        deleteDayComment(_tripId, dayId, commentId).catch(err =>
-          console.warn('[mapcal] deleteDayComment failed:', err),
-        );
+      const dayId = target.dataset.dayId;
+      if (!dayId) return;
+      if (_commentDayId === dayId) {
+        window._closeCommentPanel();
+      } else {
+        _openCommentPanel(_tripId, dayId);
+        _renderDaysList(_tripId); // refresh badge active state
       }
     }
   });
 
   // Enter key in comment inputs
-  panel.addEventListener('keydown', e => {
-    if (e.key === 'Enter' && e.target.classList.contains('dc-input')) {
-      e.preventDefault();
-      const dayId = e.target.dataset.dayId;
-      const text  = e.target.value.trim();
-      if (!text || !dayId) return;
-      e.target.value = '';
-      submitComment(_tripId, dayId, text).catch(err =>
-        console.warn('[mapcal] submitComment failed:', err),
-      );
-    }
-  });
 
   // ── Drag-and-drop: move events between days ──────────────────────────────
   let _dropTarget = null;
@@ -1474,8 +1535,8 @@ function _attachLeftPanelListeners(panel) {
     // Refresh subtitle (flag display) without full re-render
     const diS = document.querySelector(`[data-day-id="${dayId}"][data-action="select-day"] .di-s`);
     if (diS) {
-      const flagSpan = diS.querySelector('.day-flag-display');
-      if (flagSpan) flagSpan.textContent = day.flag || '';
+      const flagSpan = diS.querySelector('.day-flag-chip');
+      if (flagSpan) flagSpan.textContent = day.flag ? fmtFlag(day.flag) : '';
     }
     _refreshMapPins(_tripId);
   });

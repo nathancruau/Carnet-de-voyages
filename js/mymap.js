@@ -6,7 +6,7 @@
    ============================================================ */
 
 import { getTrips, TRIP_TYPES, getPinTypes } from './store.js';
-import { fmtDate, fmtDateShort, trCol } from './utils.js';
+import { fmtDate, fmtDateShort, trCol, fmtFlag } from './utils.js';
 
 // ── PIN type helper (dynamic from settings) ────────────────────────────────────
 
@@ -116,6 +116,31 @@ function _makeIcon(color, size = 13, emoji = null) {
   });
 }
 
+/** Merge overlapping pins (within ~11 m, 4 decimal places) into clusters. */
+function _mergedPins(rawPins) {
+  const grid = new Map();
+  for (const pin of rawPins) {
+    const key = pin.lat.toFixed(4) + ',' + pin.lng.toFixed(4);
+    if (!grid.has(key)) grid.set(key, { lat: pin.lat, lng: pin.lng, entries: [] });
+    grid.get(key).entries.push(pin);
+  }
+  return [...grid.values()];
+}
+
+/** Multi-visit icon: teal circle with count badge. */
+function _makeMultiIcon(count) {
+  return L.divIcon({
+    className: '',
+    html: `<div style="position:relative;width:28px;height:28px">
+      <div style="width:28px;height:28px;border-radius:50%;background:#0d9488;border:2.5px solid #fff;box-shadow:0 1px 6px rgba(0,0,0,.45);cursor:pointer"></div>
+      <span style="position:absolute;top:-4px;right:-4px;background:#e85d3e;color:#fff;border-radius:50%;min-width:16px;height:16px;font-size:9px;font-weight:800;display:flex;align-items:center;justify-content:center;border:1.5px solid #fff;padding:0 2px">${count}</span>
+    </div>`,
+    iconSize:    [28, 28],
+    iconAnchor:  [14, 14],
+    popupAnchor: [0, -20],
+  });
+}
+
 // ── Info panel (rich display on pin/legend click) ──────────────────────────────
 
 function _mmShowInfo(trip, entry) {
@@ -138,7 +163,7 @@ function _mmShowInfo(trip, entry) {
   _infoPanelEl.innerHTML = `
     <div style="padding:12px 14px;border-bottom:1px solid var(--c3);display:flex;align-items:flex-start;gap:8px;flex-shrink:0">
       <div style="flex:1;min-width:0">
-        <div style="font-size:11px;font-weight:700;color:${color};margin-bottom:2px">${_esc(trip.flag || '')} ${_esc(trip.name)}</div>
+        <div style="font-size:11px;font-weight:700;color:${color};margin-bottom:2px">${_esc(fmtFlag(trip.flag))} ${_esc(trip.name)}</div>
         <div style="font-size:14px;font-weight:700;color:var(--ink)">${typeEmoji} ${_esc(entry.title)}</div>
         ${entry.dayLabel ? `<div style="font-size:11px;color:var(--ink4);margin-top:1px">📅 ${_esc(entry.dayLabel)}</div>` : ''}
         ${entry.date    ? `<div style="font-size:11px;color:var(--ink4)">${fmtDate(entry.date)}</div>` : ''}
@@ -170,6 +195,49 @@ function _mmShowInfo(trip, entry) {
     </div>
   `;
 
+  _infoPanelEl.style.display = 'flex';
+}
+
+/** Show info panel for a merged pin (one or many entries at same location). */
+function _mmShowMergedInfo(mp) {
+  if (!_infoPanelEl) return;
+  if (mp.entries.length === 1) {
+    _mmShowInfo(mp.entries[0].trip, mp.entries[0].entry);
+    return;
+  }
+
+  const _ptm = _pinTypeMap();
+  const visitBlocks = mp.entries.map(({ trip, entry }) => {
+    const color    = _colorForFlag(entry.dayFlag || trip.flag);
+    const typeEmoji = (entry.pinType && _ptm[entry.pinType]) ? _ptm[entry.pinType] : '📍';
+    const photosHtml = (entry.photos || []).slice(0, 3).map(p =>
+      `<img src="${_esc(p.url)}" style="height:56px;min-width:56px;border-radius:6px;object-fit:cover;flex-shrink:0;border:1px solid var(--c3)" onerror="this.style.display='none'">`
+    ).join('');
+    return `
+      <div style="padding:10px 14px;border-bottom:1px solid var(--c3)">
+        <div style="font-size:10px;font-weight:700;color:${color};margin-bottom:3px">${_esc(fmtFlag(entry.dayFlag || trip.flag))} ${_esc(trip.name)}</div>
+        <div style="font-size:13px;font-weight:700;color:var(--ink);margin-bottom:2px">${typeEmoji} ${_esc(entry.title)}</div>
+        ${entry.dayLabel ? `<div style="font-size:11px;color:var(--ink4)">📅 ${_esc(entry.dayLabel)}</div>` : ''}
+        ${entry.date     ? `<div style="font-size:11px;color:var(--ink4)">${fmtDate(entry.date)}</div>` : ''}
+        ${entry.content  ? `<div style="font-size:11px;color:var(--ink2);margin-top:4px;white-space:pre-wrap;line-height:1.4">${_esc(entry.content)}</div>` : ''}
+        ${entry.weather  ? `<div style="font-size:18px;margin-top:2px">${entry.weather}</div>` : ''}
+        ${photosHtml     ? `<div style="display:flex;gap:4px;margin-top:6px;overflow-x:auto">${photosHtml}</div>` : ''}
+        ${entry._validated ? `<div style="font-size:10px;font-weight:700;color:#16a34a;margin-top:3px">✓ Validé</div>` : ''}
+        <button onclick="window.navigateToTrip && window.navigateToTrip('${trip.id}')"
+          style="margin-top:7px;width:100%;background:var(--c2);border:1px solid var(--c3);border-radius:7px;
+                 padding:6px;font-size:11px;font-weight:600;cursor:pointer;font-family:var(--fn);color:var(--ink3)">
+          Ouvrir le voyage →
+        </button>
+      </div>`;
+  }).join('');
+
+  _infoPanelEl.innerHTML = `
+    <div style="padding:10px 14px;border-bottom:1px solid var(--c3);display:flex;align-items:center;gap:8px;flex-shrink:0">
+      <div style="font-size:13px;font-weight:700;color:var(--ink);flex:1">📍 ${mp.entries.length} visites de ce lieu</div>
+      <button onclick="_mmCloseInfo()" style="background:none;border:none;cursor:pointer;color:var(--ink4);font-size:16px;padding:0;line-height:1">✕</button>
+    </div>
+    <div style="flex:1;overflow-y:auto">${visitBlocks}</div>
+  `;
   _infoPanelEl.style.display = 'flex';
 }
 
@@ -310,7 +378,7 @@ function _buildSidebarTree(pins) {
         <div class="mm-pin-row"
              data-lat="${pin.lat}" data-lng="${pin.lng}" data-tripid="${trip.id}"
              onclick="_mmFlyTo(${pin.lat}, ${pin.lng}, '${trip.id}')">
-          <span style="color:${pinColor};flex-shrink:0">${pin.entry?.dayFlag || pinEmoji}</span>
+          <span style="font-size:11px;font-weight:600;color:${pinColor};flex-shrink:0">${fmtFlag(pin.entry?.dayFlag) || pinEmoji}</span>
           <span class="mm-pin-label">${label}</span>
           ${dateStr ? `<span style="font-size:9px;color:var(--ink4);flex-shrink:0;white-space:nowrap">${dateStr}</span>` : ''}
         </div>`;
@@ -324,7 +392,7 @@ function _buildSidebarTree(pins) {
           <span class="mm-trip-name${isFocused ? ' mm-trip-focused' : ''}"
                 onclick="_mmFocusTrip('${trip.id}')"
                 title="${isFocused ? 'Voir tous les voyages' : 'Filtrer sur ce voyage'}"
-                style="cursor:pointer">${trip.flag || ''} ${trip.name}</span>
+                style="cursor:pointer">${fmtFlag(trip.flag)} ${trip.name}</span>
           <span class="mm-pin-count">${tPins.length}</span>
         </div>
         <div class="mm-trip-body">${pinsHtml || '<div style="padding:4px 12px 4px 28px;font-size:10px;color:var(--ink4)">Aucun PIN visible</div>'}</div>
@@ -399,14 +467,17 @@ function _redrawMarkers(pins) {
 
   const bounds = [];
 
-  for (const pin of pins) {
-    const color  = _colorForFlag(pin.entry?.dayFlag || pin.trip.flag);
-    const emoji  = _pinTypeMap()[pin.entry?.pinType] || null;
-    const marker = L.marker([pin.lat, pin.lng], { icon: _makeIcon(color, 14, emoji) });
-    marker.on('click', () => _mmShowInfo(pin.trip, pin.entry));
+  for (const mp of _mergedPins(pins)) {
+    const isMulti = mp.entries.length > 1;
+    const primary = mp.entries[0];
+    const color   = _colorForFlag(primary.entry?.dayFlag || primary.trip.flag);
+    const emoji   = isMulti ? null : (_pinTypeMap()[primary.entry?.pinType] || null);
+    const icon    = isMulti ? _makeMultiIcon(mp.entries.length) : _makeIcon(color, 14, emoji);
+    const marker  = L.marker([mp.lat, mp.lng], { icon });
+    marker.on('click', () => _mmShowMergedInfo(mp));
     marker.addTo(_map);
-    _markers.push({ marker, trip: pin.trip, entry: pin.entry });
-    bounds.push([pin.lat, pin.lng]);
+    _markers.push({ marker, trip: primary.trip, entry: primary.entry });
+    bounds.push([mp.lat, mp.lng]);
   }
 
   // Fit map view
@@ -599,10 +670,13 @@ function _escXml(s) {
 
 window._mmFlyTo = function(lat, lng, tripId) {
   if (!_map) return;
-  _map.flyTo([lat, lng], 12, { duration: 1 });
-  // Find pin and open info panel
-  const pin = _allPins.find(p => p.trip.id === tripId && p.lat == lat && p.lng == lng);
-  if (pin) setTimeout(() => _mmShowInfo(pin.trip, pin.entry), 500);
+  _map.flyTo([parseFloat(lat), parseFloat(lng)], 13, { duration: 0.8 });
+  // Find the merged pin at this location and show its info panel
+  const key = parseFloat(lat).toFixed(4) + ',' + parseFloat(lng).toFixed(4);
+  const visible = _visiblePins();
+  const merged  = _mergedPins(visible);
+  const mp = merged.find(m => m.lat.toFixed(4) + ',' + m.lng.toFixed(4) === key);
+  if (mp) setTimeout(() => _mmShowMergedInfo(mp), 450);
 };
 
 window._mmCloseInfo = function() {

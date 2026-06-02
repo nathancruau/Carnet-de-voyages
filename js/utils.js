@@ -162,6 +162,20 @@ export function trCol(m) {
   return { car: '#0284c7', ferry: '#0d9488', plane: '#7c3aed', bus: '#d97706', foot: '#16a34a', bike: '#e85d3e', train: '#92400e' }[m] || '#0284c7';
 }
 
+/**
+ * Format a flag emoji as "🇫🇷 FR".
+ * Non-flag values (ISO text, globe, etc.) are returned as-is.
+ */
+export function fmtFlag(flag) {
+  if (!flag) return '';
+  const pts = [...flag].map(c => c.codePointAt(0)).filter(v => v >= 0x1F1E6 && v <= 0x1F1FF);
+  if (pts.length >= 2) {
+    const iso = String.fromCharCode(pts[0] - 0x1F1E6 + 65) + String.fromCharCode(pts[1] - 0x1F1E6 + 65);
+    return String.fromCodePoint(pts[0]) + String.fromCodePoint(pts[1]) + ' ' + iso;
+  }
+  return flag;
+}
+
 // ── Date picker ────────────────────────────────────────────────────────────────
 
 const MNS_SHORT = ['Jan','Fév','Mar','Avr','Mai','Jun','Jul','Aoû','Sep','Oct','Nov','Déc'];
