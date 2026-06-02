@@ -227,9 +227,14 @@ function _searchAll(query) {
         results.push({ icon: '📅', title: day.title || `Jour ${day.num}`, sub: trip.name + (day.region ? ' · ' + day.region : ''), tripId: trip.id });
       }
       for (const item of (day.items || [])) {
-        if ((item.label || '').toLowerCase().includes(q) || (item.note || '').toLowerCase().includes(q)) {
-          results.push({ icon: item.emoji || '📍', title: item.label || 'Événement', sub: `${trip.name} · Jour ${day.num}`, tripId: trip.id });
+        if ((item.text || '').toLowerCase().includes(q) || (item.notes || '').toLowerCase().includes(q)) {
+          results.push({ icon: item.emoji || '📍', title: item.text || 'Événement', sub: `${trip.name} · Jour ${day.num}`, tripId: trip.id });
         }
+      }
+    }
+    for (const comp of (trip.companions || [])) {
+      if ((comp.name || '').toLowerCase().includes(q)) {
+        results.push({ icon: '👤', title: comp.name, sub: trip.name, tripId: trip.id });
       }
     }
     for (const exp of (trip.realExpenses || [])) {
@@ -540,27 +545,30 @@ function _heroHtml(trips) {
           <button class="btn-new" data-action="open-settings" title="Paramètres" style="padding:6px 10px;font-size:16px;line-height:1">⚙️</button>
         </div>
       </div>
-      <div class="hero-stats">
-        <div class="hs-card">
-          <div class="hs-v">${s.voyageCount}</div>
-          <div class="hs-l">Voyages</div>
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;width:100%">
+        <div class="hero-stats">
+          <div class="hs-card">
+            <div class="hs-v">${s.voyageCount}</div>
+            <div class="hs-l">Voyages</div>
+          </div>
+          <div class="hs-card">
+            <div class="hs-v">${s.weekendCount}</div>
+            <div class="hs-l">Week-ends</div>
+          </div>
+          <div class="hs-card">
+            <div class="hs-v">${s.sortieCount}</div>
+            <div class="hs-l">Sorties</div>
+          </div>
+          <div class="hs-card">
+            <div class="hs-v">${s.totalDays}</div>
+            <div class="hs-l">Jours</div>
+          </div>
+          <div class="hs-card">
+            <div class="hs-v">${s.countries}</div>
+            <div class="hs-l">Destinations</div>
+          </div>
         </div>
-        <div class="hs-card">
-          <div class="hs-v">${s.weekendCount}</div>
-          <div class="hs-l">Week-ends</div>
-        </div>
-        <div class="hs-card">
-          <div class="hs-v">${s.sortieCount}</div>
-          <div class="hs-l">Sorties</div>
-        </div>
-        <div class="hs-card">
-          <div class="hs-v">${s.totalDays}</div>
-          <div class="hs-l">Jours</div>
-        </div>
-        <div class="hs-card">
-          <div class="hs-v">${s.countries}</div>
-          <div class="hs-l">Destinations</div>
-        </div>
+        <input id="global-search" type="search" placeholder="🔍 Rechercher…" class="hero-search-input" autocomplete="off" style="width:220px;flex-shrink:0">
       </div>
       <div class="hero-search-wrap">
         <input id="global-search" type="search" placeholder="🔍 Rechercher un voyage, lieu, dépense…" class="hero-search-input" autocomplete="off">

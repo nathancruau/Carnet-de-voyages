@@ -10,6 +10,55 @@ import { updateTopStats } from './trip.js';
 
 let _activeTab = 'depenses'; // 'depenses' | 'bilans' | 'budgetvsdep'
 
+// ── Currency support ──────────────────────────────────────────────────────────
+
+const CURRENCIES = [
+  { code:'EUR', symbol:'€', name:'Euro' },
+  { code:'USD', symbol:'$', name:'Dollar US' },
+  { code:'GBP', symbol:'£', name:'Livre sterling' },
+  { code:'CHF', symbol:'Fr', name:'Franc suisse' },
+  { code:'JPY', symbol:'¥', name:'Yen japonais' },
+  { code:'CAD', symbol:'CA$', name:'Dollar canadien' },
+  { code:'AUD', symbol:'A$', name:'Dollar australien' },
+  { code:'SEK', symbol:'kr', name:'Couronne suédoise' },
+  { code:'NOK', symbol:'kr', name:'Couronne norvégienne' },
+  { code:'DKK', symbol:'kr', name:'Couronne danoise' },
+  { code:'MXN', symbol:'$', name:'Peso mexicain' },
+  { code:'MAD', symbol:'DH', name:'Dirham marocain' },
+  { code:'TND', symbol:'DT', name:'Dinar tunisien' },
+  { code:'TRY', symbol:'₺', name:'Livre turque' },
+  { code:'THB', symbol:'฿', name:'Baht thaïlandais' },
+  { code:'VND', symbol:'₫', name:'Dong vietnamien' },
+  { code:'CNY', symbol:'¥', name:'Yuan chinois' },
+  { code:'INR', symbol:'₹', name:'Roupie indienne' },
+  { code:'SGD', symbol:'S$', name:'Dollar de Singapour' },
+  { code:'MYR', symbol:'RM', name:'Ringgit malaisien' },
+  { code:'ISK', symbol:'kr', name:'Couronne islandaise' },
+  { code:'IDR', symbol:'Rp', name:'Roupie indonésienne' },
+  { code:'BRL', symbol:'R$', name:'Réal brésilien' },
+  { code:'KRW', symbol:'₩', name:'Won sud-coréen' },
+  { code:'HKD', symbol:'HK$', name:'Dollar de Hong Kong' },
+  { code:'NZD', symbol:'NZ$', name:'Dollar néo-zélandais' },
+  { code:'ZAR', symbol:'R', name:'Rand sud-africain' },
+];
+
+let _ratesCache    = null;
+let _ratesFetchedAt = 0;
+
+async function _fetchRates() {
+  const now = Date.now();
+  if (_ratesCache && now - _ratesFetchedAt < 3_600_000) return _ratesCache;
+  try {
+    const resp = await fetch('https://open.er-api.com/v6/latest/EUR');
+    const data = await resp.json();
+    if (data.result === 'success') {
+      _ratesCache = data.rates;
+      _ratesFetchedAt = now;
+    }
+  } catch (_) {}
+  return _ratesCache || {};
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function _esc(s) {
@@ -48,9 +97,12 @@ function computeBalances(trip) {
       continue;
     }
 
-    // Payer gets credited the full amount
+    // Payer gets credited the full amount (use EUR-converted amount when available)
+    const eurAmt = exp.currency && exp.currency !== 'EUR'
+      ? (Number(exp.amountEur) || Number(exp.amount) || 0)
+      : (Number(exp.amount) || 0);
     if (balances[exp.paidById] !== undefined) {
-      balances[exp.paidById] += Number(exp.amount) || 0;
+      balances[exp.paidById] += eurAmt;
     }
 
     if (exp.splits && exp.splits.length > 0) {
@@ -64,7 +116,10 @@ function computeBalances(trip) {
       // Equal split (backward compat)
       const splitCount = (exp.sharedWith || []).length;
       if (splitCount === 0) continue;
-      const share = (Number(exp.amount) || 0) / splitCount;
+      const eurAmt2 = exp.currency && exp.currency !== 'EUR'
+        ? (Number(exp.amountEur) || Number(exp.amount) || 0)
+        : (Number(exp.amount) || 0);
+      const share = eurAmt2 / splitCount;
       for (const pid of (exp.sharedWith || [])) {
         if (balances[pid] !== undefined) balances[pid] -= share;
       }
@@ -312,7 +367,11 @@ function _renderDepenses(trip, participants) {
           ${exp.note ? `<div style="font-size:10px;color:var(--ink4);margin-top:1px">${_esc(exp.note)}</div>` : ''}
           ${exp.receipt ? `<img src="${_esc(exp.receipt)}" alt="Reçu" title="Voir le reçu" style="max-height:28px;max-width:40px;border-radius:3px;object-fit:cover;margin-top:3px;cursor:pointer;display:block" onclick="window.open(this.src,'_blank')">` : ''}
         </td>
-        <td style="font-weight:700">${_fmtEur(exp.amount)}</td>
+        <td style="font-weight:700">
+          ${exp.currency && exp.currency !== 'EUR'
+            ? `${Number(exp.amount).toLocaleString('fr-FR', {minimumFractionDigits:2,maximumFractionDigits:2})} ${exp.currency}<div style="font-size:10px;color:var(--ink4)">${_fmtEur(exp.amountEur || exp.amount)}</div>`
+            : _fmtEur(exp.amount)}
+        </td>
         <td>${payerHtml}</td>
         <td><div class="split-chips">${sharedHtml || '—'}</div></td>
         <td>${catHtml}</td>
@@ -684,72 +743,99 @@ function _refreshMain(tripId) {
   if (mainEl) mainEl.innerHTML = _renderMain(trip, participants, balances, settlements);
 }
 
-// ── Split inputs helper ───────────────────────────────────────────────────────
+// ── Participants split helpers ────────────────────────────────────────────────
 
-function _buildSplitInputsHtml(state, participants) {
-  const active = participants.filter(p => state.sharedWith.includes(p.id));
-  if (active.length === 0) return '<div style="font-size:11px;color:var(--ink4)">Sélectionnez des participants ci-dessus.</div>';
-
-  const rows = active.map(p => {
-    const existing = state.splits?.find(s => s.id === p.id);
-    const val = existing ? Number(existing.amount).toFixed(2) : '0.00';
+function _buildParticipantsHtml(state, participants, expAmount) {
+  const curSym = CURRENCIES.find(c => c.code === state.currency)?.symbol || '€';
+  const rows = participants.map(p => {
+    const split = state.participantSplits.find(s => s.id === p.id);
+    const incl  = !!split;
+    const amt   = split ? split.amount : 0;
     return `
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-        <div class="comp-avatar" style="background:${_esc(p.color || '#0d9488')};width:22px;height:22px;font-size:9px;font-weight:800;flex-shrink:0">${(p.name||'?').slice(0,2).toUpperCase()}</div>
-        <span style="flex:1;font-size:12px;font-weight:600;color:var(--ink);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_esc(p.name)}</span>
-        <input type="number" class="ex-split-input" data-split-pid="${_esc(p.id)}"
-          min="0" step="0.01" value="${val}"
-          style="width:90px;padding:5px 8px;border:1.5px solid var(--c3);border-radius:8px;font-size:12px;text-align:right;background:var(--c);color:var(--ink)"> €
-      </div>`;
+      <label style="display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:8px;
+                    margin-bottom:3px;cursor:pointer;user-select:none;
+                    background:${incl ? 'var(--tl)' : 'var(--c)'};
+                    border:1.5px solid ${incl ? 'var(--teal)' : 'var(--c3)'}">
+        <input type="checkbox" class="tri-part-check" data-part-id="${_esc(p.id)}"
+          ${incl ? 'checked' : ''}
+          style="width:16px;height:16px;cursor:pointer;accent-color:var(--teal);flex-shrink:0">
+        <div class="comp-avatar"
+          style="background:${_esc(p.color || '#0d9488')};width:24px;height:24px;font-size:10px;font-weight:800;flex-shrink:0">
+          ${(p.name || '?').slice(0, 2).toUpperCase()}
+        </div>
+        <span style="flex:1;font-size:12px;font-weight:600;color:var(--ink);
+                     min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+          ${_esc(p.name)}
+        </span>
+        <input type="number" class="tri-part-amount" data-part-id="${_esc(p.id)}"
+          min="0" step="0.01" value="${amt > 0 || incl ? amt.toFixed(2) : ''}"
+          ${!incl ? 'disabled' : ''}
+          style="width:78px;padding:4px 7px;border:1.5px solid var(--c3);border-radius:7px;
+                 font-size:12px;text-align:right;background:var(--c);color:var(--ink);
+                 ${!incl ? 'opacity:.35;' : ''}">
+        <span style="font-size:11px;color:var(--ink3);flex-shrink:0;min-width:10px">${_esc(curSym)}</span>
+      </label>`;
   }).join('');
 
-  const total = (state.splits || []).filter(s => state.sharedWith.includes(s.id)).reduce((sum, s) => sum + (Number(s.amount) || 0), 0);
-  const roundedTotal = Math.round(total * 100) / 100;
-  const ok = roundedTotal === 0 && active.length > 0 ? false : true; // will validate on amount
+  const total   = state.participantSplits.reduce((s, ps) => s + ps.amount, 0);
+  const rounded = Math.round(total * 100) / 100;
+  const ok      = expAmount > 0 && Math.abs(rounded - expAmount) < 0.01;
+
   return `
-    <div id="ex-split-rows">${rows}</div>
-    <div id="ex-split-total" style="display:flex;justify-content:space-between;align-items:center;padding:6px 8px;background:var(--c2);border-radius:8px;border:1px solid var(--c3);font-size:12px">
-      <span style="color:var(--ink4)">Somme des parts</span>
-      <span id="ex-split-total-val" style="font-weight:700;color:var(--ink)">${_fmtEur(roundedTotal)}</span>
+    <div id="tri-participants-list">${rows}</div>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-top:5px;
+                padding:6px 10px;background:var(--c2);border-radius:8px;border:1px solid var(--c3)">
+      <button type="button" id="parts-equal"
+        style="background:var(--teal);border:none;border-radius:5px;padding:3px 10px;
+               font-size:10px;font-weight:700;cursor:pointer;color:#fff;font-family:var(--fn)">
+        Égaliser
+      </button>
+      <div style="font-size:12px;font-weight:700">
+        <span id="tri-part-total-val"
+          style="color:${ok ? 'var(--grn)' : expAmount > 0 ? 'var(--coral)' : 'var(--ink4)'}">
+          ${_fmtEur(rounded)}
+        </span>
+        ${expAmount > 0 ? `<span style="font-size:10px;font-weight:400;color:var(--ink4)"> / ${_fmtEur(expAmount)}</span>` : ''}
+      </div>
     </div>`;
 }
 
-function _attachSplitInputListeners(state, participants) {
-  document.querySelectorAll('.ex-split-input').forEach(input => {
-    input.addEventListener('input', () => {
-      const pid = input.dataset.splitPid;
-      const val = parseFloat(input.value) || 0;
-      if (!state.splits) return;
-      const idx = state.splits.findIndex(s => s.id === pid);
-      if (idx !== -1) state.splits[idx].amount = val;
-      else state.splits.push({ id: pid, amount: val });
-      // Update total display
-      const total = state.splits.filter(s => state.sharedWith.includes(s.id)).reduce((sum, s) => sum + (Number(s.amount) || 0), 0);
-      const rounded = Math.round(total * 100) / 100;
-      const expAmount = parseFloat(document.getElementById('ex-amount')?.value || '0') || 0;
-      const totalEl = document.getElementById('ex-split-total-val');
-      if (totalEl) {
-        const ok = Math.abs(rounded - expAmount) < 0.01;
-        totalEl.textContent = _fmtEur(rounded) + (expAmount > 0 ? ' / ' + _fmtEur(expAmount) : '');
-        totalEl.style.color = ok ? 'var(--grn)' : 'var(--coral)';
-      }
-    });
+function _equalizeParticipants(state, amount) {
+  const n = state.participantSplits.length;
+  if (n === 0) return;
+  const share = Math.round((amount / n) * 100) / 100;
+  // Distribute rounding remainder to first participant
+  let total = share * n;
+  const remainder = Math.round((amount - total) * 100) / 100;
+  state.participantSplits.forEach((ps, i) => {
+    ps.amount = i === 0 ? share + remainder : share;
   });
 }
 
-function _refreshSplitUI(state, participants) {
-  const customDiv = document.getElementById('ex-custom-splits');
-  if (!customDiv || customDiv.style.display === 'none') return;
-  // Remove splits for unchecked participants, add for newly checked
-  const active = participants.filter(p => state.sharedWith.includes(p.id));
-  if (state.splits) {
-    state.splits = state.splits.filter(s => state.sharedWith.includes(s.id));
-    for (const p of active) {
-      if (!state.splits.find(s => s.id === p.id)) state.splits.push({ id: p.id, amount: 0 });
-    }
+function _refreshParticipantsSection(state, participants, expAmount) {
+  const section = document.getElementById('ex-split-section');
+  if (!section) return;
+  const label = section.querySelector('label');
+  const newHtml = _buildParticipantsHtml(state, participants, expAmount);
+  // Remove everything after the label
+  while (section.children.length > 1) section.removeChild(section.lastChild);
+  const div = document.createElement('div');
+  div.innerHTML = newHtml;
+  while (div.firstChild) section.appendChild(div.firstChild);
+}
+
+function _refreshEurEquiv() {
+  const amountEl = document.getElementById('ex-amount');
+  const equivEl  = document.getElementById('ex-eur-equiv');
+  if (!equivEl || !amountEl) return;
+  const amount = parseFloat(amountEl.value || '0') || 0;
+  const state_currency = document.getElementById('ex-currency')?.value || 'EUR';
+  const rate   = parseFloat(document.getElementById('ex-rate')?.value || '1') || 1;
+  if (state_currency !== 'EUR' && amount > 0) {
+    equivEl.textContent = '≈ ' + (amount * rate).toFixed(2) + ' €';
+  } else {
+    equivEl.textContent = '';
   }
-  customDiv.innerHTML = _buildSplitInputsHtml(state, participants);
-  _attachSplitInputListeners(state, participants);
 }
 
 // ── Add / Edit Expense Modal ──────────────────────────────────────────────────
@@ -766,13 +852,27 @@ function _openExpenseModal(tripId, expId) {
   const exp          = isEdit ? expenses.find(ex => ex.id === expId) : null;
 
   const defaultPayer  = participants[0]?.id || 'moi';
-  const defaultShared = participants.map(p => p.id);
 
+  // Build initial participant splits
+  function _initSplits(amount) {
+    if (exp?.splits?.length) {
+      return exp.splits.map(s => ({ id: s.id, amount: Number(s.amount) || 0 }));
+    }
+    if (exp?.sharedWith?.length) {
+      const share = amount / exp.sharedWith.length;
+      return exp.sharedWith.map(id => ({ id, amount: Math.round(share * 100) / 100 }));
+    }
+    const share = amount / participants.length;
+    return participants.map(p => ({ id: p.id, amount: Math.round(share * 100) / 100 }));
+  }
+
+  const initAmount = Number(exp?.amount) || 0;
   const state = {
-    paidById:   exp?.paidById   || defaultPayer,
-    sharedWith: exp?.sharedWith ? [...exp.sharedWith] : [...defaultShared],
-    splits:     exp?.splits     ? exp.splits.map(s => ({ ...s })) : null, // null = equal split
-    receipt:    exp?.receipt    || null,
+    paidById:          exp?.paidById   || defaultPayer,
+    participantSplits: _initSplits(initAmount),  // [{ id, amount }] — only included participants
+    receipt:           exp?.receipt    || null,
+    currency:          exp?.currency   || 'EUR',
+    exchangeRate:      exp?.exchangeRate || 1,    // 1 foreign = exchangeRate EUR
   };
 
   async function _compressImage(file) {
@@ -833,80 +933,78 @@ function _openExpenseModal(tripId, expId) {
       ? cats.map(c =>
           `<option value="${_esc(c.id)}"${defaultCatId === c.id ? ' selected' : ''}>${_esc(c.icon + ' ' + c.name)}</option>`
         ).join('')
-      : `<option value="" disabled>Aucune catégorie disponible — créez-en une dans Budget</option>`;
+      : `<option value="" disabled>Aucune catégorie — créez-en dans Budget</option>`;
 
     const daysOpts = `<option value="">Aucun jour</option>` +
       days.map(d =>
-        `<option value="${_esc(d.id)}"${exp?.dayId === d.id ? ' selected' : ''}>Jour ${d.num}${d.title ? ' \xb7 ' + _esc(d.title) : ''}${d.date ? ' (' + fmtDateShort(d.date) + ')' : ''}</option>`
+        `<option value="${_esc(d.id)}"${exp?.dayId === d.id ? ' selected' : ''}>Jour ${d.num}${d.title ? ' · ' + _esc(d.title) : ''}${d.date ? ' (' + fmtDateShort(d.date) + ')' : ''}</option>`
       ).join('');
 
     const payerOptions = participants.map(p =>
       `<option value="${_esc(p.id)}"${state.paidById === p.id ? ' selected' : ''}>${_esc(p.name)}</option>`
     ).join('');
 
-    const sharedCheckboxes = participants.map(p => {
-      const checked = state.sharedWith.includes(p.id);
-      return `
-        <label style="display:flex;align-items:center;gap:7px;padding:4px 0;cursor:pointer;font-size:12px;color:var(--ink2)">
-          <input type="checkbox" data-shared-id="${_esc(p.id)}" ${checked ? 'checked' : ''}
-            style="width:15px;height:15px;cursor:pointer;accent-color:var(--teal)">
-          <div class="comp-avatar" style="background:${_esc(p.color || '#0d9488')};width:20px;height:20px;font-size:9px;font-weight:800">${(p.name || '?').slice(0, 2).toUpperCase()}</div>
-          ${_esc(p.name)}
-        </label>`;
-    }).join('');
+    const currencyOptions = CURRENCIES.map(c =>
+      `<option value="${c.code}"${state.currency === c.code ? ' selected' : ''}>${c.code} (${c.symbol}) — ${_esc(c.name)}</option>`
+    ).join('');
 
-    const today = new Date().toISOString().slice(0, 10);
+    const today       = new Date().toISOString().slice(0, 10);
+    const isNonEur    = state.currency !== 'EUR';
+    const curSym      = CURRENCIES.find(c => c.code === state.currency)?.symbol || '€';
+    const expAmount   = Number(exp?.amount) || 0;
+    const eurEquiv    = isNonEur && expAmount > 0 ? (expAmount * state.exchangeRate).toFixed(2) : '';
 
     return `
       <button class="mc" onclick="closeModal()">✕</button>
-      <h3>${isEdit ? '✏️ Modifier la d\xe9pense' : '+ Nouvelle d\xe9pense'}</h3>
+      <h3>${isEdit ? '✏️ Modifier la dépense' : '+ Nouvelle dépense'}</h3>
 
       <div class="fg">
         <label>Description</label>
-        <input type="text" id="ex-desc" placeholder="Ex : Restaurant du soir" value="${_esc(exp?.desc || '')}">
+        <input type="text" id="ex-desc" placeholder="Ex : Restaurant du soir" value="${_esc(exp?.desc || '')}">
       </div>
 
       <div class="fg">
-        <label>Montant (€)</label>
-        <input type="number" id="ex-amount" min="0" step="0.01" placeholder="0" value="${_esc(exp?.amount ?? '')}">
+        <label>Montant</label>
+        <div style="display:flex;gap:8px;align-items:center">
+          <input type="number" id="ex-amount" min="0" step="0.01" placeholder="0"
+            value="${_esc(exp?.amount ?? '')}" style="flex:1">
+          <select id="ex-currency"
+            style="width:130px;padding:8px 6px;border:1.5px solid var(--c3);border-radius:8px;
+                   font-size:12px;color:var(--ink);background:var(--c);font-family:var(--fn)">
+            ${currencyOptions}
+          </select>
+        </div>
+        <div id="ex-rate-row" style="display:${isNonEur ? 'flex' : 'none'};align-items:center;gap:6px;margin-top:6px;
+             background:var(--c2);border-radius:8px;padding:6px 10px;border:1px solid var(--c3)">
+          <span style="font-size:11px;color:var(--ink4)">1 <span id="ex-cur-code">${_esc(state.currency)}</span> =</span>
+          <input type="number" id="ex-rate" min="0.000001" step="0.0001"
+            value="${state.exchangeRate.toFixed(4)}"
+            style="width:80px;padding:3px 7px;border:1.5px solid var(--c3);border-radius:6px;font-size:12px;text-align:right;background:var(--c);color:var(--ink)">
+          <span style="font-size:11px;color:var(--ink4)">€</span>
+          <span style="flex:1"></span>
+          <span id="ex-eur-equiv" style="font-size:11px;font-weight:700;color:var(--teal)">
+            ${eurEquiv ? '≈ ' + eurEquiv + ' €' : ''}
+          </span>
+          <button type="button" id="ex-rate-refresh" title="Actualiser le taux"
+            style="background:none;border:none;cursor:pointer;font-size:14px;color:var(--ink4);padding:0">
+            🔄
+          </button>
+        </div>
       </div>
 
       <div class="fg">
-        <label>Cat\xe9gorie</label>
+        <label>Catégorie</label>
         <select id="ex-cat">${catsOpts}</select>
       </div>
 
       <div class="fg">
-        <label>Pay\xe9 par</label>
+        <label>Payé par</label>
         <select id="ex-payer">${payerOptions}</select>
       </div>
 
-      <div class="fg">
-        <label>Partag\xe9 avec</label>
-        <div id="ex-shared" style="display:flex;flex-direction:column;gap:2px;background:var(--c);border:1.5px solid var(--c3);border-radius:8px;padding:8px 10px">
-          ${sharedCheckboxes}
-        </div>
-        <div style="display:flex;gap:6px;margin-top:5px">
-          <button type="button" id="shared-all"  style="background:var(--c2);border:1px solid var(--c3);border-radius:6px;padding:4px 10px;font-size:10px;font-weight:700;cursor:pointer;color:var(--ink3)">Tous</button>
-          <button type="button" id="shared-none" style="background:var(--c2);border:1px solid var(--c3);border-radius:6px;padding:4px 10px;font-size:10px;font-weight:700;cursor:pointer;color:var(--ink3)">Aucun</button>
-        </div>
-      </div>
-
       <div class="fg" id="ex-split-section">
-        <label>Répartition des coûts</label>
-        <div style="display:flex;gap:10px;margin-bottom:8px">
-          <label style="display:flex;align-items:center;gap:5px;font-size:12px;cursor:pointer">
-            <input type="radio" name="ex-split-mode" value="equal" ${!state.splits ? 'checked' : ''} style="accent-color:var(--teal)">
-            Égale
-          </label>
-          <label style="display:flex;align-items:center;gap:5px;font-size:12px;cursor:pointer">
-            <input type="radio" name="ex-split-mode" value="custom" ${state.splits ? 'checked' : ''} style="accent-color:var(--teal)">
-            Personnalisée
-          </label>
-        </div>
-        <div id="ex-custom-splits" style="display:${state.splits ? 'block' : 'none'}">
-          ${_buildSplitInputsHtml(state, participants)}
-        </div>
+        <label>Participants &amp; répartition</label>
+        ${_buildParticipantsHtml(state, participants, expAmount || 0)}
       </div>
 
       <div class="fg">
@@ -921,7 +1019,7 @@ function _openExpenseModal(tripId, expId) {
 
       <div class="fg">
         <label>Note</label>
-        <textarea id="ex-note" rows="2" placeholder="Remarque optionnelle...">${_esc(exp?.note || '')}</textarea>
+        <textarea id="ex-note" rows="2" placeholder="Remarque optionnelle…">${_esc(exp?.note || '')}</textarea>
       </div>
 
       <div class="fg">
@@ -940,54 +1038,98 @@ function _openExpenseModal(tripId, expId) {
       state.paidById = ev.target.value;
     });
 
-    document.getElementById('ex-shared')?.addEventListener('change', ev => {
-      const cb = ev.target.closest('[data-shared-id]');
-      if (!cb) return;
-      const pid = cb.dataset.sharedId;
-      if (cb.checked) {
-        if (!state.sharedWith.includes(pid)) state.sharedWith.push(pid);
+    // Amount change → auto-equalize participants
+    document.getElementById('ex-amount')?.addEventListener('input', () => {
+      const amount = parseFloat(document.getElementById('ex-amount')?.value || '0') || 0;
+      _equalizeParticipants(state, amount);
+      _refreshParticipantsSection(state, participants, amount);
+      _refreshEurEquiv();
+    });
+
+    // Currency change
+    document.getElementById('ex-currency')?.addEventListener('change', async ev => {
+      state.currency = ev.target.value;
+      const isNonEur = state.currency !== 'EUR';
+      const rateRow  = document.getElementById('ex-rate-row');
+      if (rateRow) rateRow.style.display = isNonEur ? 'flex' : 'none';
+      document.getElementById('ex-cur-code') && (document.getElementById('ex-cur-code').textContent = state.currency);
+      if (isNonEur) {
+        // Fetch rate
+        const rates = await _fetchRates();
+        const foreignPerEur = rates[state.currency] || 1;
+        state.exchangeRate = Math.round((1 / foreignPerEur) * 10000) / 10000;
+        const rateInput = document.getElementById('ex-rate');
+        if (rateInput) rateInput.value = state.exchangeRate.toFixed(4);
       } else {
-        state.sharedWith = state.sharedWith.filter(id => id !== pid);
+        state.exchangeRate = 1;
       }
-      _refreshSplitUI(state, participants);
+      _refreshParticipantsSection(state, participants,
+        parseFloat(document.getElementById('ex-amount')?.value || '0') || 0);
+      _refreshEurEquiv();
     });
 
-    document.getElementById('shared-all')?.addEventListener('click', () => {
-      state.sharedWith = participants.map(p => p.id);
-      document.querySelectorAll('[data-shared-id]').forEach(cb => { cb.checked = true; });
-      _refreshSplitUI(state, participants);
+    // Rate manual edit
+    document.getElementById('ex-rate')?.addEventListener('input', ev => {
+      state.exchangeRate = parseFloat(ev.target.value) || 1;
+      _refreshEurEquiv();
     });
 
-    document.getElementById('shared-none')?.addEventListener('click', () => {
-      state.sharedWith = [];
-      document.querySelectorAll('[data-shared-id]').forEach(cb => { cb.checked = false; });
-      _refreshSplitUI(state, participants);
+    // Refresh rate button
+    document.getElementById('ex-rate-refresh')?.addEventListener('click', async () => {
+      const rates = await _fetchRates();
+      const foreignPerEur = rates[state.currency] || 1;
+      state.exchangeRate = Math.round((1 / foreignPerEur) * 10000) / 10000;
+      const rateInput = document.getElementById('ex-rate');
+      if (rateInput) rateInput.value = state.exchangeRate.toFixed(4);
+      _refreshEurEquiv();
+      notify('Taux actualisé', '🔄');
     });
 
-    // Split mode toggle
-    document.querySelectorAll('[name="ex-split-mode"]').forEach(radio => {
-      radio.addEventListener('change', () => {
-        const isCustom = document.querySelector('[name="ex-split-mode"]:checked')?.value === 'custom';
-        const customDiv = document.getElementById('ex-custom-splits');
-        if (!customDiv) return;
-        if (isCustom) {
-          // Pre-fill with equal split
-          const amount = parseFloat(document.getElementById('ex-amount')?.value || '0') || 0;
-          const active = participants.filter(p => state.sharedWith.includes(p.id));
-          const share  = active.length > 0 ? Math.round((amount / active.length) * 100) / 100 : 0;
-          state.splits = active.map(p => ({ id: p.id, amount: share }));
-          customDiv.style.display = 'block';
-          customDiv.innerHTML = _buildSplitInputsHtml(state, participants);
-          _attachSplitInputListeners(state, participants);
-        } else {
-          state.splits = null;
-          customDiv.style.display = 'none';
+    // Participant checkbox change
+    document.getElementById('ex-split-section')?.addEventListener('change', ev => {
+      const cb = ev.target.closest('.tri-part-check');
+      if (!cb) return;
+      const pid    = cb.dataset.partId;
+      const amount = parseFloat(document.getElementById('ex-amount')?.value || '0') || 0;
+      if (cb.checked) {
+        if (!state.participantSplits.find(s => s.id === pid)) {
+          state.participantSplits.push({ id: pid, amount: 0 });
         }
-      });
+      } else {
+        state.participantSplits = state.participantSplits.filter(s => s.id !== pid);
+      }
+      _equalizeParticipants(state, amount);
+      _refreshParticipantsSection(state, participants, amount);
     });
 
-    // Split input changes
-    _attachSplitInputListeners(state, participants);
+    // Participant amount change (manual)
+    document.getElementById('ex-split-section')?.addEventListener('input', ev => {
+      const input = ev.target.closest('.tri-part-amount');
+      if (!input) return;
+      const pid = input.dataset.partId;
+      const val = parseFloat(input.value) || 0;
+      const ps  = state.participantSplits.find(s => s.id === pid);
+      if (ps) ps.amount = val;
+      // Just update the total indicator
+      const amount = parseFloat(document.getElementById('ex-amount')?.value || '0') || 0;
+      const total  = state.participantSplits.reduce((s, p) => s + p.amount, 0);
+      const rounded = Math.round(total * 100) / 100;
+      const ok = amount > 0 && Math.abs(rounded - amount) < 0.01;
+      const totalEl = document.getElementById('tri-part-total-val');
+      if (totalEl) {
+        totalEl.textContent = _fmtEur(rounded) + (amount > 0 ? ' / ' + _fmtEur(amount) : '');
+        totalEl.style.color = ok ? 'var(--grn)' : amount > 0 ? 'var(--coral)' : 'var(--ink4)';
+      }
+    });
+
+    // Equalize button
+    document.getElementById('ex-split-section')?.addEventListener('click', ev => {
+      if (ev.target.closest('#parts-equal')) {
+        const amount = parseFloat(document.getElementById('ex-amount')?.value || '0') || 0;
+        _equalizeParticipants(state, amount);
+        _refreshParticipantsSection(state, participants, amount);
+      }
+    });
 
     attachReceiptEvents();
 
@@ -1001,47 +1143,48 @@ function _openExpenseModal(tripId, expId) {
 
       state.paidById = document.getElementById('ex-payer')?.value || state.paidById;
 
-      if (!desc)          { notify('Veuillez saisir une description', '⚠️'); return; }
-      if (amount <= 0)    { notify('Veuillez saisir un montant positif', '⚠️'); return; }
-      if (state.sharedWith.length === 0) { notify('S\xe9lectionnez au moins une personne', '⚠️'); return; }
+      if (!desc)       { notify('Veuillez saisir une description', '⚠️'); return; }
+      if (amount <= 0) { notify('Veuillez saisir un montant positif', '⚠️'); return; }
+      if (state.participantSplits.length === 0) { notify('Sélectionnez au moins un participant', '⚠️'); return; }
 
-      // Validate custom splits sum
-      if (state.splits) {
-        const splitTotal = state.splits.filter(s => state.sharedWith.includes(s.id)).reduce((sum, s) => sum + (Number(s.amount) || 0), 0);
-        if (Math.abs(splitTotal - amount) > 0.01) {
-          notify(`La somme des parts (${_fmtEur(splitTotal)}) doit \xe9galer le montant total (${_fmtEur(amount)})`, '⚠️');
-          return;
-        }
+      // Validate splits sum
+      const splitTotal = state.participantSplits.reduce((s, ps) => s + ps.amount, 0);
+      if (Math.abs(splitTotal - amount) > 0.01) {
+        notify(`La somme des parts (${_fmtEur(splitTotal)}) doit égaler le montant (${_fmtEur(amount)})`, '⚠️');
+        return;
       }
 
       const freshTrip = getTrip(tripId);
       const newExp    = [...(freshTrip.realExpenses || [])];
 
-      // Only keep splits for active participants; clear if equal mode
-      const finalSplits = state.splits
-        ? state.splits.filter(s => state.sharedWith.includes(s.id))
-        : null;
+      // Compute EUR amount for cross-currency balance calculations
+      const amountEur = state.currency !== 'EUR'
+        ? Math.round(amount * state.exchangeRate * 100) / 100
+        : amount;
 
       const expData = {
         desc,
         amount,
-        catId:      catId  || null,
-        paidById:   state.paidById,
-        sharedWith: state.sharedWith,
-        splits:     finalSplits,
+        amountEur,
+        currency:     state.currency !== 'EUR' ? state.currency : undefined,
+        exchangeRate: state.currency !== 'EUR' ? state.exchangeRate : undefined,
+        catId:        catId  || null,
+        paidById:     state.paidById,
+        sharedWith:   state.participantSplits.map(ps => ps.id),
+        splits:       state.participantSplits,
         date,
-        dayId:      dayId  || null,
+        dayId:        dayId  || null,
         note,
-        receipt:    state.receipt || null,
+        receipt:      state.receipt || null,
       };
 
       if (isEdit) {
         const idx = newExp.findIndex(ex => ex.id === expId);
         if (idx !== -1) newExp[idx] = { ...newExp[idx], ...expData };
-        notify('D\xe9pense mise \xe0 jour', '✓');
+        notify('Dépense mise à jour', '✓');
       } else {
         newExp.push({ id: 'ex_' + uid(), ...expData });
-        notify('D\xe9pense ajout\xe9e', '✓');
+        notify('Dépense ajoutée', '✓');
       }
 
       updateTrip(tripId, { realExpenses: newExp });
