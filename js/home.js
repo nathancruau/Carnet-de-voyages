@@ -82,7 +82,7 @@ const _ISO_N_A2 = {
   792:'TR',795:'TM',800:'UG',804:'UA',807:'MK',818:'EG',826:'GB',840:'US',
   858:'UY',860:'UZ',862:'VE',887:'YE',894:'ZM',275:'PS',51:'AM',31:'AZ',
   84:'BZ',60:'BM',854:'BF',702:'SG',158:'TW',784:'AE',233:'EE',428:'LV',
-  470:'MT',388:'JM',630:'PR',192:'CU',
+  470:'MT',388:'JM',630:'PR',192:'CU',352:'IS',533:'AW',690:'SC',748:'SZ',
 };
 
 // ── Destination text → alpha-2 (French names first) ────────────────────────────
@@ -195,9 +195,15 @@ function _drawWorldMap(canvas, features, visitedSet) {
     for (const poly of polys) {
       const ring = poly[0];
       ctx.beginPath();
+      let prevLon = null;
       ring.forEach(([lon, lat], i) => {
         const [x, y] = proj(lon, lat);
-        i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+        if (i === 0 || (prevLon !== null && Math.abs(lon - prevLon) > 180)) {
+          ctx.moveTo(x, y);
+        } else {
+          ctx.lineTo(x, y);
+        }
+        prevLon = lon;
       });
       ctx.closePath();
       ctx.fill();
@@ -227,8 +233,9 @@ function _searchAll(query) {
       }
     }
     for (const exp of (trip.realExpenses || [])) {
-      if ((exp.label || '').toLowerCase().includes(q) || (exp.note || '').toLowerCase().includes(q) || (exp.type || '').toLowerCase().includes(q)) {
-        results.push({ icon: '💳', title: exp.label || exp.type || 'Dépense', sub: `${trip.name} · ${exp.amount ? exp.amount + ' €' : ''}`, tripId: trip.id });
+      const catName = (trip.budgetCats || []).find(c => c.id === exp.catId)?.name || '';
+      if ((exp.desc || '').toLowerCase().includes(q) || (exp.note || '').toLowerCase().includes(q) || catName.toLowerCase().includes(q)) {
+        results.push({ icon: '💳', title: exp.desc || catName || 'Dépense', sub: `${trip.name} · ${exp.amount ? exp.amount + ' €' : ''}`, tripId: trip.id });
       }
     }
     if (results.length >= 30) break;
@@ -466,14 +473,6 @@ function _statsViewHtml(trips) {
         ${selfSpent > 0 && selfSpent !== s.totalSpent ? `<div style="${_sc}"><div style="${_sv}">${Math.round(selfSpent).toLocaleString('fr-FR')} €</div><div style="${_sl}">Dépenses perso.</div></div>` : ''}
       </div>
 
-      <div id="world-map-wrap" style="background:var(--c2);border-radius:12px;padding:16px;margin-bottom:16px">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
-          <h4 style="font-size:13px;font-weight:700;color:var(--ink3)">🌍 Pays visités</h4>
-          <span style="font-family:var(--sf);font-size:18px;font-weight:700;color:var(--teal)">${visitedCount}<span style="font-size:11px;font-weight:400;color:var(--ink4)"> / ~195</span></span>
-        </div>
-        <canvas id="world-map-canvas" class="world-map-canvas" width="600" height="276" aria-label="Carte du monde des pays visités"></canvas>
-      </div>
-
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
         <div style="background:var(--c2);border-radius:12px;padding:16px">
           <h4 style="font-size:13px;font-weight:700;color:var(--ink3);margin-bottom:12px">🏆 Top destinations</h4>
@@ -487,7 +486,7 @@ function _statsViewHtml(trips) {
         </div>
       </div>
 
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
         ${totalKm > 0 ? `
         <div style="background:var(--c2);border-radius:12px;padding:16px">
           <h4 style="font-size:13px;font-weight:700;color:var(--ink3);margin-bottom:12px">🛣️ Distances par mode (estimation)</h4>
@@ -500,6 +499,14 @@ function _statsViewHtml(trips) {
           <div style="display:flex;align-items:flex-end;gap:4px;height:100px;padding-bottom:22px;overflow-x:auto">${spendBars}</div>
           <div style="font-size:10px;color:var(--ink4);margin-top:4px">Total : ${Math.round(s.totalSpent).toLocaleString('fr-FR')} €</div>
         </div>` : ''}
+      </div>
+
+      <div id="world-map-wrap" style="background:var(--c2);border-radius:12px;padding:16px;margin-bottom:16px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+          <h4 style="font-size:13px;font-weight:700;color:var(--ink3)">🌍 Pays visités</h4>
+          <span style="font-family:var(--sf);font-size:18px;font-weight:700;color:var(--teal)">${visitedCount}<span style="font-size:11px;font-weight:400;color:var(--ink4)"> / ~195</span></span>
+        </div>
+        <canvas id="world-map-canvas" class="world-map-canvas" width="600" height="276" aria-label="Carte du monde des pays visités"></canvas>
       </div>
     </div>
   `;
@@ -554,6 +561,9 @@ function _heroHtml(trips) {
           <div class="hs-v">${s.countries}</div>
           <div class="hs-l">Destinations</div>
         </div>
+      </div>
+      <div class="hero-search-wrap">
+        <input id="global-search" type="search" placeholder="🔍 Rechercher un voyage, lieu, dépense…" class="hero-search-input" autocomplete="off">
       </div>
     </div>
   `;
@@ -703,7 +713,6 @@ export function renderHome(filter = _currentFilter) {
     <div class="home-sec">
       <div class="home-sec-hd">
         <h2>Mes voyages</h2>
-        <input id="global-search" type="search" placeholder="🔍 Rechercher…" class="global-search-input" autocomplete="off">
         <button class="btn-new" data-action="new-trip">＋ Nouveau</button>
       </div>
       ${_filterTabsHtml(filter, 'trips')}
@@ -734,7 +743,6 @@ function _renderStats() {
     <div class="home-sec">
       <div class="home-sec-hd">
         <h2>Statistiques</h2>
-        <input id="global-search" type="search" placeholder="🔍 Rechercher…" class="global-search-input" autocomplete="off">
         <button class="btn-new" data-action="new-trip">＋ Nouveau</button>
       </div>
       ${_filterTabsHtml(_currentFilter, 'stats')}
@@ -805,11 +813,11 @@ function _openSettingsModal() {
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px" data-et-row="${i}">
         <input type="hidden" data-et-key="${i}" value="${_esc(et.key)}">
         <input type="text" data-et-emoji="${i}" value="${_esc(et.emoji)}"
-          style="width:48px;text-align:center;font-size:18px;padding:4px;border:1.5px solid var(--c3);border-radius:7px;background:var(--bg)">
+          style="width:48px;text-align:center;font-size:18px;padding:4px;border:1.5px solid var(--c3);border-radius:7px;background:var(--c)">
         <input type="text" data-et-label="${i}" value="${_esc(et.label)}" placeholder="Nom du type"
-          style="flex:1;padding:5px 8px;border:1.5px solid var(--c3);border-radius:7px;font-size:12px;background:var(--bg)">
+          style="flex:1;padding:5px 8px;border:1.5px solid var(--c3);border-radius:7px;font-size:12px;background:var(--c)">
         <input type="color" data-et-color="${i}" value="${_esc(et.color || '#0d9488')}"
-          style="width:34px;height:30px;padding:2px;border:1.5px solid var(--c3);border-radius:7px;cursor:pointer;background:var(--bg)">
+          style="width:34px;height:30px;padding:2px;border:1.5px solid var(--c3);border-radius:7px;cursor:pointer;background:var(--c)">
         <button type="button" data-et-del="${i}" style="background:var(--crl,#fee2e2);color:var(--coral,#e85d3e);border:none;border-radius:6px;padding:4px 8px;font-size:12px;cursor:pointer">✕</button>
       </div>`;
   }

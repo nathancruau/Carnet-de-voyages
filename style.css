@@ -63,6 +63,18 @@ html,body{height:100%;font-family:var(--fn);background:var(--c);color:var(--ink)
 .hs-v{font-family:var(--sf);font-size:20px;font-weight:700;color:#fff}
 .hs-l{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:rgba(255,255,255,.7);margin-top:2px}
 
+/* Hero search bar */
+.hero-search-wrap{width:100%;margin-top:8px}
+.hero-search-input{
+  width:100%;max-width:520px;
+  background:rgba(255,255,255,.18);border:1.5px solid rgba(255,255,255,.35);
+  border-radius:22px;padding:8px 18px;font-size:13px;font-family:var(--fn);
+  color:#fff;outline:none;transition:background .15s,border-color .15s;
+}
+.hero-search-input::placeholder{color:rgba(255,255,255,.6)}
+.hero-search-input:focus{background:rgba(255,255,255,.26);border-color:rgba(255,255,255,.7)}
+.hero-search-input::-webkit-search-cancel-button{cursor:pointer;filter:invert(1) brightness(2)}
+
 .home-sec{padding:18px 20px}
 .home-sec-hd{
   display:flex;align-items:center;justify-content:space-between;
@@ -1285,3 +1297,50 @@ html,body{height:100%;font-family:var(--fn);background:var(--c);color:var(--ink)
   flex-shrink:0;line-height:1.4;
 }
 .dc-send:hover{background:var(--td)}
+
+/* ══════════════════════════════════════════
+   DARK MODE OVERRIDES
+══════════════════════════════════════════ */
+[data-theme="dark"] .trip-card{background:var(--c2)}
+[data-theme="dark"] .tc-add{background:var(--c3);border-color:var(--c4)}
+[data-theme="dark"] .mbox{background:var(--c2);border-color:var(--c4)}
+[data-theme="dark"] .topbar{background:var(--c2);border-bottom-color:var(--c4)}
+[data-theme="dark"] .topbar-row2{background:var(--c3);border-top-color:var(--c4)}
+[data-theme="dark"] .nav-tab.active{background:var(--c4);color:var(--teal)}
+[data-theme="dark"] .left-panel{background:var(--c2);border-right-color:var(--c4)}
+[data-theme="dark"] .edp{background:var(--c2);border-left-color:var(--c4)}
+[data-theme="dark"] .bud-side{background:var(--c2);border-right-color:var(--c4)}
+[data-theme="dark"] .tri-side{background:var(--c2);border-right-color:var(--c4)}
+[data-theme="dark"] .tri-header{background:var(--c2)}
+[data-theme="dark"] .mm-sidebar{background:var(--c2);border-right-color:var(--c4)}
+[data-theme="dark"] .mm-info-panel{background:var(--c2)}
+[data-theme="dark"] .jn-entry{background:var(--c2)}
+[data-theme="dark"] .pk-cat{background:var(--c2)}
+[data-theme="dark"] .pk-hd{background:var(--c2)}
+[data-theme="dark"] .pk-cb{background:var(--c3)}
+[data-theme="dark"] .balance-card{background:var(--c2)}
+[data-theme="dark"] .budget-summary{background:var(--c2)}
+[data-theme="dark"] .bud-sm-card{background:var(--c2)}
+[data-theme="dark"] .budget-cat-card{background:var(--c2)}
+[data-theme="dark"] .pack-progress{background:var(--c2)}
+[data-theme="dark"] .pack-cat-card{background:var(--c2)}
+[data-theme="dark"] .exp-table td{background:var(--c2)}
+[data-theme="dark"] .exp-table tr:hover td{background:var(--c3)}
+[data-theme="dark"] .tri-exp-table td{background:var(--c2)}
+[data-theme="dark"] .tri-exp-table tr:hover td{background:var(--c3)}
+[data-theme="dark"] .tri-exp-row{background:var(--c2)}
+[data-theme="dark"] .lp-toggle-btn{background:var(--c2);border-color:var(--c4)}
+[data-theme="dark"] .fg input,[data-theme="dark"] .fg select,[data-theme="dark"] .fg textarea{background:var(--c3);border-color:var(--c4);color:var(--ink)}
+[data-theme="dark"] .mi{background:var(--c3);color:var(--ink);border-color:var(--c4)}
+[data-theme="dark"] .notif{background:var(--c2);border-color:var(--c4);color:var(--ink)}
+[data-theme="dark"] .filter-tab{background:var(--c2);border-color:var(--c4);color:var(--ink3)}
+[data-theme="dark"] .share-qr-wrap{background:var(--c3);border-color:var(--c4)}
+[data-theme="dark"] .google-btn{background:var(--c3);color:var(--ink);border-color:var(--c4)}
+[data-theme="dark"] .google-btn:hover{background:var(--c4)}
+[data-theme="dark"] .mm-legend{background:rgba(30,28,25,.93);border-color:var(--c4)}
+[data-theme="dark"] .leaflet-popup-content-wrapper{background:var(--c2);border-color:var(--c4)}
+[data-theme="dark"] .leaflet-popup-tip{background:var(--c2)}
+[data-theme="dark"] .notes-ta{background:var(--c3);border-color:var(--c4);color:var(--ink)}
+[data-theme="dark"] .dc-input{background:var(--c3);color:var(--ink);border-color:var(--c4)}
+[data-theme="dark"] .comp-rename-input{background:var(--c3);color:var(--ink)}
+[data-theme="dark"] .global-search-input{background:var(--c3);border-color:var(--c4);color:var(--ink)}
