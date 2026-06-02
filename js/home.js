@@ -570,9 +570,6 @@ function _heroHtml(trips) {
         </div>
         <input id="global-search" type="search" placeholder="🔍 Rechercher…" class="hero-search-input" autocomplete="off" style="width:220px;flex-shrink:0">
       </div>
-      <div class="hero-search-wrap">
-        <input id="global-search" type="search" placeholder="🔍 Rechercher un voyage, lieu, dépense…" class="hero-search-input" autocomplete="off">
-      </div>
     </div>
   `;
 }

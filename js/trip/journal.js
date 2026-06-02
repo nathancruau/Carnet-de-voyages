@@ -173,6 +173,10 @@ export function renderJournal(tripId) {
   const panel = document.getElementById('panel-journal');
   if (!panel) return;
 
+  // Destroy existing Leaflet instance before replacing panel HTML to prevent
+  // "Map container is already initialized" error on re-render.
+  if (_journalMap) destroyJournalMap();
+
   const trip = getTrip(tripId);
   if (!trip) return;
 
@@ -351,6 +355,7 @@ function _initJournalMap(tripId) {
   }
 
   requestAnimationFrame(() => {
+    if (_journalMap) return; // concurrent init guard
     const el = document.getElementById('journal-map');
     if (!el) return;
 

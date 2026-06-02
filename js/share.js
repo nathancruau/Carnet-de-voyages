@@ -223,7 +223,12 @@ function _onNetworkUpdate(tripId, data, hasPendingWrites) {
   }
 
   _sharedDocData.set(tripId, data);
-  replaceTripFromNetwork(tripId, data.trip);
+  // Only overwrite local trip state when all local writes are confirmed.
+  // Skipping during hasPendingWrites prevents stale server snapshots from
+  // undoing unsaved local edits (e.g. event type change not yet committed).
+  if (!hasPendingWrites) {
+    replaceTripFromNetwork(tripId, data.trip);
+  }
 
   // Lightweight presence-dot refresh (no full re-render needed)
   if (typeof window._refreshPresenceDots === 'function') {

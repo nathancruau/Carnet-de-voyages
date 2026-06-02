@@ -28,6 +28,77 @@ let _routeLayers  = [];            // polylines / dashed lines on map
 let _routeLoading = false;
 let _pendingMapClick = null;       // callback when user clicks map to pick coords
 let _tempSearchPin    = null;       // temporary search result pin
+
+// ─── Weather cache (key: "lat:lng:date") ──────────────────────────────────────
+const _wxCache  = {};
+// ─── Duration cache (key: "lat1,lng1→lat2,lng2:profile") ─────────────────────
+const _durCache = {};
+
+const _WMO_EMOJI = {
+  0:'☀️', 1:'🌤', 2:'⛅', 3:'🌥',
+  45:'🌫', 48:'🌫',
+  51:'🌦', 53:'🌦', 55:'🌧',
+  61:'🌧', 63:'🌧', 65:'🌧',
+  71:'🌨', 73:'🌨', 75:'❄️',
+  80:'🌧', 81:'🌧', 82:'🌧',
+  85:'🌨', 86:'❄️',
+  95:'⛈', 96:'⛈', 99:'⛈',
+};
+
+async function _fetchDayWeather(lat, lng, date) {
+  const key = `${lat}:${lng}:${date}`;
+  if (key in _wxCache) return _wxCache[key];
+  try {
+    const today = new Date().toISOString().slice(0, 10);
+    const base  = date <= today
+      ? 'https://archive-api.open-meteo.com/v1/archive'
+      : 'https://api.open-meteo.com/v1/forecast';
+    const url   = `${base}?latitude=${lat}&longitude=${lng}&daily=weathercode,temperature_2m_max&timezone=auto&start_date=${date}&end_date=${date}`;
+    const resp  = await fetch(url);
+    const data  = await resp.json();
+    const code  = data.daily?.weathercode?.[0];
+    const tmax  = data.daily?.temperature_2m_max?.[0];
+    const result = (code != null && tmax != null)
+      ? { emoji: _WMO_EMOJI[code] || '🌡', tmax: Math.round(tmax) }
+      : null;
+    _wxCache[key] = result;
+    return result;
+  } catch (_) {
+    _wxCache[key] = null;
+    return null;
+  }
+}
+
+async function _fetchDuration(from, to, mode) {
+  const profile = { car:'driving', bus:'driving', foot:'foot', bike:'cycling' }[mode] || 'driving';
+  const key = `${from.lat},${from.lng}→${to.lat},${to.lng}:${profile}`;
+  if (key in _durCache) return _durCache[key];
+  try {
+    const url  = `https://router.project-osrm.org/route/v1/${profile}/${from.lng},${from.lat};${to.lng},${to.lat}?overview=false`;
+    const resp = await fetch(url);
+    const data = await resp.json();
+    const route = data.routes?.[0];
+    const result = route ? { seconds: route.duration, meters: route.distance } : null;
+    _durCache[key] = result;
+    return result;
+  } catch (_) {
+    _durCache[key] = null;
+    return null;
+  }
+}
+
+function _fmtDuration(seconds) {
+  if (!seconds) return '';
+  const h = Math.floor(seconds / 3600);
+  const m = Math.round((seconds % 3600) / 60);
+  if (h === 0) return `${m} min`;
+  return m === 0 ? `${h}h` : `${h}h ${m}min`;
+}
+
+function _fmtDistance(meters) {
+  if (!meters) return '';
+  return meters >= 1000 ? `${(meters / 1000).toFixed(0)} km` : `${Math.round(meters)} m`;
+}
 let _dragEvt          = null;      // { dayId, idx } being dragged
 let _pendingModeChange = null;     // callback for route-mode popup
 
@@ -630,6 +701,48 @@ function _renderDaysList(tripId) {
   const sharedDocData = isTripShared(tripId) ? getSharedDocData(tripId) : null;
   const html = days.map(day => _dayItemHtml(day, sharedDocData)).join('');
   container.innerHTML = html;
+
+  // Asynchronously populate weather and durations (non-blocking)
+  _populateWeather(days);
+  _populateDurations(days);
+}
+
+async function _populateWeather(days) {
+  for (const day of days) {
+    if (!day.date) continue;
+    const coords = _getDayCoords(day);
+    if (!coords) continue;
+    const wx = await _fetchDayWeather(coords.lat, coords.lng, day.date);
+    if (!wx) continue;
+    const el = document.getElementById(`wx-${day.id}`);
+    if (el) el.textContent = `${wx.emoji} ${wx.tmax}°`;
+  }
+}
+
+async function _populateDurations(days) {
+  for (const day of days) {
+    const items = day.items || [];
+    for (let i = 0; i < items.length - 1; i++) {
+      const from = items[i];
+      const to   = items[i + 1];
+      if (from.lat == null || from.lng == null || to.lat == null || to.lng == null) continue;
+      const el = document.getElementById(`dur-${day.id}-${i}`);
+      if (!el) continue;
+      let mode = to.routeMode || 'car';
+      if (to.type === 'drive' && to.transport) mode = to.transport;
+      const dur = await _fetchDuration(from, to, mode);
+      if (!dur) continue;
+      const icon = trIc(mode);
+      el.textContent = `${icon} ${_fmtDuration(dur.seconds)} · ${_fmtDistance(dur.meters)}`;
+    }
+  }
+}
+
+function _getDayCoords(day) {
+  if (day.lat != null && day.lng != null) return { lat: day.lat, lng: day.lng };
+  const first = (day.items || []).find(it => it.lat != null && it.lng != null);
+  if (first) return { lat: first.lat, lng: first.lng };
+  return null;
 }
 
 function _dayItemHtml(day, sharedDocData = null) {
@@ -644,6 +757,11 @@ function _dayItemHtml(day, sharedDocData = null) {
   if (isSelected) {
     const evtRows = items.map((it, idx) => {
       const isSelEvt = _activeEvtKey && _activeEvtKey.dayId === day.id && _activeEvtKey.idx === idx;
+      const next = items[idx + 1];
+      const hasDur = it.lat != null && it.lng != null && next?.lat != null && next?.lng != null;
+      const durConnector = hasDur
+        ? `<div class="dur-row" id="dur-${day.id}-${idx}" style="font-size:10px;color:var(--ink4);padding:0 10px 0 28px;line-height:1.6;pointer-events:none"></div>`
+        : '';
       return `
         <div class="evt-row${isSelEvt ? ' sel-evt' : ''}"
              draggable="true"
@@ -657,7 +775,7 @@ function _dayItemHtml(day, sharedDocData = null) {
             <div class="evt-tm">${it.time ? it.time : ''}${it.cost ? (it.time ? ' · ' : '') + Number(it.cost).toLocaleString('fr-FR') + ' €' : ''}</div>
           </div>
           <button class="evt-del" data-action="delete-event" data-day-id="${day.id}" data-event-idx="${idx}" title="Supprimer">✕</button>
-        </div>`;
+        </div>${durConnector}`;
     }).join('');
 
     // Comments section (shared trips only)
@@ -715,6 +833,7 @@ function _dayItemHtml(day, sharedDocData = null) {
       <div class="di-s">
         ${day.date ? fmtDateShort(day.date) : ''}
         ${day.region ? `<span style="color:var(--ink4)"> · ${_esc(day.region)}</span>` : ''}
+        <span id="wx-${day.id}" style="margin-left:4px;font-size:11px;color:var(--ink3)"></span>
       </div>
       ${eventsHtml}
     </div>`;

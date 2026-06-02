@@ -230,7 +230,7 @@ export function saveData() {
   clearTimeout(_syncTimer);
   _syncTimer = setTimeout(() => {
     if (_syncCallback) _syncCallback(state);
-  }, 1500);
+  }, 400);
 }
 
 export function getTrips() {
