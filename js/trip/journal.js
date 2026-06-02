@@ -10,8 +10,31 @@ import { updateTopStats } from './trip.js';
 
 function _etMap() {
   const map = {};
-  for (const et of getEventTypes()) map[et.key] = et.emoji;
+  for (const et of getEventTypes()) map[et.key] = et;
   return map;
+}
+
+function _getTagSuggestions(trip, dayId) {
+  const suggestions = [];
+  const seen = new Set();
+  if (!dayId) return suggestions;
+  const day = (trip.days || []).find(d => d.id === dayId);
+  if (!day) return suggestions;
+  const etMap = _etMap();
+  // Day region/title as tag
+  if (day.region) { suggestions.push(day.region); seen.add(day.region); }
+  // Event types as emoji-tags
+  for (const item of (day.items || [])) {
+    const et = etMap[item.type];
+    if (et) {
+      const tag = `${et.emoji} ${et.label}`;
+      if (!seen.has(tag)) { seen.add(tag); suggestions.push(tag); }
+    }
+    if (item.text && !seen.has(item.text) && item.text.length < 30) {
+      seen.add(item.text); suggestions.push(item.text);
+    }
+  }
+  return suggestions.slice(0, 12);
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -263,7 +286,7 @@ function _entryCard(trip, e) {
   const dayLabel  = e.dayId ? _dayLabel(trip, e.dayId) : null;
 
   let metaPills = `<span class="jn-meta-pill">${_esc(dateLabel)}</span>`;
-  if (e.pinType && _etMap()[e.pinType]) metaPills += `<span class="jn-meta-pill" title="${_esc(e.pinType)}">${_etMap()[e.pinType]}</span>`;
+  if (e.pinType && _etMap()[e.pinType]) metaPills += `<span class="jn-meta-pill" title="${_esc(e.pinType)}">${_etMap()[e.pinType]?.emoji || ''}</span>`;
   if (e.weather) metaPills += `<span class="jn-meta-pill">${_esc(e.weather)}</span>`;
   if (e.mood)    metaPills += `<span class="jn-meta-pill">${_esc(e.mood)}</span>`;
   if (e.rating)  metaPills += `<span class="jn-meta-pill">${_starsHtml(e.rating)}</span>`;
@@ -382,7 +405,7 @@ function _refreshJournalPins(tripId) {
 
       const jd        = item.journalData;
       const validated = jd?.validated;
-      const emoji     = etMap[item.type] || '📍';
+      const emoji     = etMap[item.type]?.emoji || '📍';
       const bgColor   = validated ? '#16a34a' : '#0891b2';
 
       const icon = L.divIcon({
@@ -978,6 +1001,13 @@ function _openEntryModal(tripId, entryId) {
       <div class="fg">
         <label>Tags</label>
         <div id="tags-list" style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:6px">${tagsHtml()}</div>
+        <div id="tag-suggestions" style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:6px">
+          ${_getTagSuggestions(trip, state.dayId).filter(s => !state.tags.includes(s)).map(s =>
+            `<button type="button" class="tag-suggest-btn" data-tag="${_esc(s)}"
+              style="background:var(--c2);border:1px dashed var(--c4);border-radius:999px;padding:2px 9px;
+                     font-size:11px;color:var(--ink3);cursor:pointer;font-family:var(--fn)">+ ${_esc(s)}</button>`
+          ).join('')}
+        </div>
         <div style="display:flex;gap:6px">
           <input type="text" id="tag-input" placeholder="Nouveau tag, puis Entrée"
             style="flex:1;background:var(--c);border:1.5px solid var(--c3);border-radius:7px;padding:6px 9px;font-size:12px;font-family:var(--fn);outline:none">
@@ -990,6 +1020,17 @@ function _openEntryModal(tripId, entryId) {
         <button class="bc" onclick="closeModal()">Annuler</button>
         <button class="bs" id="je-save">Enregistrer</button>
       </div>`;
+  }
+
+  function reRenderTagSuggestions() {
+    const el = document.getElementById('tag-suggestions');
+    if (!el) return;
+    const available = _getTagSuggestions(trip, state.dayId).filter(s => !state.tags.includes(s));
+    el.innerHTML = available.map(s =>
+      `<button type="button" class="tag-suggest-btn" data-tag="${_esc(s)}"
+        style="background:var(--c2);border:1px dashed var(--c4);border-radius:999px;padding:2px 9px;
+               font-size:11px;color:var(--ink3);cursor:pointer;font-family:var(--fn)">+ ${_esc(s)}</button>`
+    ).join('');
   }
 
   function reRenderModal() {
@@ -1013,6 +1054,7 @@ function _openEntryModal(tripId, entryId) {
     if (!btn) return;
     state.tags.splice(parseInt(btn.dataset.removeTag, 10), 1);
     reRenderTagsList();
+    reRenderTagSuggestions();
   }
 
   function attachModalEvents() {
@@ -1027,6 +1069,7 @@ function _openEntryModal(tripId, entryId) {
           if (dateEl) dateEl.value = d.date;
         }
       }
+      reRenderTagSuggestions();
     });
 
     // Date input
@@ -1172,6 +1215,18 @@ function _openEntryModal(tripId, entryId) {
 
     // Tag remove
     document.getElementById('tags-list')?.addEventListener('click', tagRemoveHandler);
+
+    // Tag suggestions
+    document.getElementById('tag-suggestions')?.addEventListener('click', ev => {
+      const btn = ev.target.closest('.tag-suggest-btn');
+      if (!btn) return;
+      const tag = btn.dataset.tag;
+      if (tag && !state.tags.includes(tag)) {
+        state.tags.push(tag);
+        reRenderTagsList();
+        reRenderTagSuggestions();
+      }
+    });
 
     // Save
     document.getElementById('je-save')?.addEventListener('click', () => {
