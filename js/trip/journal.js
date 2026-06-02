@@ -135,6 +135,7 @@ async function _drawJournalRoutes(tripId) {
   if (wps.length < 2) return;
 
   for (let i = 0; i < wps.length - 1; i++) {
+    if (!_journalMap) return;
     const from = wps[i];
     const to   = wps[i + 1];
     const mode = to.mode || 'car';
@@ -150,6 +151,7 @@ async function _drawJournalRoutes(tripId) {
           + `${from.lng},${from.lat};${to.lng},${to.lat}?overview=full&geometries=geojson`;
         const resp   = await fetch(url);
         const data   = await resp.json();
+        if (!_journalMap) return;
         const coords = data.routes?.[0]?.geometry?.coordinates;
         if (coords && coords.length) {
           line = L.polyline(coords.map(([lng, lat]) => [lat, lng]), {
@@ -164,7 +166,7 @@ async function _drawJournalRoutes(tripId) {
       }
     }
 
-    if (line) {
+    if (line && _journalMap) {
       line.addTo(_journalMap);
       _journalRouteLayers.push(line);
     }
