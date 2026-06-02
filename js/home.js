@@ -60,6 +60,211 @@ function _esc(str) {
     .replace(/>/g, '&gt;');
 }
 
+// ── ISO numeric → alpha-2 lookup (topojson world-atlas uses numeric IDs) ────────
+const _ISO_N_A2 = {
+  4:'AF',8:'AL',12:'DZ',20:'AD',24:'AO',28:'AG',32:'AR',36:'AU',40:'AT',
+  44:'BS',48:'BH',50:'BD',52:'BB',56:'BE',64:'BT',68:'BO',70:'BA',72:'BW',
+  76:'BR',96:'BN',100:'BG',104:'MM',108:'BI',116:'KH',120:'CM',124:'CA',
+  132:'CV',140:'CF',144:'LK',148:'TD',152:'CL',156:'CN',170:'CO',174:'KM',
+  178:'CG',180:'CD',188:'CR',191:'HR',192:'CU',196:'CY',203:'CZ',204:'BJ',
+  208:'DK',214:'DO',218:'EC',222:'SV',226:'GQ',231:'ET',232:'ER',246:'FI',
+  250:'FR',262:'DJ',266:'GA',268:'GE',270:'GM',276:'DE',288:'GH',300:'GR',
+  320:'GT',324:'GN',328:'GY',332:'HT',340:'HN',348:'HU',356:'IN',360:'ID',
+  364:'IR',368:'IQ',372:'IE',376:'IL',380:'IT',384:'CI',388:'JM',392:'JP',
+  398:'KZ',400:'JO',404:'KE',408:'KP',410:'KR',414:'KW',417:'KG',418:'LA',
+  422:'LB',426:'LS',430:'LR',434:'LY',440:'LT',442:'LU',450:'MG',454:'MW',
+  458:'MY',462:'MV',466:'ML',484:'MX',496:'MN',499:'ME',504:'MA',508:'MZ',
+  512:'OM',516:'NA',524:'NP',528:'NL',554:'NZ',558:'NI',562:'NE',566:'NG',
+  578:'NO',586:'PK',591:'PA',598:'PG',600:'PY',604:'PE',608:'PH',616:'PL',
+  620:'PT',634:'QA',642:'RO',643:'RU',646:'RW',682:'SA',686:'SN',688:'RS',
+  694:'SL',703:'SK',704:'VN',705:'SI',706:'SO',710:'ZA',716:'ZW',724:'ES',
+  729:'SD',740:'SR',752:'SE',756:'CH',760:'SY',762:'TJ',764:'TH',788:'TN',
+  792:'TR',795:'TM',800:'UG',804:'UA',807:'MK',818:'EG',826:'GB',840:'US',
+  858:'UY',860:'UZ',862:'VE',887:'YE',894:'ZM',275:'PS',51:'AM',31:'AZ',
+  84:'BZ',60:'BM',854:'BF',702:'SG',158:'TW',784:'AE',233:'EE',428:'LV',
+  470:'MT',388:'JM',630:'PR',192:'CU',
+};
+
+// ── Destination text → alpha-2 (French names first) ────────────────────────────
+const _DEST_TO_A2 = {
+  'france':'FR','espagne':'ES','spain':'ES','italie':'IT','italia':'IT','italy':'IT',
+  'allemagne':'DE','germany':'DE','portugal':'PT','belgique':'BE','belgium':'BE',
+  'pays-bas':'NL','netherlands':'NL','hollande':'NL','grèce':'GR','grece':'GR','greece':'GR',
+  'royaume-uni':'GB','uk':'GB','angleterre':'GB','england':'GB','écosse':'GB','scotland':'GB',
+  'états-unis':'US','etats-unis':'US','usa':'US','united states':'US','amérique':'US',
+  'canada':'CA','mexique':'MX','mexico':'MX','japon':'JP','japan':'JP',
+  'chine':'CN','china':'CN','australie':'AU','australia':'AU',
+  'brésil':'BR','bresil':'BR','brazil':'BR','argentine':'AR','argentina':'AR',
+  'maroc':'MA','morocco':'MA','tunisie':'TN','tunisia':'TN','turquie':'TR','turkey':'TR',
+  'égypte':'EG','egypte':'EG','egypt':'EG','thaïlande':'TH','tailande':'TH','thailand':'TH',
+  'inde':'IN','india':'IN','vietnam':'VN','cambodge':'KH','cambodia':'KH',
+  'suisse':'CH','switzerland':'CH','autriche':'AT','austria':'AT',
+  'croatie':'HR','croatia':'HR','pologne':'PL','poland':'PL',
+  'hongrie':'HU','hungary':'HU','roumanie':'RO','romania':'RO',
+  'suède':'SE','sweden':'SE','norvège':'NO','norway':'NO',
+  'danemark':'DK','denmark':'DK','finlande':'FI','finland':'FI',
+  'irlande':'IE','ireland':'IE','islande':'IS','iceland':'IS',
+  'nouvelle-zélande':'NZ','new zealand':'NZ','afrique du sud':'ZA','south africa':'ZA',
+  'kenya':'KE','pérou':'PE','peru':'PE','chili':'CL','chile':'CL',
+  'colombie':'CO','colombia':'CO','singapour':'SG','singapore':'SG',
+  'malaisie':'MY','malaysia':'MY','israël':'IL','israel':'IL',
+  'jordanie':'JO','jordan':'JO','russie':'RU','russia':'RU','ukraine':'UA',
+  'slovénie':'SI','slovenia':'SI','luxembourg':'LU','malte':'MT','malta':'MT',
+  'chypre':'CY','cyprus':'CY','albanie':'AL','albania':'AL','serbie':'RS','serbia':'RS',
+  'bulgarie':'BG','bulgaria':'BG','lituanie':'LT','lithuania':'LT',
+  'lettonie':'LV','latvia':'LV','estonie':'EE','estonia':'EE',
+  'slovaquie':'SK','slovakia':'SK','tchéquie':'CZ','czech republic':'CZ',
+  'corée du sud':'KR','south korea':'KR','taïwan':'TW','taiwan':'TW',
+  'philippines':'PH','indonésie':'ID','indonesia':'ID',
+  'algérie':'DZ','algeria':'DZ','sénégal':'SN','senegal':'SN',
+  'émirats':'AE','dubai':'AE','doha':'QA','qatar':'QA',
+  'arabie saoudite':'SA','saudi arabia':'SA','koweït':'KW','kuwait':'KW',
+  'iran':'IR','liban':'LB','lebanon':'LB','géorgie':'GE','georgia':'GE',
+  'arménie':'AM','armenia':'AM','kazakhtan':'KZ','kazakhstan':'KZ',
+  'tanzanie':'TZ','tanzania':'TZ','ghana':'GH','nigeria':'NG',
+  'cameroun':'CM','cameroon':'CM','mozambique':'MZ','angola':'AO',
+  'sri lanka':'LK','bangladesh':'BD','pakistan':'PK','népal':'NP','nepal':'NP',
+  'myanmar':'MM','birmanie':'MM','laos':'LA','mongolie':'MN','mongolia':'MN',
+  'équateur':'EC','ecuador':'EC','bolivie':'BO','bolivia':'BO','uruguay':'UY',
+  'venezuela':'VE','paraguay':'PY','salvador':'SV',
+};
+
+function _getVisitedCodes(trips) {
+  const codes = new Set();
+  for (const trip of trips) {
+    if (trip.countryCode) { codes.add(trip.countryCode.toUpperCase()); continue; }
+    const dest = (trip.destination || '').toLowerCase().trim();
+    if (!dest) continue;
+    if (_DEST_TO_A2[dest]) { codes.add(_DEST_TO_A2[dest]); continue; }
+    const parts = dest.split(/[,\/·\-–]/);
+    let found = false;
+    for (const part of [...parts].reverse()) {
+      const p = part.trim();
+      if (_DEST_TO_A2[p]) { codes.add(_DEST_TO_A2[p]); found = true; break; }
+    }
+    if (!found) {
+      for (const [name, code] of Object.entries(_DEST_TO_A2)) {
+        if (dest.includes(name)) { codes.add(code); break; }
+      }
+    }
+  }
+  return [...codes];
+}
+
+async function _initWorldMap(trips) {
+  const canvas = document.getElementById('world-map-canvas');
+  if (!canvas) return;
+  try {
+    const [topoMod, worldData] = await Promise.all([
+      import('https://cdn.jsdelivr.net/npm/topojson-client@3/+esm'),
+      fetch('https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json').then(r => r.json()),
+    ]);
+    const countries = topoMod.feature(worldData, worldData.objects.countries);
+    const visited   = new Set(_getVisitedCodes(trips));
+    _drawWorldMap(canvas, countries.features, visited);
+  } catch (err) {
+    console.warn('[stats] world map failed:', err.message);
+    const wrap = document.getElementById('world-map-wrap');
+    if (wrap) wrap.style.display = 'none';
+  }
+}
+
+function _drawWorldMap(canvas, features, visitedSet) {
+  const dpr = window.devicePixelRatio || 1;
+  const W   = canvas.clientWidth || 600;
+  const H   = Math.round(W * 0.46);
+  canvas.width  = W * dpr;
+  canvas.height = H * dpr;
+  canvas.style.height = H + 'px';
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, W, H);
+  const isDark = document.documentElement.dataset.theme === 'dark';
+  const proj = (lon, lat) => [
+    (lon + 180) / 360 * W,
+    (85 - lat) / 170 * H,
+  ];
+  for (const feat of features) {
+    const code = _ISO_N_A2[Number(feat.id)] || '';
+    ctx.fillStyle   = visitedSet.has(code) ? (isDark ? '#f0ede6' : '#1c1a17') : (isDark ? '#3a3834' : '#e0dcd4');
+    ctx.strokeStyle = isDark ? '#252320' : '#faf7f2';
+    ctx.lineWidth   = 0.4;
+    const geom = feat.geometry;
+    if (!geom) continue;
+    const polys = geom.type === 'Polygon' ? [geom.coordinates] : geom.coordinates;
+    for (const poly of polys) {
+      const ring = poly[0];
+      ctx.beginPath();
+      ring.forEach(([lon, lat], i) => {
+        const [x, y] = proj(lon, lat);
+        i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+      });
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+    }
+  }
+}
+
+// ── Global search ─────────────────────────────────────────────────────────────
+
+function _searchAll(query) {
+  const q = query.toLowerCase().trim();
+  if (!q) return [];
+  const results = [];
+  for (const trip of getTrips()) {
+    if ((trip.name || '').toLowerCase().includes(q) || (trip.destination || '').toLowerCase().includes(q)) {
+      results.push({ icon: trip.flag || '🌍', title: trip.name || 'Voyage', sub: trip.destination || '', tripId: trip.id });
+    }
+    for (const day of (trip.days || [])) {
+      if ((day.title || '').toLowerCase().includes(q) || (day.region || '').toLowerCase().includes(q)) {
+        results.push({ icon: '📅', title: day.title || `Jour ${day.num}`, sub: trip.name + (day.region ? ' · ' + day.region : ''), tripId: trip.id });
+      }
+      for (const item of (day.items || [])) {
+        if ((item.label || '').toLowerCase().includes(q) || (item.note || '').toLowerCase().includes(q)) {
+          results.push({ icon: item.emoji || '📍', title: item.label || 'Événement', sub: `${trip.name} · Jour ${day.num}`, tripId: trip.id });
+        }
+      }
+    }
+    for (const exp of (trip.realExpenses || [])) {
+      if ((exp.label || '').toLowerCase().includes(q) || (exp.note || '').toLowerCase().includes(q) || (exp.type || '').toLowerCase().includes(q)) {
+        results.push({ icon: '💳', title: exp.label || exp.type || 'Dépense', sub: `${trip.name} · ${exp.amount ? exp.amount + ' €' : ''}`, tripId: trip.id });
+      }
+    }
+    if (results.length >= 30) break;
+  }
+  return results.slice(0, 25);
+}
+
+function _searchResultsHtml(results, query) {
+  if (!results.length) return `<div style="text-align:center;padding:28px;color:var(--ink4)">
+    <div style="font-size:28px;margin-bottom:6px">🔍</div>
+    <div style="font-size:13px">Aucun résultat pour «&nbsp;${_esc(query)}&nbsp;»</div>
+  </div>`;
+  return results.map(r => `
+    <div class="sr-item" data-action="open-trip" data-trip-id="${r.tripId}">
+      <span class="sr-icon">${r.icon}</span>
+      <div><div class="sr-title">${_esc(r.title)}</div><div class="sr-sub">${_esc(r.sub)}</div></div>
+    </div>`).join('');
+}
+
+function _handleSearchInput(query) {
+  const area      = document.getElementById('search-results-area');
+  const grid      = document.getElementById('trips-grid');
+  const statsView = document.getElementById('stats-view');
+  if (!area) return;
+  if (!query.trim()) {
+    area.innerHTML = ''; area.style.display = 'none';
+    if (grid)      grid.style.display = '';
+    if (statsView) statsView.style.display = '';
+    return;
+  }
+  area.style.display = '';
+  area.innerHTML     = _searchResultsHtml(_searchAll(query), query);
+  if (grid)      grid.style.display = 'none';
+  if (statsView) statsView.style.display = 'none';
+}
+
 // ── Statistics ─────────────────────────────────────────────────────────────────
 
 function _haversineKm(lat1, lng1, lat2, lng2) {
@@ -144,112 +349,98 @@ function _statsViewHtml(trips) {
   if (trips.length === 0) {
     return `<div style="text-align:center;padding:40px 20px;color:var(--ink4)">
       <div style="font-size:36px;margin-bottom:8px">📊</div>
-      <div style="font-size:14px">Aucun voyage pour calculer des statistiques.</div>
+      <div style="font-size:14px">Aucun voyage réalisé pour calculer des statistiques.</div>
     </div>`;
   }
 
   const s = _calcStats(trips);
 
-  // Average trip duration
   const tripsWithDates = trips.filter(t => t.startDate && t.endDate);
   let avgDays = 0;
   if (tripsWithDates.length > 0) {
-    const totalD = tripsWithDates.reduce((sum, t) => {
-      return sum + Math.round(
-        (new Date(t.endDate + 'T12:00:00') - new Date(t.startDate + 'T12:00:00')) / 86400000
-      ) + 1;
-    }, 0);
+    const totalD = tripsWithDates.reduce((sum, t) =>
+      sum + Math.round((new Date(t.endDate + 'T12:00:00') - new Date(t.startDate + 'T12:00:00')) / 86400000) + 1, 0);
     avgDays = Math.round(totalD / tripsWithDates.length);
   }
 
-  // Top destinations (count per destination)
-  const destCount = {};
-  trips.forEach(t => {
-    const d = (t.destination || '').trim();
-    if (d) destCount[d] = (destCount[d] || 0) + 1;
-  });
-  const topDests = Object.entries(destCount)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 5);
+  // Visited countries
+  const visitedCodes = _getVisitedCodes(trips);
+  const visitedCount = visitedCodes.length;
 
-  // Trips per year
+  // Self expenses (non-shared trips only)
+  let selfSpent = 0;
+  for (const t of trips) {
+    if (!isTripShared(t.id)) {
+      for (const exp of (t.realExpenses || [])) {
+        if (exp.type !== 'transfer') selfSpent += Number(exp.amount) || 0;
+      }
+    }
+  }
+
+  // Top destinations
+  const destCount = {};
+  trips.forEach(t => { const d = (t.destination || '').trim(); if (d) destCount[d] = (destCount[d] || 0) + 1; });
+  const topDests = Object.entries(destCount).sort((a, b) => b[1] - a[1]).slice(0, 5);
+
+  // Per year
   const perYear = {};
-  trips.forEach(t => {
-    const y = (t.startDate || t.createdAt || '').slice(0, 4);
-    if (y && y !== '') perYear[y] = (perYear[y] || 0) + 1;
-  });
+  trips.forEach(t => { const y = (t.startDate || t.createdAt || '').slice(0, 4); if (y) perYear[y] = (perYear[y] || 0) + 1; });
   const years = Object.keys(perYear).sort();
   const maxPerYear = Math.max(...Object.values(perYear), 1);
 
   // Budget total
   let totalBudget = 0;
-  trips.forEach(t => {
-    if (Array.isArray(t.budgetLines)) {
-      totalBudget += t.budgetLines.reduce((sum, b) => sum + (Number(b.amount) || 0), 0);
-    }
-  });
+  trips.forEach(t => { if (Array.isArray(t.budgetLines)) totalBudget += t.budgetLines.reduce((s, b) => s + (Number(b.amount) || 0), 0); });
 
-  // Km by transport mode
+  // Km
   const kmByMode = _calcKmByMode(trips);
   const MODE_META = {
-    car:   { emoji: '🚗', label: 'Voiture' },
-    bus:   { emoji: '🚌', label: 'Bus/Taxi' },
-    bike:  { emoji: '🚲', label: 'Vélo' },
-    foot:  { emoji: '🚶', label: 'À pied' },
-    plane: { emoji: '✈️', label: 'Avion' },
-    ferry: { emoji: '⛴️', label: 'Bateau' },
+    car:'🚗 Voiture', bus:'🚌 Bus/Taxi', bike:'🚲 Vélo',
+    foot:'🚶 À pied', plane:'✈️ Avion', ferry:'⛴️ Bateau',
   };
   const totalKm = Object.values(kmByMode).reduce((a, b) => a + b, 0);
-
-  const kmRows = Object.entries(kmByMode)
-    .sort((a, b) => b[1] - a[1])
-    .map(([mode, dist]) => {
-      const meta = MODE_META[mode] || { emoji: '🚌', label: mode };
-      const pct  = totalKm > 0 ? Math.round((dist / totalKm) * 100) : 0;
-      return `
-        <div style="margin-bottom:8px">
-          <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px">
-            <span>${meta.emoji} ${meta.label}</span>
-            <span style="font-weight:700;color:var(--ink)">${Math.round(dist).toLocaleString('fr-FR')} km</span>
-          </div>
-          <div style="background:var(--c3);border-radius:4px;height:6px;overflow:hidden">
-            <div style="width:${pct}%;height:100%;background:var(--teal);border-radius:4px"></div>
-          </div>
-        </div>`;
-    }).join('');
+  const kmRows = Object.entries(kmByMode).sort((a, b) => b[1] - a[1]).map(([mode, dist]) => {
+    const meta = MODE_META[mode] || '🚌 ' + mode;
+    const pct  = totalKm > 0 ? Math.round((dist / totalKm) * 100) : 0;
+    return `<div style="margin-bottom:8px">
+      <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px">
+        <span>${meta}</span>
+        <span style="font-weight:700;color:var(--ink)">${Math.round(dist).toLocaleString('fr-FR')} km</span>
+      </div>
+      <div style="background:var(--c3);border-radius:4px;height:6px;overflow:hidden">
+        <div style="width:${pct}%;height:100%;background:var(--teal);border-radius:4px"></div>
+      </div></div>`;
+  }).join('');
 
   // Spending by month
   const spendByMonth = _calcSpendingByMonth(trips);
   const spendMonths  = Object.keys(spendByMonth).sort().slice(-12);
   const maxSpend     = Math.max(...spendMonths.map(m => spendByMonth[m]), 1);
-
   const spendBars = spendMonths.map(m => {
     const val  = spendByMonth[m];
     const barH = Math.max(Math.round((val / maxSpend) * 60), 4);
     const [yr, mo] = m.split('-');
     const label = new Date(Number(yr), Number(mo) - 1, 1).toLocaleDateString('fr-FR', { month: 'short' }) + ' ' + yr.slice(2);
-    return `
-      <div style="display:flex;flex-direction:column;align-items:center;gap:3px;min-width:32px">
-        <div style="font-size:9px;font-weight:700;color:var(--ink3)">${Math.round(val)}</div>
-        <div style="width:22px;background:var(--amb,#d97706);border-radius:3px 3px 0 0;height:${barH}px"></div>
-        <div style="font-size:8px;color:var(--ink4);writing-mode:vertical-rl;transform:rotate(180deg);white-space:nowrap">${label}</div>
-      </div>`;
+    return `<div style="display:flex;flex-direction:column;align-items:center;gap:3px;min-width:32px">
+      <div style="font-size:9px;font-weight:700;color:var(--ink3)">${Math.round(val)}</div>
+      <div style="width:22px;background:var(--amb);border-radius:3px 3px 0 0;height:${barH}px"></div>
+      <div style="font-size:8px;color:var(--ink4);writing-mode:vertical-rl;transform:rotate(180deg);white-space:nowrap">${label}</div>
+    </div>`;
   }).join('');
 
   const perYearBars = years.map(y => {
     const count = perYear[y];
     const barH  = Math.max(Math.round((count / maxPerYear) * 80), 8);
-    return `
-      <div style="display:flex;flex-direction:column;align-items:center;gap:4px;min-width:36px">
-        <div style="font-size:10px;font-weight:700;color:var(--ink3)">${count}</div>
-        <div style="width:28px;background:var(--teal);border-radius:4px 4px 0 0;height:${barH}px;transition:height .3s"></div>
-        <div style="font-size:10px;color:var(--ink4);transform:rotate(-45deg);white-space:nowrap;transform-origin:center;margin-top:2px">${y}</div>
-      </div>`;
+    return `<div style="display:flex;flex-direction:column;align-items:center;gap:4px;min-width:36px">
+      <div style="font-size:10px;font-weight:700;color:var(--ink3)">${count}</div>
+      <div style="width:28px;background:var(--teal);border-radius:4px 4px 0 0;height:${barH}px;transition:height .3s"></div>
+      <div style="font-size:10px;color:var(--ink4);transform:rotate(-45deg);white-space:nowrap;transform-origin:center;margin-top:2px">${y}</div>
+    </div>`;
   }).join('');
 
   const topDestsHtml = topDests.length
     ? topDests.map(([dest, cnt]) => `
-        <div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--c2)">
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--c3)">
           <span style="font-size:13px;color:var(--ink)">${_esc(dest)}</span>
           <span style="font-size:12px;font-weight:700;color:var(--teal)">${cnt} voyage${cnt > 1 ? 's' : ''}</span>
         </div>`).join('')
@@ -261,16 +452,26 @@ function _statsViewHtml(trips) {
 
   return `
     <div style="max-width:700px;margin:0 auto;padding:8px 0">
-      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:10px;margin-bottom:24px">
-        <div style="${_sc}"><div style="${_sv}">${trips.length}</div><div style="${_sl}">Voyages total</div></div>
-        <div style="${_sc}"><div style="${_sv}">${s.weekendCount}</div><div style="${_sl}">Week-ends</div></div>
-        <div style="${_sc}"><div style="${_sv}">${s.sortieCount}</div><div style="${_sl}">Sorties</div></div>
+      <div style="font-size:10px;color:var(--ink4);margin-bottom:12px;display:flex;align-items:center;gap:5px">
+        <span>📊</span> Statistiques calculées sur les <strong>${trips.length}</strong> voyage${trips.length > 1 ? 's' : ''} réalisé${trips.length > 1 ? 's' : ''}
+      </div>
+
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(100px,1fr));gap:10px;margin-bottom:24px">
+        <div style="${_sc}"><div style="${_sv}">${trips.length}</div><div style="${_sl}">Voyages</div></div>
         <div style="${_sc}"><div style="${_sv}">${s.totalDays}</div><div style="${_sl}">Jours voyagés</div></div>
-        <div style="${_sc}"><div style="${_sv}">${s.countries}</div><div style="${_sl}">Destinations</div></div>
+        <div style="${_sc}"><div style="${_sv}">${visitedCount}</div><div style="${_sl}">Pays visités</div></div>
         <div style="${_sc}"><div style="${_sv}">${avgDays}</div><div style="${_sl}">Durée moy. (j)</div></div>
-        ${totalBudget > 0 ? `<div style="${_sc}"><div style="${_sv}">${totalBudget.toLocaleString('fr-FR')} €</div><div style="${_sl}">Budget prévu</div></div>` : ''}
-        ${s.totalSpent > 0 ? `<div style="${_sc}"><div style="${_sv}">${Math.round(s.totalSpent).toLocaleString('fr-FR')} €</div><div style="${_sl}">Dépensé réel</div></div>` : ''}
         ${totalKm > 0 ? `<div style="${_sc}"><div style="${_sv}">${Math.round(totalKm).toLocaleString('fr-FR')}</div><div style="${_sl}">km parcourus</div></div>` : ''}
+        ${s.totalSpent > 0 ? `<div style="${_sc}"><div style="${_sv}">${Math.round(s.totalSpent).toLocaleString('fr-FR')} €</div><div style="${_sl}">Total dépensé</div></div>` : ''}
+        ${selfSpent > 0 && selfSpent !== s.totalSpent ? `<div style="${_sc}"><div style="${_sv}">${Math.round(selfSpent).toLocaleString('fr-FR')} €</div><div style="${_sl}">Dépenses perso.</div></div>` : ''}
+      </div>
+
+      <div id="world-map-wrap" style="background:var(--c2);border-radius:12px;padding:16px;margin-bottom:16px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+          <h4 style="font-size:13px;font-weight:700;color:var(--ink3)">🌍 Pays visités</h4>
+          <span style="font-family:var(--sf);font-size:18px;font-weight:700;color:var(--teal)">${visitedCount}<span style="font-size:11px;font-weight:400;color:var(--ink4)"> / ~195</span></span>
+        </div>
+        <canvas id="world-map-canvas" class="world-map-canvas" width="600" height="276" aria-label="Carte du monde des pays visités"></canvas>
       </div>
 
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
@@ -278,13 +479,11 @@ function _statsViewHtml(trips) {
           <h4 style="font-size:13px;font-weight:700;color:var(--ink3);margin-bottom:12px">🏆 Top destinations</h4>
           ${topDestsHtml}
         </div>
-
         <div style="background:var(--c2);border-radius:12px;padding:16px">
           <h4 style="font-size:13px;font-weight:700;color:var(--ink3);margin-bottom:12px">📅 Voyages par année</h4>
           ${years.length > 0
             ? `<div style="display:flex;align-items:flex-end;gap:6px;height:130px;padding-bottom:26px;overflow-x:auto">${perYearBars}</div>`
-            : `<div style="font-size:12px;color:var(--ink4)">Aucune date renseignée</div>`
-          }
+            : `<div style="font-size:12px;color:var(--ink4)">Aucune date renseignée</div>`}
         </div>
       </div>
 
@@ -292,15 +491,14 @@ function _statsViewHtml(trips) {
         ${totalKm > 0 ? `
         <div style="background:var(--c2);border-radius:12px;padding:16px">
           <h4 style="font-size:13px;font-weight:700;color:var(--ink3);margin-bottom:12px">🛣️ Distances par mode (estimation)</h4>
-          ${kmRows || '<div style="font-size:12px;color:var(--ink4)">Aucune donnée</div>'}
-          <div style="font-size:10px;color:var(--ink4);margin-top:8px">Total : ${Math.round(totalKm).toLocaleString('fr-FR')} km · coeff. routier appliqué</div>
+          ${kmRows}
+          <div style="font-size:10px;color:var(--ink4);margin-top:8px">Total : ${Math.round(totalKm).toLocaleString('fr-FR')} km</div>
         </div>` : ''}
-
         ${spendMonths.length > 0 ? `
         <div style="background:var(--c2);border-radius:12px;padding:16px">
           <h4 style="font-size:13px;font-weight:700;color:var(--ink3);margin-bottom:12px">💶 Dépenses par mois</h4>
           <div style="display:flex;align-items:flex-end;gap:4px;height:100px;padding-bottom:22px;overflow-x:auto">${spendBars}</div>
-          <div style="font-size:10px;color:var(--ink4);margin-top:4px">Total dépensé : ${Math.round(s.totalSpent).toLocaleString('fr-FR')} €</div>
+          <div style="font-size:10px;color:var(--ink4);margin-top:4px">Total : ${Math.round(s.totalSpent).toLocaleString('fr-FR')} €</div>
         </div>` : ''}
       </div>
     </div>
@@ -505,9 +703,11 @@ export function renderHome(filter = _currentFilter) {
     <div class="home-sec">
       <div class="home-sec-hd">
         <h2>Mes voyages</h2>
+        <input id="global-search" type="search" placeholder="🔍 Rechercher…" class="global-search-input" autocomplete="off">
         <button class="btn-new" data-action="new-trip">＋ Nouveau</button>
       </div>
       ${_filterTabsHtml(filter, 'trips')}
+      <div id="search-results-area" class="sr-area" style="display:none"></div>
       <div class="trips-grid" id="trips-grid">
         ${sorted.map(_tripCardHtml).join('')}
         ${_addCardHtml()}
@@ -524,22 +724,23 @@ export function renderHome(filter = _currentFilter) {
 
 function _renderStats() {
   _currentTab = 'stats';
-
   const wrap = document.getElementById('home-wrap');
   if (!wrap) return;
-
-  const allTrips = getTrips();
+  const allTrips  = getTrips();
+  const doneTrips = allTrips.filter(t => t.status === 'done');
 
   wrap.innerHTML = `
     ${_heroHtml(allTrips)}
     <div class="home-sec">
       <div class="home-sec-hd">
-        <h2>Mes voyages</h2>
+        <h2>Statistiques</h2>
+        <input id="global-search" type="search" placeholder="🔍 Rechercher…" class="global-search-input" autocomplete="off">
         <button class="btn-new" data-action="new-trip">＋ Nouveau</button>
       </div>
       ${_filterTabsHtml(_currentFilter, 'stats')}
+      <div id="search-results-area" class="sr-area" style="display:none"></div>
       <div id="stats-view" style="padding:8px 0">
-        ${_statsViewHtml(allTrips)}
+        ${_statsViewHtml(doneTrips)}
       </div>
     </div>
   `;
@@ -548,6 +749,8 @@ function _renderStats() {
     _attachListeners(wrap);
     _listenerAttached = true;
   }
+
+  requestAnimationFrame(() => _initWorldMap(doneTrips));
 }
 
 // ── Export helpers ─────────────────────────────────────────────────────────────
@@ -591,6 +794,9 @@ function _downloadCsv(csvContent, filename) {
 
 function _openSettingsModal() {
   const eventTypes = getEventTypes();
+  const settings   = getSettings();
+  const curTheme   = settings.theme || 'light';
+  const curNotif   = settings.notifications || { enabled: false, departure: true, collaborative: true };
 
   // ── Event type rows ────────────────────────────────────────────────────────
 
@@ -608,7 +814,7 @@ function _openSettingsModal() {
       </div>`;
   }
 
-  function buildHtml(curEventTypes, curLang) {
+  function buildHtml(curEventTypes, curLang, curTheme, curNotif) {
     return `
       <button class="mc" onclick="closeModal()">✕</button>
       <h3 style="font-family:'Lora',serif;font-size:17px;font-weight:700;margin-bottom:4px">⚙️ Paramètres</h3>
@@ -626,6 +832,26 @@ function _openSettingsModal() {
           </label>
         </div>
         <div style="font-size:10px;color:var(--ink4);margin-top:5px">Affecte la carte, la recherche et les étiquettes.</div>
+      </div>
+
+      <hr style="border:none;border-top:1px solid var(--c3);margin:16px 0">
+
+      <div class="fg">
+        <label style="font-size:12px;font-weight:700;color:var(--ink2)">Apparence</label>
+        <div style="display:flex;gap:14px;margin-top:6px;flex-wrap:wrap">
+          <label style="display:flex;align-items:center;gap:7px;cursor:pointer;font-size:13px">
+            <input type="radio" name="theme-sel" value="light" ${curTheme === 'light' ? 'checked' : ''}>
+            ☀️ Clair
+          </label>
+          <label style="display:flex;align-items:center;gap:7px;cursor:pointer;font-size:13px">
+            <input type="radio" name="theme-sel" value="dark" ${curTheme === 'dark' ? 'checked' : ''}>
+            🌙 Sombre
+          </label>
+          <label style="display:flex;align-items:center;gap:7px;cursor:pointer;font-size:13px">
+            <input type="radio" name="theme-sel" value="auto" ${curTheme === 'auto' ? 'checked' : ''}>
+            ⚙️ Système
+          </label>
+        </div>
       </div>
 
       <hr style="border:none;border-top:1px solid var(--c3);margin:16px 0">
@@ -656,13 +882,36 @@ function _openSettingsModal() {
         </div>
       </div>
 
+      <hr style="border:none;border-top:1px solid var(--c3);margin:16px 0">
+
+      <div class="fg">
+        <label style="font-size:12px;font-weight:700;color:var(--ink2)">Notifications</label>
+        <div style="margin-top:8px">
+          <label class="s-toggle-row">
+            <span>Activer les notifications</span>
+            <input type="checkbox" id="notif-enabled" ${curNotif.enabled ? 'checked' : ''}>
+          </label>
+          <div id="notif-sub" style="margin-left:4px;margin-top:2px;transition:opacity .15s;${curNotif.enabled ? '' : 'opacity:0.45;pointer-events:none'}">
+            <label class="s-toggle-row">
+              <span style="font-size:12px">Rappel départ (jour J et veille)</span>
+              <input type="checkbox" id="notif-departure" ${curNotif.departure !== false ? 'checked' : ''}>
+            </label>
+            <label class="s-toggle-row">
+              <span style="font-size:12px">Modifications des voyages partagés</span>
+              <input type="checkbox" id="notif-collaborative" ${curNotif.collaborative !== false ? 'checked' : ''}>
+            </label>
+          </div>
+        </div>
+        <div style="font-size:10px;color:var(--ink4);margin-top:5px">Requiert l'autorisation du navigateur. Désactivé par défaut.</div>
+      </div>
+
       <div class="ma">
         <button class="bc" onclick="closeModal()">Annuler</button>
         <button class="bs" id="settings-save">Enregistrer</button>
       </div>`;
   }
 
-  showModal(buildHtml(eventTypes, getLanguage()));
+  showModal(buildHtml(eventTypes, getLanguage(), curTheme, curNotif));
 
   // ── Collect helpers ──────────────────────────────────────────────────────────
 
@@ -699,6 +948,14 @@ function _openSettingsModal() {
   }
   attachEtDelete();
 
+  document.getElementById('notif-enabled')?.addEventListener('change', e => {
+    const sub = document.getElementById('notif-sub');
+    if (sub) {
+      sub.style.opacity = e.target.checked ? '1' : '0.45';
+      sub.style.pointerEvents = e.target.checked ? '' : 'none';
+    }
+  });
+
   document.getElementById('et-add')?.addEventListener('click', () => {
     const types = collectEventTypes();
     types.push({ key: 'evt_' + uid(), emoji: '📌', label: 'Nouveau type', color: '#0d9488' });
@@ -714,13 +971,33 @@ function _openSettingsModal() {
     }
   });
 
-  document.getElementById('settings-save')?.addEventListener('click', () => {
+  document.getElementById('settings-save')?.addEventListener('click', async () => {
     const newEventTypes = collectEventTypes();
-    const lang = document.querySelector('input[name="lang-sel"]:checked')?.value || 'fr';
+    const lang    = document.querySelector('input[name="lang-sel"]:checked')?.value || 'fr';
+    const theme   = document.querySelector('input[name="theme-sel"]:checked')?.value || 'light';
+    const notifEnabled  = document.getElementById('notif-enabled')?.checked ?? false;
+    const notifDep      = document.getElementById('notif-departure')?.checked ?? true;
+    const notifCollab   = document.getElementById('notif-collaborative')?.checked ?? true;
+
     updateSettings({
       eventTypes: newEventTypes.length > 0 ? newEventTypes : DEFAULT_EVENT_TYPES,
       lang,
+      theme,
+      notifications: { enabled: notifEnabled, departure: notifDep, collaborative: notifCollab },
     });
+
+    // Apply theme immediately
+    const root = document.documentElement;
+    if (theme === 'dark') root.dataset.theme = 'dark';
+    else if (theme === 'auto') root.dataset.theme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : '';
+    else delete root.dataset.theme;
+
+    // Request notification permission if just enabled
+    if (notifEnabled && !notificationPermissionGranted()) {
+      const granted = await requestNotificationPermission();
+      if (!granted) notify('Permission refusée par le navigateur', '⚠️');
+    }
+
     notify('Paramètres enregistrés', '✅');
     closeModal();
   });
@@ -796,6 +1073,13 @@ function _attachListeners(wrap) {
         break;
       }
     }
+  });
+
+  wrap.addEventListener('input', e => {
+    if (e.target.id === 'global-search') _handleSearchInput(e.target.value);
+  });
+  wrap.addEventListener('search', e => {
+    if (e.target.id === 'global-search') _handleSearchInput(e.target.value);
   });
 }
 
