@@ -69,12 +69,62 @@ async function _fetchDayWeather(lat, lng, date) {
   }
 }
 
+// Geocoding cache for day regions (key: region string → {lat, lng} | null)
+const _geoCache = {};
+
+async function _geocodeRegion(text) {
+  if (!text) return null;
+  const key = text.toLowerCase().trim();
+  if (key in _geoCache) return _geoCache[key];
+  try {
+    const url  = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(text)}&format=json&limit=1`;
+    const resp = await fetch(url, { headers: { 'Accept-Language': 'fr' } });
+    const data = await resp.json();
+    const result = data[0] ? { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) } : null;
+    _geoCache[key] = result;
+    return result;
+  } catch (_) {
+    _geoCache[key] = null;
+    return null;
+  }
+}
+
+function _haversineMeters(from, to) {
+  const R = 6371000;
+  const toRad = x => x * Math.PI / 180;
+  const dLat = toRad(to.lat - from.lat);
+  const dLng = toRad(to.lng - from.lng);
+  const a = Math.sin(dLat / 2) ** 2
+    + Math.cos(toRad(from.lat)) * Math.cos(toRad(to.lat)) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(a));
+}
+
 async function _fetchDuration(from, to, mode) {
-  const profile = { car:'driving', bus:'driving', foot:'foot', bike:'cycling' }[mode] || 'driving';
-  const key = `${from.lat},${from.lng}→${to.lat},${to.lng}:${profile}`;
+  // Train: estimate via haversine + 130 km/h average
+  if (mode === 'train') {
+    const key = `${from.lat},${from.lng}→${to.lat},${to.lng}:train`;
+    if (key in _durCache) return _durCache[key];
+    const meters  = _haversineMeters(from, to);
+    const seconds = Math.round(meters / (130_000 / 3600));
+    const result  = { seconds, meters };
+    _durCache[key] = result;
+    return result;
+  }
+  const osrmProfile = { car:'driving', bus:'driving', foot:'foot', bike:'cycling', ferry:'driving', plane:null }[mode] || 'driving';
+  // Plane: estimate via haversine + 800 km/h
+  if (mode === 'plane' || osrmProfile === null) {
+    const key = `${from.lat},${from.lng}→${to.lat},${to.lng}:plane`;
+    if (key in _durCache) return _durCache[key];
+    const meters  = _haversineMeters(from, to);
+    const seconds = Math.round(meters / (800_000 / 3600));
+    const result  = { seconds, meters };
+    _durCache[key] = result;
+    return result;
+  }
+  const key = `${from.lat},${from.lng}→${to.lat},${to.lng}:${osrmProfile}`;
   if (key in _durCache) return _durCache[key];
   try {
-    const url  = `https://router.project-osrm.org/route/v1/${profile}/${from.lng},${from.lat};${to.lng},${to.lat}?overview=false`;
+    const url  = `https://router.project-osrm.org/route/v1/${osrmProfile}/${from.lng},${from.lat};${to.lng},${to.lat}?overview=false`;
     const resp = await fetch(url);
     const data = await resp.json();
     const route = data.routes?.[0];
@@ -92,7 +142,7 @@ function _fmtDuration(seconds) {
   const h = Math.floor(seconds / 3600);
   const m = Math.round((seconds % 3600) / 60);
   if (h === 0) return `${m} min`;
-  return m === 0 ? `${h}h` : `${h}h ${m}min`;
+  return m === 0 ? `${h}h` : `${h}h ${m}`;
 }
 
 function _fmtDistance(meters) {
@@ -106,6 +156,15 @@ let _pendingModeChange = null;     // callback for route-mode popup
 
 export function renderMapCal(tripId) {
   _tripId = tripId;
+
+  // Destroy existing map before replacing panel HTML to prevent
+  // "Map container is already initialized" on re-render.
+  if (_map) {
+    try { _map.remove(); } catch (_) {}
+    _map = null;
+    _markers = {};
+    _routeLayers = [];
+  }
 
   const panel = document.getElementById('panel-mapcal');
   if (!panel) return;
@@ -273,6 +332,7 @@ function _initMap(tripId) {
   }
 
   requestAnimationFrame(() => {
+    if (_map) return; // concurrent init guard — prevent double-init
     const el = document.getElementById('map');
     if (!el) return;
 
@@ -710,7 +770,12 @@ function _renderDaysList(tripId) {
 async function _populateWeather(days) {
   for (const day of days) {
     if (!day.date) continue;
-    const coords = _getDayCoords(day);
+    let coords = _getDayCoords(day);
+    if (!coords) {
+      // No pinned coords — try geocoding the day's region or title
+      const label = day.region || day.title;
+      if (label) coords = await _geocodeRegion(label);
+    }
     if (!coords) continue;
     const wx = await _fetchDayWeather(coords.lat, coords.lng, day.date);
     if (!wx) continue;
@@ -720,20 +785,55 @@ async function _populateWeather(days) {
 }
 
 async function _populateDurations(days) {
+  let prevPoint = null; // { lat, lng, dayId, elId }
+
   for (const day of days) {
     const items = day.items || [];
-    for (let i = 0; i < items.length - 1; i++) {
-      const from = items[i];
-      const to   = items[i + 1];
-      if (from.lat == null || from.lng == null || to.lat == null || to.lng == null) continue;
-      const el = document.getElementById(`dur-${day.id}-${i}`);
-      if (!el) continue;
-      let mode = to.routeMode || 'car';
-      if (to.type === 'drive' && to.transport) mode = to.transport;
-      const dur = await _fetchDuration(from, to, mode);
-      if (!dur) continue;
-      const icon = trIc(mode);
-      el.textContent = `${icon} ${_fmtDuration(dur.seconds)} · ${_fmtDistance(dur.meters)}`;
+
+    for (let i = 0; i < items.length; i++) {
+      const it = items[i];
+      if (it.lat == null || it.lng == null) continue;
+
+      let mode = it.routeMode || 'car';
+      if (it.type === 'drive' && it.transport) mode = it.transport;
+
+      if (prevPoint) {
+        // Cross-day: connector goes in the "last-item" slot of the FROM day
+        // Intra-day: connector goes after the FROM item
+        const elId = prevPoint.dayId !== day.id
+          ? `dur-last-${prevPoint.dayId}`
+          : `dur-${prevPoint.dayId}-${prevPoint.idx}`;
+
+        const el = document.getElementById(elId);
+        if (el) {
+          const dur = await _fetchDuration(prevPoint, it, mode);
+          if (dur) {
+            el.style.display = '';
+            el.innerHTML = `<span style="display:inline-flex;align-items:center;gap:4px;background:var(--c2);border-radius:8px;padding:2px 8px;border:1px solid var(--c3);font-size:11px">${trIc(mode)} <b style="font-weight:600">${_fmtDuration(dur.seconds)}</b><span style="color:var(--ink4)">${_fmtDistance(dur.meters)}</span></span>`;
+          }
+        }
+      }
+
+      prevPoint = { lat: it.lat, lng: it.lng, dayId: day.id, idx: i };
+    }
+
+    // Day-level pin: acts as waypoint when no item in this day has coords
+    if (items.every(it => it.lat == null || it.lng == null) && day.lat != null && day.lng != null) {
+      const mode = day.routeMode || 'car';
+      if (prevPoint) {
+        const elId = prevPoint.dayId !== day.id
+          ? `dur-last-${prevPoint.dayId}`
+          : `dur-${prevPoint.dayId}-${prevPoint.idx}`;
+        const el = document.getElementById(elId);
+        if (el) {
+          const dur = await _fetchDuration(prevPoint, day, mode);
+          if (dur) {
+            el.style.display = '';
+            el.innerHTML = `<span style="display:inline-flex;align-items:center;gap:4px;background:var(--c2);border-radius:8px;padding:2px 8px;border:1px solid var(--c3);font-size:11px">${trIc(mode)} <b style="font-weight:600">${_fmtDuration(dur.seconds)}</b><span style="color:var(--ink4)">${_fmtDistance(dur.meters)}</span></span>`;
+          }
+        }
+      }
+      prevPoint = { lat: day.lat, lng: day.lng, dayId: day.id, idx: -1 };
     }
   }
 }
@@ -757,10 +857,9 @@ function _dayItemHtml(day, sharedDocData = null) {
   if (isSelected) {
     const evtRows = items.map((it, idx) => {
       const isSelEvt = _activeEvtKey && _activeEvtKey.dayId === day.id && _activeEvtKey.idx === idx;
-      const next = items[idx + 1];
-      const hasDur = it.lat != null && it.lng != null && next?.lat != null && next?.lng != null;
-      const durConnector = hasDur
-        ? `<div class="dur-row" id="dur-${day.id}-${idx}" style="font-size:10px;color:var(--ink4);padding:0 10px 0 28px;line-height:1.6;pointer-events:none"></div>`
+      // Render a connector slot after every located item (intra-day); hidden until filled
+      const durSlot = it.lat != null && it.lng != null
+        ? `<div id="dur-${day.id}-${idx}" style="padding:2px 8px 2px 28px;display:none"></div>`
         : '';
       return `
         <div class="evt-row${isSelEvt ? ' sel-evt' : ''}"
@@ -775,7 +874,7 @@ function _dayItemHtml(day, sharedDocData = null) {
             <div class="evt-tm">${it.time ? it.time : ''}${it.cost ? (it.time ? ' · ' : '') + Number(it.cost).toLocaleString('fr-FR') + ' €' : ''}</div>
           </div>
           <button class="evt-del" data-action="delete-event" data-day-id="${day.id}" data-event-idx="${idx}" title="Supprimer">✕</button>
-        </div>${durConnector}`;
+        </div>${durSlot}`;
     }).join('');
 
     // Comments section (shared trips only)
@@ -836,6 +935,7 @@ function _dayItemHtml(day, sharedDocData = null) {
         <span id="wx-${day.id}" style="margin-left:4px;font-size:11px;color:var(--ink3)"></span>
       </div>
       ${eventsHtml}
+      <div id="dur-last-${day.id}" style="padding:2px 8px 4px 8px;display:none"></div>
     </div>`;
 }
 
@@ -936,10 +1036,10 @@ function _openEDP(dayId, evtIdx, tripId) {
   }
 
   function _modeButtons() {
-    return ['car','ferry','plane','bus','foot','bike'].map(m => {
+    return ['car','train','bus','plane','ferry','foot','bike'].map(m => {
       const active = m === edpTransport;
       return `<button type="button" class="tp${active ? ' sel' : ''}" data-edp-mode="${m}"
-        style="font-size:11px;padding:3px 8px;${active ? `background:${trCol(m)};border-color:${trCol(m)};color:#fff` : ''}">${trIc(m)} ${{ car:'Voiture', ferry:'Ferry', plane:'Avion', bus:'Bus', foot:'À pied', bike:'Vélo' }[m]}</button>`;
+        style="font-size:11px;padding:3px 8px;${active ? `background:${trCol(m)};border-color:${trCol(m)};color:#fff` : ''}">${trIc(m)} ${trNm(m)}</button>`;
     }).join('');
   }
 

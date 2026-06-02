@@ -153,13 +153,13 @@ export function tIc(t, item) {
   return { drive: '🚐', visit: '📍', activity: '⚡', sleep: '🌙' }[t] || '•';
 }
 export function trIc(m) {
-  return { car: '🚗', ferry: '⛴', plane: '✈', bus: '🚌', foot: '🚶', bike: '🚲' }[m] || '🚐';
+  return { car: '🚗', ferry: '⛴', plane: '✈', bus: '🚌', foot: '🚶', bike: '🚲', train: '🚆' }[m] || '🚐';
 }
 export function trNm(m) {
-  return { car: 'Voiture', ferry: 'Ferry', plane: 'Avion', bus: 'Bus', foot: 'À pied', bike: 'Vélo' }[m] || 'Véhicule';
+  return { car: 'Voiture', ferry: 'Ferry', plane: 'Avion', bus: 'Bus', foot: 'À pied', bike: 'Vélo', train: 'Train' }[m] || 'Véhicule';
 }
 export function trCol(m) {
-  return { car: '#0284c7', ferry: '#0d9488', plane: '#7c3aed', bus: '#d97706', foot: '#16a34a', bike: '#e85d3e' }[m] || '#0284c7';
+  return { car: '#0284c7', ferry: '#0d9488', plane: '#7c3aed', bus: '#d97706', foot: '#16a34a', bike: '#e85d3e', train: '#92400e' }[m] || '#0284c7';
 }
 
 // ── Date picker ────────────────────────────────────────────────────────────────
