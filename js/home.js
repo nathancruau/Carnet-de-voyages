@@ -1524,7 +1524,7 @@ function _initSortieModalMap() {
   searchIn?.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); doSearch(); } });
 }
 
-function _handleSortieSave() {
+async function _handleSortieSave() {
   const name = (document.getElementById('sm-name')?.value || '').trim();
   if (!name) {
     notify('Veuillez saisir un nom de sortie.', '⚠️');
@@ -1547,6 +1547,25 @@ function _handleSortieSave() {
 
   _cleanupSortieModalMap();
 
+  // Reverse-geocode the pin position to get the country flag emoji
+  // so MyMap can assign the correct country color.
+  let flag = '🎯';
+  if (_sortieLat != null && _sortieLng != null) {
+    try {
+      const r = await fetch(
+        `https://nominatim.openstreetmap.org/reverse?lat=${_sortieLat}&lon=${_sortieLng}&format=json`
+      );
+      const d = await r.json();
+      const cc = (d.address?.country_code || '').toUpperCase();
+      if (cc.length === 2) {
+        flag = String.fromCodePoint(
+          cc.charCodeAt(0) - 65 + 0x1F1E6,
+          cc.charCodeAt(1) - 65 + 0x1F1E6
+        );
+      }
+    } catch (_) { /* keep default */ }
+  }
+
   const pin = {
     lat:         _sortieLat,
     lng:         _sortieLng,
@@ -1564,7 +1583,7 @@ function _handleSortieSave() {
     destination,
     photo,
     color:     '#d97706',
-    flag:      '🎯',
+    flag,
     type:      'sortie',
     status:    'done',
     startDate: date,

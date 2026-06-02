@@ -208,6 +208,30 @@ function _buildAllPins() {
         _allPins.push({ trip, entry: { ...entry, lat, lng }, lat, lng });
       }
     }
+
+    // Sortie pin (single-pin trip — stored in trip.pin, not days)
+    if (trip.type === 'sortie' && trip.pin) {
+      const lat = parseFloat(trip.pin.lat);
+      const lng = parseFloat(trip.pin.lng);
+      if (!isNaN(lat) && !isNaN(lng)) {
+        const entry = {
+          id:         trip.id + '_pin',
+          title:      trip.name || 'Sortie',
+          date:       trip.pin.date || trip.startDate || null,
+          dayLabel:   null,
+          pinType:    trip.pin.pinType || 'visit',
+          dayFlag:    trip.flag || null,   // country flag set during save
+          lat, lng,
+          photos:     trip.photo ? [{ url: trip.photo }] : [],
+          content:    trip.pin.description || '',
+          weather:    trip.pin.weather || '',
+          amount:     trip.pin.cost || 0,
+          tags:       [],
+          _validated: false,
+        };
+        _allPins.push({ trip, entry, lat, lng });
+      }
+    }
   }
 }
 
