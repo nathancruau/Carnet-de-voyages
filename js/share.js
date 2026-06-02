@@ -18,7 +18,7 @@
 import {
   initSharedTripInFirestore, saveSharedTrip,
   listenSharedTrip, createInvite, loadInvite,
-  loadSharedTrip, joinSharedTrip,
+  loadSharedTrip, joinSharedTrip, updateLastPublished,
   isFirebaseConfigured, getCurrentUser,
   addComment, updatePresence, clearPresence, addActivityEntry,
   removeMemberFromSharedTrip,
@@ -60,6 +60,37 @@ function _genToken() {
 /** Returns the latest full Firestore doc snapshot for a shared trip, or null. */
 export function getSharedDocData(tripId) {
   return _sharedDocData.get(tripId) || null;
+}
+
+/** Returns true if the current user has the 'observer' role on this trip. */
+export function isCurrentUserObserver(tripId) {
+  const user = getCurrentUser();
+  if (!user) return false;
+  const doc = _sharedDocData.get(tripId);
+  return doc?.members?.[user.uid]?.role === 'observer';
+}
+
+/**
+ * Called when a traveler validates a journal day.
+ * Writes lastPublished to Firestore so observers receive a real-time notification.
+ */
+export async function publishDay(tripId, dayNum, dayTitle) {
+  const user = getCurrentUser();
+  if (!user) return;
+  const sharedDoc = _sharedDocData.get(tripId);
+  if (!sharedDoc) return;
+  const actorName = sharedDoc.members?.[user.uid]?.companionName
+    || user.displayName || 'Un voyageur';
+  const tripName = sharedDoc.trip?.name || 'ce voyage';
+  const dayLabel = dayTitle ? `Jour ${dayNum} · ${dayTitle}` : `Jour ${dayNum}`;
+  await updateLastPublished(tripId, {
+    dayNum,
+    dayTitle: dayTitle || '',
+    actorName,
+    tripName,
+    dayLabel,
+    ts: new Date().toISOString(),
+  }).catch(() => {});
 }
 
 /**
@@ -239,6 +270,19 @@ function _onNetworkUpdate(tripId, data, hasPendingWrites) {
   const tripChanged     = !prevData || prevData.updatedAt !== data.updatedAt;
   const commentsChanged = JSON.stringify(prevData?.comments) !== JSON.stringify(data.comments);
 
+  // Observer notification: fire when lastPublished.ts changes
+  if (!hasPendingWrites && prevData) {
+    const prevPubTs = prevData.lastPublished?.ts;
+    const newPubTs  = data.lastPublished?.ts;
+    if (newPubTs && newPubTs !== prevPubTs) {
+      const user   = getCurrentUser();
+      const myRole = data.members?.[user?.uid]?.role;
+      if (myRole === 'observer') {
+        _showPublishNotification(data.lastPublished);
+      }
+    }
+  }
+
   // Browser notification for remote collaborator changes
   if (!hasPendingWrites && tripChanged) {
     const acts = data.activity || [];
@@ -250,6 +294,15 @@ function _onNetworkUpdate(tripId, data, hasPendingWrites) {
     if (typeof window._rerenderCurrentView === 'function') {
       window._rerenderCurrentView(tripId);
     }
+  }
+}
+
+function _showPublishNotification(pub) {
+  const { actorName, tripName, dayLabel } = pub || {};
+  const msg = `${actorName || 'Un voyageur'} a publié ${dayLabel || 'un jour'} de "${tripName || 'son voyage'}"`;
+  notify(msg, '📖');
+  if (Notification?.permission === 'granted') {
+    try { new Notification('Carnet de Voyages', { body: msg, icon: '/favicon.ico' }); } catch (_) {}
   }
 }
 
@@ -333,22 +386,33 @@ export async function openShareModal(tripId) {
       updatePresence(tripId, null, user.displayName || 'Organisateur').catch(() => {});
     }
 
-    // Always generate a fresh invite token so each share creates a new link
-    const token    = _genToken();
-    await createInvite(token, tripId);
+    // Generate two fresh invite tokens: one for collaborators, one for observers
+    const collabToken = _genToken();
+    const obsToken    = _genToken();
+    await Promise.all([
+      createInvite(collabToken, tripId, 'member'),
+      createInvite(obsToken, tripId, 'observer'),
+    ]);
 
-    const inviteUrl = `${location.origin}${location.pathname}?invite=${token}`;
-    const qrUrl     = `https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(inviteUrl)}`;
+    const baseUrl   = `${location.origin}${location.pathname}`;
+    const collabUrl = `${baseUrl}?invite=${collabToken}`;
+    const obsUrl    = `${baseUrl}?invite=${obsToken}`;
 
     const sharedDoc    = await loadSharedTrip(tripId);
     const memberCount  = Object.keys(sharedDoc?.members || {}).length;
 
-    showModal(_shareModalHtml(trip, inviteUrl, qrUrl, memberCount));
+    showModal(_shareModalHtml(trip, collabUrl, obsUrl, memberCount));
 
-    document.getElementById('share-copy-btn')?.addEventListener('click', () => {
-      navigator.clipboard?.writeText(inviteUrl).then(() => {
-        const btn = document.getElementById('share-copy-btn');
-        if (btn) { btn.textContent = '✓ Copié !'; setTimeout(() => { btn.textContent = 'Copier le lien'; }, 2000); }
+    document.getElementById('share-copy-collab')?.addEventListener('click', () => {
+      navigator.clipboard?.writeText(collabUrl).then(() => {
+        const btn = document.getElementById('share-copy-collab');
+        if (btn) { btn.textContent = '✓ Copié !'; setTimeout(() => { btn.textContent = 'Copier'; }, 2000); }
+      });
+    });
+    document.getElementById('share-copy-obs')?.addEventListener('click', () => {
+      navigator.clipboard?.writeText(obsUrl).then(() => {
+        const btn = document.getElementById('share-copy-obs');
+        if (btn) { btn.textContent = '✓ Copié !'; setTimeout(() => { btn.textContent = 'Copier'; }, 2000); }
       });
     });
 
@@ -363,27 +427,46 @@ export async function openShareModal(tripId) {
   }
 }
 
-function _shareModalHtml(trip, inviteUrl, qrUrl, memberCount) {
-  const guestCount = memberCount - 1; // exclude owner
+function _shareModalHtml(trip, collabUrl, obsUrl, memberCount) {
+  const guestCount  = memberCount - 1; // exclude owner
   const membersNote = guestCount > 0
-    ? `<strong>${guestCount} compagnon${guestCount > 1 ? 's' : ''}</strong> a déjà rejoint.`
-    : 'Aucun compagnon n\'a encore rejoint.';
+    ? `<strong>${guestCount} participant${guestCount > 1 ? 's' : ''}</strong> a déjà rejoint.`
+    : 'Aucun participant n\'a encore rejoint.';
 
   return `
     <button class="mc" onclick="closeModal()">✕</button>
     <h3 class="modal-title">Partager — ${_esc(trip.flag)} ${_esc(trip.name)}</h3>
-    <div class="share-modal-body">
-      <div class="share-qr-wrap">
-        <img src="${_esc(qrUrl)}" alt="QR Code" class="share-qr" width="180" height="180" />
+    <p class="share-hint" style="margin-bottom:12px">${membersNote}</p>
+
+    <div class="share-section">
+      <div class="share-section-hd">
+        <span class="share-section-icon">✈️</span>
+        <div>
+          <div class="share-section-title">Inviter un voyageur</div>
+          <div class="share-section-desc">Peut éditer le voyage et documenter le carnet</div>
+        </div>
       </div>
-      <p class="share-subtitle">Scannez le QR code ou copiez le lien :</p>
       <div class="share-link-row">
-        <input class="share-link-input" type="text" readonly value="${_esc(inviteUrl)}" onclick="this.select()" />
-        <button class="share-copy-btn" id="share-copy-btn">Copier le lien</button>
+        <input class="share-link-input" type="text" readonly value="${_esc(collabUrl)}" onclick="this.select()" />
+        <button class="share-copy-btn" id="share-copy-collab">Copier</button>
       </div>
-      <p class="share-hint">${membersNote}</p>
     </div>
-    <div class="ma"><button class="bc" onclick="closeModal()">Fermer</button></div>
+
+    <div class="share-section" style="margin-top:10px">
+      <div class="share-section-hd">
+        <span class="share-section-icon">👁</span>
+        <div>
+          <div class="share-section-title">Inviter un observateur</div>
+          <div class="share-section-desc">Suit le voyage en direct · lecture seule</div>
+        </div>
+      </div>
+      <div class="share-link-row">
+        <input class="share-link-input" type="text" readonly value="${_esc(obsUrl)}" onclick="this.select()" />
+        <button class="share-copy-btn" id="share-copy-obs">Copier</button>
+      </div>
+    </div>
+
+    <div class="ma" style="margin-top:14px"><button class="bc" onclick="closeModal()">Fermer</button></div>
   `;
 }
 
@@ -422,6 +505,24 @@ export async function handlePendingInvite(user) {
         setSharedTripIds(_sharedTripIds);
       }
       notify('Voyage chargé !', '✅');
+      if (typeof window._rerenderCurrentView === 'function') window._rerenderCurrentView();
+      return;
+    }
+
+    // Observer invite — join directly without companion picker
+    if (invite.role === 'observer') {
+      const obsName = user.displayName || 'Observateur';
+      await joinSharedTrip(tripId, null, obsName, 'observer');
+      if (!_sharedTripIds.includes(tripId)) {
+        _sharedTripIds.push(tripId);
+        setSharedTripIds(_sharedTripIds);
+      }
+      await _loadAndListen(tripId);
+      // Request browser notification permission for future publications
+      if (Notification?.permission === 'default') {
+        Notification.requestPermission().catch(() => {});
+      }
+      notify(`Vous suivez désormais "${sharedDoc.trip?.name || 'ce voyage'}" en tant qu'observateur 👁`, '✅');
       if (typeof window._rerenderCurrentView === 'function') window._rerenderCurrentView();
       return;
     }

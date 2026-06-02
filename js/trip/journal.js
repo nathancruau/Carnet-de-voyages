@@ -2,7 +2,7 @@
    CARNET DE VOYAGES — Journal Module
    ============================================================ */
 
-import { getTrip, updateTrip, uid, getEventTypes, getLanguage } from '../store.js';
+import { getTrip, updateTrip, uid, getEventTypes, getLanguage, isTripShared } from '../store.js';
 import { notify, showModal, closeModal, fmtDate, fmtDateShort, isoToDate, dateToIso } from '../utils.js';
 import { updateTopStats } from './trip.js';
 
@@ -80,7 +80,8 @@ let _journalTripId       = null;
 
 // ── Day filter state ──────────────────────────────────────────────────────────
 
-let _activeDayFilter = null;
+let _activeDayFilter  = null;
+let _observerMode     = false;
 
 export function destroyJournalMap() {
   if (_journalMap) {
@@ -169,12 +170,11 @@ async function _drawJournalRoutes(tripId) {
 
 // ── Render ────────────────────────────────────────────────────────────────────
 
-export function renderJournal(tripId) {
+export function renderJournal(tripId, isObserver = false) {
+  _observerMode = isObserver;
   const panel = document.getElementById('panel-journal');
   if (!panel) return;
 
-  // Destroy existing Leaflet instance before replacing panel HTML to prevent
-  // "Map container is already initialized" error on re-render.
   if (_journalMap) destroyJournalMap();
 
   const trip = getTrip(tripId);
@@ -185,6 +185,11 @@ export function renderJournal(tripId) {
   if (_handlers.has(panel)) {
     panel.removeEventListener('click', _handlers.get(panel));
     _handlers.delete(panel);
+  }
+
+  if (isObserver) {
+    _renderObserverView(panel, trip, tripId);
+    return;
   }
 
   panel.innerHTML = `
@@ -207,8 +212,95 @@ export function renderJournal(tripId) {
   _handlers.set(panel, handler);
   panel.addEventListener('click', handler);
 
-  // Init map
   _initJournalMap(tripId);
+}
+
+// ── Observer view ─────────────────────────────────────────────────────────────
+
+function _renderObserverView(panel, trip, tripId) {
+  const days = trip.days || [];
+  const validatedItems = [];
+
+  for (const day of days) {
+    for (const item of (day.items || [])) {
+      if (item.journalData?.validated) {
+        validatedItems.push({ day, item });
+      }
+    }
+  }
+
+  const hasItems = validatedItems.length > 0;
+
+  panel.innerHTML = `
+    <div class="mapcal">
+      <div class="left-panel" style="width:320px;min-width:260px;max-width:320px;display:flex;flex-direction:column">
+        <div style="padding:12px 14px 6px;flex-shrink:0">
+          <h3 style="font-family:var(--sf);font-size:15px;font-weight:700;color:var(--ink);margin:0">📔 Carnet de voyage</h3>
+          <p style="font-size:11px;color:var(--ink4);margin-top:2px">Mis à jour en direct par les voyageurs</p>
+        </div>
+        <div class="days-scroll" id="observer-feed" style="flex:1;overflow-y:auto;padding:6px 8px">
+          ${hasItems ? _buildObserverFeedHtml(validatedItems) : _buildObserverEmptyHtml()}
+        </div>
+      </div>
+      <div class="map-col" style="flex:1;position:relative">
+        <div id="journal-map" style="width:100%;height:100%"></div>
+      </div>
+    </div>`;
+
+  _initJournalMap(tripId);
+}
+
+function _buildObserverEmptyHtml() {
+  return `
+    <div style="text-align:center;padding:40px 16px;color:var(--ink4)">
+      <div style="font-size:40px;margin-bottom:12px">📡</div>
+      <p style="font-size:13px;font-weight:600;color:var(--ink3)">En attente de nouvelles publications…</p>
+      <p style="font-size:11px;margin-top:6px">Les voyageurs publieront leurs activités au fil du voyage</p>
+    </div>`;
+}
+
+function _buildObserverFeedHtml(validatedItems) {
+  // Group by day
+  const groups = new Map();
+  for (const { day, item } of validatedItems) {
+    if (!groups.has(day.id)) groups.set(day.id, { day, items: [] });
+    groups.get(day.id).items.push(item);
+  }
+
+  let html = '';
+  for (const [, { day, items }] of groups) {
+    const dayLabel = `Jour ${day.num}${day.title ? ' · ' + day.title : ''}`;
+    html += `<div class="jn-day-group">
+      <div class="jn-day-label">${_esc(dayLabel)}${day.date ? `<span style="font-weight:400;font-size:10px;color:var(--ink4);margin-left:5px">${fmtDateShort(day.date)}</span>` : ''}</div>`;
+
+    for (const item of items) {
+      const jd       = item.journalData;
+      const typeIcon = _eventTypeIcon(item.type);
+      const photos   = jd.photos || [];
+
+      html += `
+        <div class="obs-entry">
+          <div class="obs-entry-hd">
+            <span style="font-size:16px">${typeIcon}</span>
+            <div style="flex:1;min-width:0">
+              <div style="font-weight:600;font-size:12px;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_esc(item.text || '—')}</div>
+              <div style="font-size:10px;color:var(--ink4);margin-top:1px;display:flex;gap:6px;flex-wrap:wrap">
+                ${jd.weather ? `<span>${jd.weather}</span>` : ''}
+                ${jd.amount  ? `<span>💶 ${jd.amount}€</span>` : ''}
+                ${item.time  ? `<span>🕐 ${_esc(item.time)}</span>` : ''}
+              </div>
+            </div>
+            <span class="obs-validated-badge">✓</span>
+          </div>
+          ${jd.notes ? `<div class="obs-notes">${_esc(jd.notes).replace(/\n/g, '<br>')}</div>` : ''}
+          ${photos.length > 0 ? `<div class="obs-photos">${photos.map(src =>
+            `<img src="${_esc(src)}" class="obs-photo" onclick="window.open(this.src,'_blank')">`
+          ).join('')}</div>` : ''}
+        </div>`;
+    }
+    html += `</div>`;
+  }
+  return html;
 }
 
 // ── Day chips ─────────────────────────────────────────────────────────────────
@@ -795,6 +887,14 @@ function _openValidateModal(tripId, dayId, itemIdx) {
       notify('Activité validée · dépense créée', '✓');
     } else {
       notify('Activité validée', '✓');
+    }
+
+    // Notify observers if this is a shared trip
+    if (isTripShared(tripId)) {
+      const day = days[dayIdx];
+      import('../share.js').then(({ publishDay }) => {
+        publishDay(tripId, day.num, day.title || '');
+      }).catch(() => {});
     }
 
     closeModal();

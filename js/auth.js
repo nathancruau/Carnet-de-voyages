@@ -205,10 +205,11 @@ export async function loadSharedTrip(tripId) {
 }
 
 /** Create an invite token document. */
-export async function createInvite(token, tripId) {
+export async function createInvite(token, tripId, role = 'member') {
   if (!_db || !_setDocFn || !_docFn || !_uid) return;
   await _setDocFn(_docFn(_db, 'invites', token), {
     tripId,
+    role,
     createdBy: _uid,
     createdAt: new Date().toISOString(),
   });
@@ -227,10 +228,18 @@ export async function loadInvite(token) {
 }
 
 /** Add the current user to the members map of a shared trip. */
-export async function joinSharedTrip(tripId, companionId, companionName) {
+export async function joinSharedTrip(tripId, companionId, companionName, role = 'member') {
   if (!_db || !_updateDocFn || !_docFn || !_uid) return;
   await _updateDocFn(_docFn(_db, 'shared_trips', tripId), {
-    [`members.${_uid}`]: { role: 'member', companionId, companionName },
+    [`members.${_uid}`]: { role, companionId, companionName },
+  });
+}
+
+/** Write a lastPublished record to a shared trip doc (called when a day is validated). */
+export async function updateLastPublished(tripId, publishData) {
+  if (!_db || !_updateDocFn || !_docFn) return;
+  await _updateDocFn(_docFn(_db, 'shared_trips', tripId), {
+    lastPublished: publishData,
   });
 }
 

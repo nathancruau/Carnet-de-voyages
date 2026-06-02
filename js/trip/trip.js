@@ -13,7 +13,8 @@ import { fmtDate, notify, showModal } from '../utils.js';
 
 // ─── Module state ─────────────────────────────────────────────────────────────
 
-let _tripId = null;
+let _tripId     = null;
+let _isObserver = false;
 
 // ─── Public API ───────────────────────────────────────────────────────────────
 
@@ -31,6 +32,7 @@ export async function openTrip(id) {
   }
 
   if (trip.type === 'sortie') {
+    _isObserver = false;
     _renderSortieTopbar(trip);
     const panels = document.getElementById('panels');
     if (panels) panels.innerHTML = '';
@@ -39,6 +41,22 @@ export async function openTrip(id) {
     return;
   }
 
+  // Check if the current user is an observer of this shared trip
+  try {
+    const shareMod = await import('../share.js');
+    _isObserver = shareMod.isCurrentUserObserver?.(id) || false;
+  } catch (_) {
+    _isObserver = false;
+  }
+
+  if (_isObserver) {
+    _renderObserverTopbar(trip);
+    _renderObserverPanels();
+    await switchTab('journal');
+    return;
+  }
+
+  _isObserver = false;
   _renderTopbar(trip);
   _renderPanels();
   updateTopStats(id);
@@ -74,7 +92,7 @@ export async function switchTab(tabId) {
   });
 
   // Render content for the activated panel
-  await _renderActiveTab(tabId, _tripId);
+  await _renderActiveTab(tabId, _tripId, _isObserver);
 }
 
 window.switchTab = switchTab;
@@ -141,6 +159,42 @@ function _renderSortieTopbar(trip) {
   `;
 
   topbar.querySelector('#back-home-btn').addEventListener('click', () => window.goHome?.());
+}
+
+function _renderObserverTopbar(trip) {
+  const topbar = document.getElementById('topbar');
+  if (!topbar) return;
+
+  const startLabel = fmtDate(trip.startDate);
+  const endLabel   = fmtDate(trip.endDate);
+
+  topbar.innerHTML = `
+    <div class="topbar-row1">
+      <button class="back-btn" id="back-home-btn">← Bibliothèque</button>
+      <span class="trip-tag">${_esc(trip.flag || '')} ${_esc(trip.name || 'Voyage')}</span>
+      <div class="topbar-right">
+        <span class="dates-tag">${startLabel} – ${endLabel}</span>
+        <span class="observer-badge">👁 Observateur</span>
+      </div>
+    </div>
+    <div class="topbar-row2">
+      <div class="nav-tabs">
+        <div class="nav-tab active" data-tab="journal">📔 Carnet de voyage</div>
+      </div>
+    </div>
+  `;
+
+  topbar.querySelector('#back-home-btn').addEventListener('click', () => window.goHome?.());
+  topbar.addEventListener('click', e => {
+    const tab = e.target.closest('.nav-tab');
+    if (tab && tab.dataset.tab) switchTab(tab.dataset.tab);
+  });
+}
+
+function _renderObserverPanels() {
+  const panels = document.getElementById('panels');
+  if (!panels) return;
+  panels.innerHTML = `<div class="panel active" id="panel-journal"></div>`;
 }
 
 function _renderTopbar(trip) {
@@ -331,7 +385,7 @@ function _renderPanels() {
 /**
  * Dynamically import the correct sub-module and call its render function.
  */
-async function _renderActiveTab(tabId, tripId) {
+async function _renderActiveTab(tabId, tripId, isObserver = false) {
   if (!tripId) return;
   try {
     if (tabId === 'mapcal') {
@@ -339,7 +393,7 @@ async function _renderActiveTab(tabId, tripId) {
       renderMapCal(tripId);
     } else if (tabId === 'journal') {
       const { renderJournal } = await import('./journal.js');
-      renderJournal(tripId);
+      renderJournal(tripId, isObserver);
     } else if (tabId === 'budget') {
       const { renderBudget } = await import('./budget.js');
       renderBudget(tripId);
