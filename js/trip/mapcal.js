@@ -628,7 +628,14 @@ async function _drawRoutes(trip, _days) {
         const data  = await resp.json();
         const route = data.routes?.[0];
         if (route?.geometry?.coordinates?.length) {
-          dur  = { seconds: route.duration, meters: route.distance };
+          // Train: use OSRM geometry for the visual path but estimate duration via
+          // haversine×1.15 (rail is more direct than roads) at 150 km/h average.
+          if (mode === 'train') {
+            const straightM = _haversineMeters(from, to) * 1.15;
+            dur = { seconds: Math.round(straightM / (150_000 / 3600)), meters: Math.round(straightM) };
+          } else {
+            dur = { seconds: route.duration, meters: route.distance };
+          }
           line = L.polyline(route.geometry.coordinates.map(([lng, lat]) => [lat, lng]), {
             color:   trCol(mode),
             weight:  4,
