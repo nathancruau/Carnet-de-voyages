@@ -39,7 +39,18 @@ const CURRENCIES = [
   { code:'KRW', symbol:'₩', name:'Won sud-coréen' },
   { code:'HKD', symbol:'HK$', name:'Dollar de Hong Kong' },
   { code:'NZD', symbol:'NZ$', name:'Dollar néo-zélandais' },
-  { code:'ZAR', symbol:'R', name:'Rand sud-africain' },
+  { code:'ZAR', symbol:'R',   name:'Rand sud-africain' },
+  { code:'RON', symbol:'lei', name:'Leu roumain' },
+  { code:'CZK', symbol:'Kč',  name:'Couronne tchèque' },
+  { code:'HUF', symbol:'Ft',  name:'Forint hongrois' },
+  { code:'PLN', symbol:'zł',  name:'Zloty polonais' },
+  { code:'BGN', symbol:'лв',  name:'Lev bulgare' },
+  { code:'GEL', symbol:'₾',   name:'Lari géorgien' },
+  { code:'EGP', symbol:'£E',  name:'Livre égyptienne' },
+  { code:'ARS', symbol:'$',   name:'Peso argentin' },
+  { code:'CLP', symbol:'$',   name:'Peso chilien' },
+  { code:'COP', symbol:'$',   name:'Peso colombien' },
+  { code:'PEN', symbol:'S/',  name:'Sol péruvien' },
 ];
 
 let _ratesCache    = null;

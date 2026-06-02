@@ -187,6 +187,7 @@ function _buildAllPins() {
             date:       day.date   || null,
             dayLabel:   `Jour ${day.num}${day.title ? ' · ' + day.title : ''}`,
             pinType:    item.type  || null,
+            dayFlag:    day.flag   || null,
             lat, lng,
             photos:     (jd.photos || []).map(p => ({ url: p })),
             content:    jd.notes   || '',
@@ -272,11 +273,12 @@ function _buildSidebarTree(pins) {
         : '📍';
       const label = pin.entry.title || (pin.entry.date ? fmtDateShort(pin.entry.date) : 'Sans titre');
       const dateStr = pin.entry.date ? fmtDateShort(pin.entry.date) : '';
+      const pinColor = _colorForFlag(pin.entry?.dayFlag || trip.flag);
       return `
         <div class="mm-pin-row"
              data-lat="${pin.lat}" data-lng="${pin.lng}" data-tripid="${trip.id}"
              onclick="_mmFlyTo(${pin.lat}, ${pin.lng}, '${trip.id}')">
-          <span style="color:${color};flex-shrink:0">${pinEmoji}</span>
+          <span style="color:${pinColor};flex-shrink:0">${pin.entry?.dayFlag || pinEmoji}</span>
           <span class="mm-pin-label">${label}</span>
           ${dateStr ? `<span style="font-size:9px;color:var(--ink4);flex-shrink:0;white-space:nowrap">${dateStr}</span>` : ''}
         </div>`;
@@ -366,7 +368,7 @@ function _redrawMarkers(pins) {
   const bounds = [];
 
   for (const pin of pins) {
-    const color  = _colorForFlag(pin.trip.flag);
+    const color  = _colorForFlag(pin.entry?.dayFlag || pin.trip.flag);
     const emoji  = _pinTypeMap()[pin.entry?.pinType] || null;
     const marker = L.marker([pin.lat, pin.lng], { icon: _makeIcon(color, 14, emoji) });
     marker.on('click', () => _mmShowInfo(pin.trip, pin.entry));
@@ -635,11 +637,12 @@ export function renderMyMap() {
   if (!wrap) return;
 
   // Reset filters to default
-  _filters         = { type: 'all', pinType: 'all', tripId: 'all' };
-  _collapsedGroups = new Set();
+  _filters = { type: 'all', pinType: 'all', tripId: 'all' };
 
   // Build pin data
   _buildAllPins();
+  // Start with all trip groups collapsed — user expands to see events
+  _collapsedGroups = new Set(_allPins.map(p => p.trip.id));
   const pins = _visiblePins();
 
   // Full layout

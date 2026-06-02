@@ -186,7 +186,7 @@ async function _loadAndListen(tripId) {
 // ── Sync callbacks ──────────────────────────────────────────────────────────────
 
 /** store.js calls this when a shared trip is mutated locally. */
-function _onLocalSharedTripEdit(tripId, tripData) {
+function _onLocalSharedTripEdit(tripId, tripData, action = 'a modifié le voyage') {
   // Write an activity log entry so collaborators see who made the change
   const user = getCurrentUser();
   if (user) {
@@ -195,7 +195,7 @@ function _onLocalSharedTripEdit(tripId, tripData) {
       || user.displayName || 'Quelqu\'un';
     addActivityEntry(tripId, {
       actor: actorName,
-      action: 'a modifié le voyage',
+      action,
       ts: new Date().toISOString(),
     }).catch(() => {});
   }

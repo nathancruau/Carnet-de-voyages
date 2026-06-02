@@ -129,9 +129,29 @@ const _DEST_TO_A2 = {
   'venezuela':'VE','paraguay':'PY','salvador':'SV',
 };
 
+function _isoFromFlag(flag) {
+  if (!flag) return '';
+  const pts = [...flag].map(c => c.codePointAt(0)).filter(cp => cp >= 0x1F1E6 && cp <= 0x1F1FF);
+  if (pts.length < 2) return '';
+  return pts.slice(0, 2).map(cp => String.fromCharCode(cp - 0x1F1E6 + 65)).join('');
+}
+
 function _getVisitedCodes(trips) {
   const codes = new Set();
   for (const trip of trips) {
+    // Trip-level flag (most reliable source)
+    const tripIso = _isoFromFlag(trip.flag);
+    if (tripIso) codes.add(tripIso);
+
+    // Per-day flags (multi-country trips)
+    for (const day of (trip.days || [])) {
+      if (day.flag) {
+        const iso = _isoFromFlag(day.flag);
+        if (iso) codes.add(iso);
+      }
+    }
+
+    // Fallback: countryCode field or destination text
     if (trip.countryCode) { codes.add(trip.countryCode.toUpperCase()); continue; }
     const dest = (trip.destination || '').toLowerCase().trim();
     if (!dest) continue;

@@ -248,14 +248,69 @@ export function addTrip(data) {
   return trip;
 }
 
+function _detectChange(prev, updates) {
+  if ('name' in updates && updates.name !== prev.name)
+    return `a renommé le voyage en "${updates.name}"`;
+  if (('startDate' in updates || 'endDate' in updates) &&
+      (updates.startDate !== prev.startDate || updates.endDate !== prev.endDate))
+    return 'a modifié les dates du voyage';
+  if ('destination' in updates && updates.destination !== prev.destination)
+    return `a changé la destination : ${updates.destination || '?'}`;
+  if ('status' in updates && updates.status !== prev.status)
+    return updates.status === 'done' ? 'a marqué le voyage comme terminé' : 'a réouvert le voyage en planification';
+  if ('realExpenses' in updates) {
+    const pLen = (prev.realExpenses || []).length;
+    const nLen = (updates.realExpenses || []).length;
+    if (nLen > pLen) return 'a ajouté une dépense réelle';
+    if (nLen < pLen) return 'a supprimé une dépense réelle';
+    return 'a modifié les dépenses';
+  }
+  if ('budgetLines' in updates) return 'a modifié le budget prévisionnel';
+  if ('companions' in updates) {
+    const pLen = (prev.companions || []).length;
+    const nLen = (updates.companions || []).length;
+    if (nLen > pLen) return 'a ajouté un compagnon';
+    if (nLen < pLen) return 'a retiré un compagnon';
+    return 'a modifié les compagnons';
+  }
+  if ('packingCats' in updates || 'packingChecked' in updates)
+    return 'a modifié la liste de bagages';
+  if ('days' in updates) {
+    const prevDays = prev.days || [];
+    const newDays  = updates.days || [];
+    if (newDays.length > prevDays.length)
+      return `a ajouté le Jour ${newDays.at(-1)?.num ?? newDays.length}`;
+    if (newDays.length < prevDays.length)
+      return 'a supprimé un jour du planning';
+    for (let i = 0; i < newDays.length; i++) {
+      const nd = newDays[i], pd = prevDays[i];
+      if (!pd) continue;
+      const ndIt = nd.items || [], pdIt = pd.items || [];
+      if (ndIt.length > pdIt.length) return `a ajouté un événement au Jour ${nd.num}`;
+      if (ndIt.length < pdIt.length) return `a supprimé un événement du Jour ${nd.num}`;
+      for (let j = 0; j < ndIt.length; j++) {
+        if (!pdIt[j]) continue;
+        if (ndIt[j].text !== pdIt[j].text)
+          return `a modifié "${ndIt[j].text || '?'}" (Jour ${nd.num})`;
+        if (ndIt[j].type !== pdIt[j].type)
+          return `a changé le type d'un événement (Jour ${nd.num})`;
+      }
+      if (nd.title !== pd.title)
+        return `a renommé "Jour ${nd.num}" en "${nd.title}"`;
+    }
+    return 'a modifié le planning';
+  }
+  return 'a modifié le voyage';
+}
+
 export function updateTrip(id, updates) {
   const idx = state.trips.findIndex(t => t.id === id);
   if (idx === -1) return null;
-  state.trips[idx] = { ...state.trips[idx], ...updates };
+  const prev = state.trips[idx];
+  state.trips[idx] = { ...prev, ...updates };
   saveData();
-  // For shared trips, also push to the shared Firestore document.
   if (_sharedSyncCallback && _sharedTripIds.has(id)) {
-    _sharedSyncCallback(id, state.trips[idx]);
+    _sharedSyncCallback(id, state.trips[idx], _detectChange(prev, updates));
   }
   return state.trips[idx];
 }
