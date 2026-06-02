@@ -164,13 +164,17 @@ export function trCol(m) {
 
 // ── Date picker ────────────────────────────────────────────────────────────────
 
+const MNS_SHORT = ['Jan','Fév','Mar','Avr','Mai','Jun','Jul','Aoû','Sep','Oct','Nov','Déc'];
+
 let dpState = {
-  id:      '',
-  year:    new Date().getFullYear(),
-  month:   new Date().getMonth(),
-  start:   null,   // Date | null
-  end:     null,   // Date | null
-  picking: 'start' // 'start' | 'end'
+  id:       '',
+  year:     new Date().getFullYear(),
+  month:    new Date().getMonth(),
+  start:    null,   // Date | null
+  end:      null,   // Date | null
+  picking:  'start', // 'start' | 'end'
+  view:     'cal',  // 'cal' | 'year' | 'month'
+  yearBase: new Date().getFullYear() - 11, // first year shown in year grid
 };
 
 export function dpInit(containerId, startIso, endIso) {
@@ -178,18 +182,42 @@ export function dpInit(containerId, startIso, endIso) {
   dpState.start   = isoToDate(startIso);
   dpState.end     = isoToDate(endIso);
   dpState.picking = dpState.start ? 'end' : 'start';
+  dpState.view    = 'cal';
 
   const anchor = dpState.start || new Date();
   dpState.year  = anchor.getFullYear();
   dpState.month = anchor.getMonth();
+  dpState.yearBase = dpState.year - 11;
 
   renderDp(containerId);
 }
 
 export function dpNav(dir, id) {
+  if (dpState.view === 'year') {
+    dpState.yearBase += dir * 16;
+    renderDp(id);
+    return;
+  }
   dpState.month += dir;
   if (dpState.month > 11) { dpState.month = 0;  dpState.year++; }
   if (dpState.month < 0)  { dpState.month = 11; dpState.year--; }
+  renderDp(id);
+}
+
+export function dpToggleView(id) {
+  dpState.view = dpState.view === 'cal' ? 'year' : 'cal';
+  renderDp(id);
+}
+
+export function dpPickYear(y, id) {
+  dpState.year  = y;
+  dpState.view  = 'month';
+  renderDp(id);
+}
+
+export function dpPickMonth(m, id) {
+  dpState.month = m;
+  dpState.view  = 'cal';
   renderDp(id);
 }
 
@@ -225,17 +253,56 @@ export function renderDp(id) {
   const container = document.getElementById(id);
   if (!container) return;
 
-  const { year, month, start, end } = dpState;
+  const { year, month, start, end, view, yearBase } = dpState;
+
+  // ── Year picker view ─────────────────────────────────────────────────────────
+  if (view === 'year') {
+    let cells = '';
+    for (let y = yearBase; y < yearBase + 16; y++) {
+      const cur = y === year;
+      cells += `<button class="dp-pick-cell${cur ? ' dp-pick-cur' : ''}" onclick="dpPickYear(${y},'${id}')">${y}</button>`;
+    }
+    container.innerHTML = `
+      <div class="dp-wrap">
+        <div class="dp-nav">
+          <button class="dp-nav-btn" onclick="dpNav(-1,'${id}')">‹</button>
+          <button class="dp-nav-lbl dp-nav-lbl-btn" onclick="dpToggleView('${id}')">${yearBase} – ${yearBase + 15}</button>
+          <button class="dp-nav-btn" onclick="dpNav(1,'${id}')">›</button>
+        </div>
+        <div class="dp-pick-grid">${cells}</div>
+      </div>
+    `;
+    return;
+  }
+
+  // ── Month picker view ────────────────────────────────────────────────────────
+  if (view === 'month') {
+    let cells = '';
+    for (let m = 0; m < 12; m++) {
+      const cur = m === month;
+      cells += `<button class="dp-pick-cell${cur ? ' dp-pick-cur' : ''}" onclick="dpPickMonth(${m},'${id}')">${MNS_SHORT[m]}</button>`;
+    }
+    container.innerHTML = `
+      <div class="dp-wrap">
+        <div class="dp-nav">
+          <button class="dp-nav-btn" style="visibility:hidden">‹</button>
+          <button class="dp-nav-lbl dp-nav-lbl-btn" onclick="dpToggleView('${id}')">${year}</button>
+          <button class="dp-nav-btn" style="visibility:hidden">›</button>
+        </div>
+        <div class="dp-pick-grid dp-pick-grid-3">${cells}</div>
+      </div>
+    `;
+    return;
+  }
+
+  // ── Calendar view (default) ──────────────────────────────────────────────────
   const today    = new Date();
   const firstDay = new Date(year, month, 1);
   const daysInMo = new Date(year, month + 1, 0).getDate();
-  // Monday-based offset
   const offset   = (firstDay.getDay() + 6) % 7;
 
-  // Day-of-week headers
   const dowHtml = DOW.map(d => `<div class="dp-dow">${d}</div>`).join('');
 
-  // Build day cells
   let cells = '';
   for (let i = 0; i < offset; i++) {
     cells += '<div class="dp-cell dp-empty"></div>';
@@ -256,7 +323,6 @@ export function renderDp(id) {
     cells += `<div class="${cls}" onclick="dpClick(${year},${month},${d},'${id}')">${d}</div>`;
   }
 
-  // Range label
   let rangeLabel = '';
   if (start || end) {
     const s = start ? fmtDate(dateToIso(start)) : '?';
@@ -268,7 +334,7 @@ export function renderDp(id) {
     <div class="dp-wrap">
       <div class="dp-nav">
         <button class="dp-nav-btn" onclick="dpNav(-1,'${id}')">‹</button>
-        <span class="dp-nav-lbl">${MNS[month]} ${year}</span>
+        <button class="dp-nav-lbl dp-nav-lbl-btn" onclick="dpToggleView('${id}')">${MNS[month]} ${year}</button>
         <button class="dp-nav-btn" onclick="dpNav(1,'${id}')">›</button>
       </div>
       ${rangeLabel}
@@ -286,9 +352,12 @@ function _sameDay(a, b) {
       && a.getDate()     === b.getDate();
 }
 
-// Expose dpNav and dpClick for onclick="" handlers
-window.dpNav   = dpNav;
-window.dpClick = dpClick;
+// Expose dp functions for onclick="" handlers
+window.dpNav        = dpNav;
+window.dpClick      = dpClick;
+window.dpToggleView = dpToggleView;
+window.dpPickYear   = dpPickYear;
+window.dpPickMonth  = dpPickMonth;
 
 // ── Type badge HTML ────────────────────────────────────────────────────────────
 

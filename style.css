@@ -803,6 +803,20 @@ html,body{height:100%;font-family:var(--fn);background:var(--c);color:var(--ink)
 }
 .dp-nav-btn:hover{background:var(--c2)}
 .dp-nav-lbl{font-family:var(--sf);font-size:13px;font-weight:700;color:var(--ink)}
+.dp-nav-lbl-btn{
+  background:none;border:none;cursor:pointer;border-radius:6px;padding:2px 8px;
+  font-family:var(--sf);font-size:13px;font-weight:700;color:var(--ink);
+  transition:background .12s,color .12s;
+}
+.dp-nav-lbl-btn:hover{background:var(--c2);color:var(--teal)}
+.dp-pick-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:4px;padding:4px 0}
+.dp-pick-grid-3{grid-template-columns:repeat(3,1fr)}
+.dp-pick-cell{
+  padding:7px 4px;text-align:center;border-radius:7px;font-size:12px;font-weight:600;
+  cursor:pointer;border:none;background:none;color:var(--ink3);transition:background .12s,color .12s;
+}
+.dp-pick-cell:hover{background:var(--c2);color:var(--ink)}
+.dp-pick-cell.dp-pick-cur{background:var(--teal);color:#fff}
 .dp-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:1px}
 .dp-dow{font-size:9px;font-weight:700;color:var(--ink4);text-align:center;padding:3px 0}
 .dp-cell{
