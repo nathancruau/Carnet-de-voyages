@@ -1138,11 +1138,12 @@ function _compsListHtml() {
 // ── Modal: build HTML ──────────────────────────────────────────────────────────
 
 function _buildModalHtml(trip) {
-  const name        = trip?.name        || '';
-  const destination = trip?.destination || '';
-  const flag        = trip?.flag        || '';
-  const photo       = trip?.photo       || '';
-  const status      = trip?.status      || 'done';
+  const name         = trip?.name         || '';
+  const destination  = trip?.destination  || '';
+  const flag         = trip?.flag         || '';
+  const photo        = trip?.photo        || '';
+  const status       = trip?.status       || 'done';
+  const multiCountry = trip?.multiCountry || false;
 
   // Color swatches (using class names from CSS: .col-opts, .col-o, .sel)
   const colors = ['#0d9488','#7c3aed','#e85d3e','#d97706','#db2777','#0284c7','#16a34a'];
@@ -1263,6 +1264,17 @@ function _buildModalHtml(trip) {
       <div class="comp-add-row" style="margin-top:6px">
         <input type="text" id="m-comp-input" placeholder="Prénom ou nom…" autocomplete="off">
         <button class="comp-add-btn" id="m-comp-add">Ajouter</button>
+      </div>
+    </div>
+
+    <div class="fg">
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:600">
+        <input type="checkbox" id="m-multicountry" ${multiCountry ? 'checked' : ''}
+          style="width:16px;height:16px;accent-color:var(--teal);cursor:pointer;flex-shrink:0">
+        Voyage multi-pays
+      </label>
+      <div style="font-size:11px;color:var(--ink4);margin-top:3px;padding-left:24px">
+        Permet d'assigner un drapeau différent à chaque étape (pour MyMap)
       </div>
     </div>
 
@@ -1538,12 +1550,13 @@ function _handleSave() {
     destination,
     flag,
     photo,
-    color:      _modalColor,
-    type:       _modalType,
-    status:     _modalStatus,
-    startDate:  start || null,
-    endDate:    end   || null,
-    companions: _modalComps,
+    color:        _modalColor,
+    type:         _modalType,
+    status:       _modalStatus,
+    startDate:    start || null,
+    endDate:      end   || null,
+    companions:   _modalComps,
+    multiCountry: document.getElementById('m-multicountry')?.checked || false,
   };
 
   if (_editingId) {

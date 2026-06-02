@@ -210,7 +210,8 @@ function _migrateTrip(t) {
   if (t.color   === undefined) t.color      = '#0d9488';
   if (t.type    === undefined) t.type       = 'voyage';
   if (!t.status)               t.status    = 'done';   // legacy trips assumed done
-  if (t.countryCode === undefined) t.countryCode = '';
+  if (t.countryCode   === undefined) t.countryCode   = '';
+  if (t.multiCountry  === undefined) t.multiCountry  = false;
   // Ensure companions have ids
   t.companions = t.companions.map(c => ({
     id:    c.id    || ('c_' + uid()),

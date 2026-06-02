@@ -656,19 +656,22 @@ async function _drawRoutes(trip, _days) {
     if (!_map) return;
 
     if (line) {
-      line.addTo(_map);
-      _routeLayers.push(line);
-      _bindRouteModeClick(line, to);
-
-      // Bind duration as a permanent label centred on the route
-      if (dur) {
-        const label = `${trIc(mode)} ${_fmtDuration(dur.seconds)} · ${_fmtDistance(dur.meters)}`;
-        line.bindTooltip(label, {
-          permanent:  true,
-          direction:  'center',
-          opacity:    0.92,
-          className:  'route-dur-tip',
-        });
+      try {
+        line.addTo(_map);
+        _routeLayers.push(line);
+        _bindRouteModeClick(line, to);
+        if (dur) {
+          const label = `${trIc(mode)} ${_fmtDuration(dur.seconds)} · ${_fmtDistance(dur.meters)}`;
+          line.bindTooltip(label, {
+            permanent:  true,
+            direction:  'center',
+            opacity:    0.92,
+            className:  'route-dur-tip',
+          });
+          if (!_showDurLabels) line.closeTooltip();
+        }
+      } catch (_) {
+        // Map destroyed while async route fetch was in flight — ignore
       }
     }
   }
@@ -943,17 +946,21 @@ function _dayItemHtml(day, sharedDocData = null) {
         </div>`;
     }
 
-    eventsHtml = `
-      <div class="di-body">
-        <div class="evt-list">${evtRows}</div>
-        <div class="add-evt" data-action="add-event" data-day-id="${day.id}">＋ Ajouter</div>
+    const _tripMC = getTrip(_tripId)?.multiCountry;
+    const flagRowHtml = _tripMC ? `
         <div style="padding:4px 8px 6px;display:flex;align-items:center;gap:6px;border-top:1px solid var(--c3);margin-top:4px">
           <span style="font-size:11px;color:var(--ink4)">🏳 Pays :</span>
           <input class="day-flag-input" data-day-id="${day.id}" type="text"
             value="${_esc(day.flag || '')}" placeholder="🇫🇷" maxlength="8"
             style="width:56px;font-size:14px;border:1px solid var(--c3);border-radius:4px;padding:1px 4px;background:var(--bg);color:var(--ink)"
             title="Emoji drapeau du pays pour cette étape (utilisé dans MyMap)">
-        </div>
+        </div>` : '';
+
+    eventsHtml = `
+      <div class="di-body">
+        <div class="evt-list">${evtRows}</div>
+        <div class="add-evt" data-action="add-event" data-day-id="${day.id}">＋ Ajouter</div>
+        ${flagRowHtml}
         ${commentsHtml}
       </div>`;
   }
@@ -976,7 +983,7 @@ function _dayItemHtml(day, sharedDocData = null) {
         <span class="di-t" style="margin-left:4px">${isSelected ? '▲' : '▼'}</span>
       </div>
       <div class="di-s">
-        ${day.flag ? `<span style="font-size:13px;margin-right:2px">${day.flag}</span>` : ''}
+        ${day.flag && getTrip(_tripId)?.multiCountry ? `<span style="font-size:13px;margin-right:2px">${day.flag}</span>` : ''}
         ${day.date ? fmtDateShort(day.date) : ''}
         ${day.region ? `<span style="color:var(--ink4)"> · ${_esc(day.region)}</span>` : ''}
         <span id="wx-${day.id}" style="margin-left:4px;font-size:11px;color:var(--ink3)"></span>
@@ -1304,7 +1311,8 @@ function _attachLeftPanelListeners(panel) {
     const action = target.dataset.action;
 
     if (action === 'select-day') {
-      // Don't trigger select when clicking edit button (already handled above)
+      // Don't trigger select when clicking inputs or interactive elements inside the body
+      if (e.target.closest('.day-flag-input, .dc-input, .dc-send, .add-evt')) return;
       const dayId = target.dataset.dayId;
       if (dayId) _selectDay(dayId, _tripId);
 
@@ -1778,11 +1786,11 @@ function _openAddDayModal(tripId) {
       <label>Région / Ville</label>
       <input type="text" id="ad-region" value="${_esc(trip?.destination || '')}" placeholder="Ex : Kyoto, Japon" autocomplete="off">
     </div>
-    <div class="fg">
-      <label>Drapeau pays <span style="color:var(--ink4);font-weight:400">(pour MyMap multi-pays)</span></label>
+    ${trip?.multiCountry ? `<div class="fg">
+      <label>Drapeau pays <span style="color:var(--ink4);font-weight:400">(pays de cette étape)</span></label>
       <input type="text" id="ad-flag" value="${_esc(trip?.flag || '')}" placeholder="🇫🇷" maxlength="8"
         style="width:64px;font-size:16px">
-    </div>
+    </div>` : ''}
     <div class="fg">
       <label>Date</label>
       <input type="date" id="ad-date" value="${trip?.startDate || ''}">
@@ -1892,11 +1900,11 @@ function _openAddDayModalWithCoords(tripId, lat, lng) {
       <label>Région / Ville</label>
       <input type="text" id="ad-region" value="${_esc(trip?.destination || '')}" placeholder="Ex : Kyoto, Japon" autocomplete="off">
     </div>
-    <div class="fg">
-      <label>Drapeau pays <span style="color:var(--ink4);font-weight:400">(pour MyMap multi-pays)</span></label>
+    ${trip?.multiCountry ? `<div class="fg">
+      <label>Drapeau pays <span style="color:var(--ink4);font-weight:400">(pays de cette étape)</span></label>
       <input type="text" id="ad-flag" value="${_esc(trip?.flag || '')}" placeholder="🇫🇷" maxlength="8"
         style="width:64px;font-size:16px">
-    </div>
+    </div>` : ''}
     <div class="fg">
       <label>Date</label>
       <input type="date" id="ad-date" value="${trip?.startDate || ''}">
