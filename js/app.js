@@ -178,5 +178,16 @@ window._rerenderCurrentView = (updatedTripId) => {
   }
 };
 
+// Called by share.js when only reactions/comments change — re-renders journal panel
+// in-place without switching the active tab.
+window._refreshJournalInteractions = (updatedTripId) => {
+  if (currentScreen !== 'app' || currentTripId !== updatedTripId) return;
+  const journalPanel = document.getElementById('panel-journal');
+  if (!journalPanel?.classList.contains('active')) return;
+  import('./trip/journal.js').then(({ rerenderJournal }) => {
+    rerenderJournal(updatedTripId);
+  }).catch(() => {});
+};
+
 // ── Bootstrap ──────────────────────────────────────────────────────────────────
 initAuth(_onAuthReady);

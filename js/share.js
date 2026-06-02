@@ -22,6 +22,7 @@ import {
   isFirebaseConfigured, getCurrentUser,
   addComment, updatePresence, clearPresence, addActivityEntry,
   removeMemberFromSharedTrip,
+  updateSharedTripFields, deleteSharedTripField,
 } from './auth.js';
 import {
   getTrip, markTripShared, unmarkTripShared, isTripShared,
@@ -91,6 +92,98 @@ export async function publishDay(tripId, dayNum, dayTitle) {
     dayLabel,
     ts: new Date().toISOString(),
   }).catch(() => {});
+}
+
+/**
+ * Toggle a ❤️ reaction from the current user on a validated activity item.
+ * Calling again removes the reaction (toggle).
+ */
+export async function addObserverReaction(tripId, itemId) {
+  const user = getCurrentUser();
+  if (!user) return;
+  const sharedDoc = _sharedDocData.get(tripId);
+  if (!sharedDoc) return;
+
+  const existing = sharedDoc.reactions?.[itemId]?.[user.uid];
+  const removing  = existing === '❤️';
+
+  // Optimistic local update
+  const reactions = JSON.parse(JSON.stringify(sharedDoc.reactions || {}));
+  if (!reactions[itemId]) reactions[itemId] = {};
+  if (removing) {
+    delete reactions[itemId][user.uid];
+  } else {
+    reactions[itemId][user.uid] = '❤️';
+  }
+  _sharedDocData.set(tripId, { ...sharedDoc, reactions });
+  _refreshJournalIfVisible(tripId);
+
+  try {
+    if (removing) {
+      await deleteSharedTripField(tripId, `reactions.${itemId}.${user.uid}`);
+    } else {
+      await updateSharedTripFields(tripId, { [`reactions.${itemId}.${user.uid}`]: '❤️' });
+    }
+  } catch (_) {}
+}
+
+/**
+ * Add a text comment from the current observer on a validated activity item.
+ */
+export async function addObserverComment(tripId, itemId, text) {
+  const user = getCurrentUser();
+  if (!user || !text?.trim()) return;
+  const sharedDoc = _sharedDocData.get(tripId);
+  if (!sharedDoc) return;
+
+  const authorName = sharedDoc.members?.[user.uid]?.companionName
+    || user.displayName || 'Observateur';
+  const commentId = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  const comment = {
+    itemId,
+    uid: user.uid,
+    name: authorName,
+    text: text.trim(),
+    ts: new Date().toISOString(),
+  };
+
+  // Optimistic local update
+  const observerComments = { ...(sharedDoc.observerComments || {}), [commentId]: comment };
+  _sharedDocData.set(tripId, { ...sharedDoc, observerComments });
+  _refreshJournalIfVisible(tripId);
+
+  try {
+    await updateSharedTripFields(tripId, { [`observerComments.${commentId}`]: comment });
+  } catch (_) {}
+}
+
+/**
+ * Delete one of the current user's observer comments.
+ */
+export async function deleteObserverComment(tripId, commentId) {
+  const user = getCurrentUser();
+  if (!user) return;
+  const sharedDoc = _sharedDocData.get(tripId);
+  if (!sharedDoc) return;
+
+  const comment = sharedDoc.observerComments?.[commentId];
+  if (!comment || comment.uid !== user.uid) return;
+
+  // Optimistic local update
+  const observerComments = { ...(sharedDoc.observerComments || {}) };
+  delete observerComments[commentId];
+  _sharedDocData.set(tripId, { ...sharedDoc, observerComments });
+  _refreshJournalIfVisible(tripId);
+
+  try {
+    await deleteSharedTripField(tripId, `observerComments.${commentId}`);
+  } catch (_) {}
+}
+
+function _refreshJournalIfVisible(tripId) {
+  if (typeof window._refreshJournalInteractions === 'function') {
+    window._refreshJournalInteractions(tripId);
+  }
 }
 
 /**
@@ -266,9 +359,11 @@ function _onNetworkUpdate(tripId, data, hasPendingWrites) {
     window._refreshPresenceDots(tripId, data.presence || {});
   }
 
-  // Re-render: only when trip data changed (updatedAt) OR comments changed
-  const tripChanged     = !prevData || prevData.updatedAt !== data.updatedAt;
-  const commentsChanged = JSON.stringify(prevData?.comments) !== JSON.stringify(data.comments);
+  // Re-render: only when trip data changed (updatedAt) OR comments/reactions changed
+  const tripChanged           = !prevData || prevData.updatedAt !== data.updatedAt;
+  const commentsChanged       = JSON.stringify(prevData?.comments) !== JSON.stringify(data.comments);
+  const reactionsChanged      = JSON.stringify(prevData?.reactions) !== JSON.stringify(data.reactions);
+  const obsCommentsChanged    = JSON.stringify(prevData?.observerComments) !== JSON.stringify(data.observerComments);
 
   // Observer notification: fire when lastPublished.ts changes
   if (!hasPendingWrites && prevData) {
@@ -294,6 +389,10 @@ function _onNetworkUpdate(tripId, data, hasPendingWrites) {
     if (typeof window._rerenderCurrentView === 'function') {
       window._rerenderCurrentView(tripId);
     }
+  }
+
+  if (!hasPendingWrites && (reactionsChanged || obsCommentsChanged)) {
+    _refreshJournalIfVisible(tripId);
   }
 }
 
