@@ -416,6 +416,10 @@ function _tlItemHtml(day, item, itemIdx, isObserver, sharedDoc, currentUid) {
   if (jd.weather) metaHtml.push(`<span class="tl-meta-pill">${jd.weather}</span>`);
   if (jd.amount)  metaHtml.push(`<span class="tl-meta-pill">💶 ${jd.amount} €</span>`);
   if (item.time)  metaHtml.push(`<span class="tl-meta-pill">🕐 ${_esc(item.time)}</span>`);
+  if (item.lat != null && item.lng != null) {
+    const svUrl = `https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${item.lat},${item.lng}`;
+    metaHtml.push(`<a class="tl-meta-pill tl-sv-pill" href="${svUrl}" target="_blank" rel="noopener" title="Ouvrir Street View">🔭 Street View</a>`);
+  }
 
   const photosHtml = photos.length > 0 ? `
     <div class="tl-photos">
@@ -894,6 +898,10 @@ function _openJournalItemPanel(tripId, dayId, itemIdx) {
         : ''}
     </div>
     <div class="edp-actions">
+      ${item.lat != null && item.lng != null ? `
+        <a class="edp-sv-btn"
+           href="https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${item.lat},${item.lng}"
+           target="_blank" rel="noopener" title="Ouvrir Street View">🔭</a>` : ''}
       <button class="edp-save" id="jn-edp-validate">${jd.validated ? '✎ Modifier' : '✓ Valider'}</button>
     </div>
   `;

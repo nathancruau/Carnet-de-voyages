@@ -154,6 +154,14 @@ function _mmShowInfo(trip, entry) {
       ${entry.amount     ? `<div style="font-size:12px;color:var(--ink3)">💶 ${entry.amount} €</div>` : ''}
       ${!entry._validated && !entry.weather && !photosHtml && !entry.content
         ? `<div style="font-size:12px;color:var(--ink4)">Aucune information enregistrée pour ce PIN.</div>` : ''}
+      ${entry.lat != null && entry.lng != null ? `
+        <a href="https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${entry.lat},${entry.lng}"
+           target="_blank" rel="noopener"
+           style="display:block;margin-top:6px;width:100%;background:var(--c2);border:1.5px solid var(--c3);
+                  border-radius:8px;padding:8px;font-size:12px;font-weight:700;cursor:pointer;
+                  font-family:var(--fn);text-align:center;color:var(--ink3);text-decoration:none">
+          🔭 Street View
+        </a>` : ''}
       <button onclick="window.navigateToTrip && window.navigateToTrip('${trip.id}')"
         style="margin-top:6px;width:100%;background:var(--teal);color:#fff;border:none;border-radius:8px;
                padding:8px;font-size:12px;font-weight:700;cursor:pointer;font-family:var(--fn)">
