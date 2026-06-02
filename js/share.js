@@ -26,8 +26,9 @@ import {
 import {
   getTrip, markTripShared, unmarkTripShared, isTripShared,
   replaceTripFromNetwork, setSharedSyncCallback,
-  getSharedTripIds, setSharedTripIds,
+  getSharedTripIds, setSharedTripIds, getSettings,
 } from './store.js';
+import { notifyCollaboratorChange } from './notifications.js';
 import { showModal, closeModal, notify } from './utils.js';
 
 // ── Module state ────────────────────────────────────────────────────────────────
@@ -232,6 +233,13 @@ function _onNetworkUpdate(tripId, data, hasPendingWrites) {
   // Re-render: only when trip data changed (updatedAt) OR comments changed
   const tripChanged     = !prevData || prevData.updatedAt !== data.updatedAt;
   const commentsChanged = JSON.stringify(prevData?.comments) !== JSON.stringify(data.comments);
+
+  // Browser notification for remote collaborator changes
+  if (!hasPendingWrites && tripChanged) {
+    const acts = data.activity || [];
+    const latestActor = acts.length > 0 ? acts[acts.length - 1].actor : null;
+    notifyCollaboratorChange(getTrip(tripId)?.name, latestActor, getSettings());
+  }
 
   if ((!hasPendingWrites && tripChanged) || commentsChanged) {
     if (typeof window._rerenderCurrentView === 'function') {

@@ -2,13 +2,14 @@
    CARNET DE VOYAGES — App Entry Point & Router
    ============================================================ */
 
-import { loadData, getState, setState, setSyncCallback } from './store.js';
+import { loadData, getState, setState, setSyncCallback, getSettings, getTrips } from './store.js';
 import { renderHome } from './home.js';
 import { renderMyMap, destroyMyMap } from './mymap.js';
 import { openTrip, destroyTripMap } from './trip/trip.js';
 import { closeModal } from './utils.js';
 import { initAuth, loginWithGoogle, syncToFirestore, isFirebaseConfigured } from './auth.js';
 import { initSharedTrips, handlePendingInvite } from './share.js';
+import { checkDepartureNotifications } from './notifications.js';
 
 // Capture ?invite=TOKEN before anything else, store in sessionStorage, clean URL
 {
@@ -110,6 +111,7 @@ function _onAuthReady(user, cloudData) {
   if (!isFirebaseConfigured()) {
     // Local-only mode: no login required
     loadData();
+    checkDepartureNotifications(getTrips(), getSettings());
     renderHome();
     showScreen('home');
     return;
@@ -139,6 +141,14 @@ function _onAuthReady(user, cloudData) {
 
     renderHome();
     showScreen('home');
+
+    checkDepartureNotifications(getTrips(), getSettings());
+    // Re-apply theme listener for 'auto' mode
+    if (getSettings().theme === 'auto') {
+      window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', e => {
+        document.documentElement.dataset.theme = e.matches ? 'dark' : '';
+      });
+    }
 
     // Load shared trips and handle any pending invite link (non-blocking)
     initSharedTrips(cloudData).then(() => handlePendingInvite(user));

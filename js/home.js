@@ -18,7 +18,8 @@ import {
 } from './utils.js';
 // navigateToTrip / goMyMap accessed via window globals (set by app.js) to avoid circular import
 import { importFile } from './import.js';
-import { getCurrentUser, logout } from './auth.js';
+import { getCurrentUser, logout, isFirebaseConfigured } from './auth.js';
+import { requestNotificationPermission, notificationPermissionGranted } from './notifications.js';
 import { openShareModal, leaveSharedTrip, removeSharedTripMember } from './share.js';
 
 // ── Module state ───────────────────────────────────────────────────────────────

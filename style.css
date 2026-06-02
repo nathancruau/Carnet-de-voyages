@@ -18,6 +18,14 @@
   --r:12px;--fn:'Nunito',sans-serif;--sf:'Lora',serif;
 }
 
+[data-theme="dark"]{
+  --c:#1e1c19;--c2:#252320;--c3:#2e2c28;--c4:#3a3834;
+  --ink:#f0ede6;--ink2:#c8c4bc;--ink3:#8c8880;--ink4:#5e5c58;
+  --sh:0 2px 8px rgba(0,0,0,.4);
+  --shm:0 4px 20px rgba(0,0,0,.55);
+  --shl:0 12px 48px rgba(0,0,0,.7);
+}
+
 /* ── Reset ── */
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{height:100%;font-family:var(--fn);background:var(--c);color:var(--ink);overflow:hidden}
@@ -802,6 +810,39 @@ html,body{height:100%;font-family:var(--fn);background:var(--c);color:var(--ink)
   padding:1px 5px;font-size:11px;font-family:var(--fn);outline:none;
   background:var(--c);color:var(--ink);
 }
+
+/* ── Global search ── */
+.global-search-input{
+  flex:1;max-width:260px;background:var(--c2);border:1.5px solid var(--c3);
+  border-radius:20px;padding:5px 14px;font-size:12px;font-family:var(--fn);
+  color:var(--ink);outline:none;transition:border-color .15s;
+}
+.global-search-input:focus{border-color:var(--teal)}
+.global-search-input::placeholder{color:var(--ink4)}
+.global-search-input::-webkit-search-cancel-button{cursor:pointer}
+.sr-area{padding:2px 0 8px}
+.sr-item{
+  display:flex;align-items:center;gap:10px;padding:9px 10px;
+  border-radius:9px;cursor:pointer;transition:background .12s;margin-bottom:2px;
+  border:1px solid transparent;
+}
+.sr-item:hover{background:var(--c2);border-color:var(--c3)}
+.sr-icon{font-size:18px;width:26px;text-align:center;flex-shrink:0}
+.sr-title{font-size:13px;font-weight:700;color:var(--ink)}
+.sr-sub{font-size:11px;color:var(--ink4);margin-top:1px}
+/* ── Settings toggle row ── */
+.s-toggle-row{
+  display:flex;align-items:center;justify-content:space-between;
+  gap:10px;padding:5px 0;font-size:13px;color:var(--ink2);cursor:pointer;
+  user-select:none;
+}
+.s-toggle-row input[type="checkbox"]{width:16px;height:16px;cursor:pointer;accent-color:var(--teal)}
+/* ── World map canvas ── */
+.world-map-canvas{
+  width:100%;height:auto;border-radius:8px;display:block;
+  background:var(--c3);min-height:80px;
+}
+
 .comp-add-row{display:flex;gap:6px;align-items:center}
 .comp-add-row input{
   flex:1;background:var(--c);border:1.5px solid var(--c3);
