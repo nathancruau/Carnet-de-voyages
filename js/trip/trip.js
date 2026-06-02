@@ -15,6 +15,7 @@ import { fmtDate, notify, showModal } from '../utils.js';
 
 let _tripId     = null;
 let _isObserver = false;
+let _prevTabId  = null;
 
 // ─── Public API ───────────────────────────────────────────────────────────────
 
@@ -81,6 +82,9 @@ export async function destroyTripMap() {
  * @param {string} tabId  one of: mapcal | journal | budget | tricount | packing
  */
 export async function switchTab(tabId) {
+  const prevTab = _prevTabId;
+  _prevTabId    = tabId;
+
   // Update nav-tab active states
   document.querySelectorAll('.nav-tab').forEach(t => {
     t.classList.toggle('active', t.dataset.tab === tabId);
@@ -93,6 +97,14 @@ export async function switchTab(tabId) {
 
   // Render content for the activated panel
   await _renderActiveTab(tabId, _tripId, _isObserver);
+
+  // Acknowledge unread badges when observer explicitly navigates TO the journal tab
+  if (tabId === 'journal' && prevTab !== 'journal' && _isObserver) {
+    try {
+      const { ackJournalSeen } = await import('./journal.js');
+      ackJournalSeen(_tripId);
+    } catch (_) {}
+  }
 }
 
 window.switchTab = switchTab;

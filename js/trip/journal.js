@@ -173,6 +173,29 @@ async function _drawJournalRoutes(tripId) {
   }
 }
 
+// ── Observer "new item" tracking ──────────────────────────────────────────────
+
+function _obsSeenKey(tripId) {
+  const uid = getCurrentUser()?.uid;
+  return uid ? `_obsLastSeen_${uid}_${tripId}` : null;
+}
+
+/** Call when the observer explicitly opens the journal tab — clears new badges. */
+export function ackJournalSeen(tripId) {
+  const key = _obsSeenKey(tripId);
+  if (key) localStorage.setItem(key, new Date().toISOString());
+}
+
+/** True if the item was validated after the observer last acknowledged this trip. */
+function _obsIsNew(item, tripId) {
+  const vAt = item.journalData?.validatedAt;
+  if (!vAt) return false;
+  const key      = _obsSeenKey(tripId);
+  const lastSeen = key ? localStorage.getItem(key) : null;
+  if (!lastSeen) return true; // never visited — all items are new
+  return vAt > lastSeen;
+}
+
 // ── Render ────────────────────────────────────────────────────────────────────
 
 /** Re-render the journal preserving current view and observer state — called by window hook. */
@@ -256,7 +279,7 @@ function _renderObserverView(panel, trip, tripId) {
           <p style="font-size:11px;color:var(--ink4);margin-top:2px">Mis à jour en direct par les voyageurs</p>
         </div>
         <div class="days-scroll" id="observer-feed" style="flex:1;overflow-y:auto;padding:6px 8px">
-          ${hasItems ? _buildObserverFeedHtml(validatedItems) : _buildObserverEmptyHtml()}
+          ${hasItems ? _buildObserverFeedHtml(validatedItems, tripId) : _buildObserverEmptyHtml()}
         </div>
       </div>
       <div class="map-col" style="flex:1;position:relative">
@@ -276,7 +299,7 @@ function _buildObserverEmptyHtml() {
     </div>`;
 }
 
-function _buildObserverFeedHtml(validatedItems) {
+function _buildObserverFeedHtml(validatedItems, tripId) {
   // Group by day
   const groups = new Map();
   for (const { day, item } of validatedItems) {
@@ -286,17 +309,22 @@ function _buildObserverFeedHtml(validatedItems) {
 
   let html = '';
   for (const [, { day, items }] of groups) {
-    const dayLabel = `Jour ${day.num}${day.title ? ' · ' + day.title : ''}`;
+    const dayLabel  = `Jour ${day.num}${day.title ? ' · ' + day.title : ''}`;
+    const hasNewInDay = items.some(it => _obsIsNew(it, tripId));
     html += `<div class="jn-day-group">
-      <div class="jn-day-label">${_esc(dayLabel)}${day.date ? `<span style="font-weight:400;font-size:10px;color:var(--ink4);margin-left:5px">${fmtDateShort(day.date)}</span>` : ''}</div>`;
+      <div class="jn-day-label">
+        ${_esc(dayLabel)}${day.date ? `<span style="font-weight:400;font-size:10px;color:var(--ink4);margin-left:5px">${fmtDateShort(day.date)}</span>` : ''}
+        ${hasNewInDay ? `<span class="obs-new-dot"></span>` : ''}
+      </div>`;
 
     for (const item of items) {
       const jd       = item.journalData;
       const typeIcon = _eventTypeIcon(item.type);
       const photos   = jd.photos || [];
+      const isNew    = _obsIsNew(item, tripId);
 
       html += `
-        <div class="obs-entry">
+        <div class="obs-entry${isNew ? ' obs-entry-new' : ''}">
           <div class="obs-entry-hd">
             <span style="font-size:16px">${typeIcon}</span>
             <div style="flex:1;min-width:0">
@@ -307,7 +335,7 @@ function _buildObserverFeedHtml(validatedItems) {
                 ${item.time  ? `<span>🕐 ${_esc(item.time)}</span>` : ''}
               </div>
             </div>
-            <span class="obs-validated-badge">✓</span>
+            ${isNew ? `<span class="obs-new-badge">Nouveau</span>` : `<span class="obs-validated-badge">✓</span>`}
           </div>
           ${jd.notes ? `<div class="obs-notes">${_esc(jd.notes).replace(/\n/g, '<br>')}</div>` : ''}
           ${photos.length > 0 ? `<div class="obs-photos">${photos.map(src =>
@@ -339,12 +367,12 @@ function _renderTimelineView(panel, trip, tripId, isObserver) {
     <div class="tl-wrap">
       ${_viewToggleHtml('timeline')}
       <div class="tl-scroll" id="tl-scroll">
-        ${_buildTimelineHtml(trip, isObserver, sharedDoc, currentUid)}
+        ${_buildTimelineHtml(trip, tripId, isObserver, sharedDoc, currentUid)}
       </div>
     </div>`;
 }
 
-function _buildTimelineHtml(trip, isObserver, sharedDoc, currentUid) {
+function _buildTimelineHtml(trip, tripId, isObserver, sharedDoc, currentUid) {
   const days = trip.days || [];
 
   if (isObserver) {
@@ -352,7 +380,7 @@ function _buildTimelineHtml(trip, isObserver, sharedDoc, currentUid) {
     for (const day of days) {
       const items = (day.items || []).filter(it => it.journalData?.validated);
       if (items.length === 0) continue;
-      html += _tlDayHtml(day, items, true, sharedDoc, currentUid);
+      html += _tlDayHtml(day, items, true, tripId, sharedDoc, currentUid);
     }
     if (!html) return `
       <div class="tl-empty">
@@ -374,23 +402,25 @@ function _buildTimelineHtml(trip, isObserver, sharedDoc, currentUid) {
   let html = '';
   for (const day of days) {
     if ((day.items || []).length === 0) continue;
-    html += _tlDayHtml(day, day.items, false, sharedDoc, currentUid);
+    html += _tlDayHtml(day, day.items, false, tripId, sharedDoc, currentUid);
   }
   return html;
 }
 
-function _tlDayHtml(day, items, isObserver, sharedDoc, currentUid) {
+function _tlDayHtml(day, items, isObserver, tripId, sharedDoc, currentUid) {
   const dateLabel = day.date ? fmtDate(day.date) : '';
   const validatedCount = items.filter(i => i.journalData?.validated).length;
+  const hasNewInDay    = isObserver && items.some(it => _obsIsNew(it, tripId));
 
   let html = `
     <div class="tl-day" id="tl-day-${_esc(day.id)}">
       <div class="tl-day-hd">
-        <div class="tl-day-dot"></div>
+        <div class="tl-day-dot${hasNewInDay ? ' tl-day-dot-new' : ''}"></div>
         <div class="tl-day-info">
           <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
             <span class="tl-day-num">Jour ${day.num}</span>
             ${!isObserver ? `<span style="font-size:10px;color:var(--ink4);font-weight:600">${validatedCount}/${items.length} documenté${validatedCount !== 1 ? 's' : ''}</span>` : ''}
+            ${hasNewInDay ? `<span class="obs-new-badge">Nouveau</span>` : ''}
           </div>
           ${day.title ? `<div class="tl-day-title">${_esc(day.title)}</div>` : ''}
           ${dateLabel ? `<div class="tl-day-date">${dateLabel}</div>` : ''}
@@ -399,18 +429,19 @@ function _tlDayHtml(day, items, isObserver, sharedDoc, currentUid) {
       <div class="tl-day-body">`;
 
   items.forEach((item, idx) => {
-    html += _tlItemHtml(day, item, idx, isObserver, sharedDoc, currentUid);
+    html += _tlItemHtml(day, item, idx, isObserver, tripId, sharedDoc, currentUid);
   });
 
   html += `</div></div>`;
   return html;
 }
 
-function _tlItemHtml(day, item, itemIdx, isObserver, sharedDoc, currentUid) {
+function _tlItemHtml(day, item, itemIdx, isObserver, tripId, sharedDoc, currentUid) {
   const jd        = item.journalData || {};
   const validated = jd.validated;
   const typeIcon  = _eventTypeIcon(item.type);
   const photos    = jd.photos || [];
+  const isNew     = isObserver && _obsIsNew(item, tripId);
 
   const metaHtml = [];
   if (jd.weather) metaHtml.push(`<span class="tl-meta-pill">${jd.weather}</span>`);
@@ -471,11 +502,12 @@ function _tlItemHtml(day, item, itemIdx, isObserver, sharedDoc, currentUid) {
 
   return `
     <div class="tl-item${validated ? ' validated' : ''}">
-      <div class="tl-item-card${validated ? ' validated' : ''}">
+      <div class="tl-item-card${validated ? ' validated' : ''}${isNew ? ' tl-item-new' : ''}">
         <div class="tl-item-hd">
           <span class="tl-item-icon">${typeIcon}</span>
           <span class="tl-item-title">${_esc(item.text || '—')}</span>
           ${item.time ? `<span class="tl-item-time">${_esc(item.time)}</span>` : ''}
+          ${isNew ? `<span class="obs-new-badge">Nouveau</span>` : ''}
           ${validateBtn}
         </div>
         ${photosHtml}
@@ -1136,14 +1168,16 @@ function _openValidateModal(tripId, dayId, itemIdx) {
     if (!items[itemIdx]) { closeModal(); return; }
 
     const itemId = items[itemIdx].id;
+    const prevJd = items[itemIdx].journalData || {};
     items[itemIdx] = {
       ...items[itemIdx],
       journalData: {
-        validated: true,
-        weather:   state.weather,
-        notes:     state.notes,
-        amount:    state.amount,
-        photos:    state.photos,
+        validated:   true,
+        validatedAt: prevJd.validatedAt || new Date().toISOString(),
+        weather:     state.weather,
+        notes:       state.notes,
+        amount:      state.amount,
+        photos:      state.photos,
       },
     };
     days[dayIdx] = { ...days[dayIdx], items };

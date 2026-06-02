@@ -1441,14 +1441,31 @@ a.tl-sv-pill:hover{background:var(--c3);color:var(--ink)}
 /* ── Observer journal feed ── */
 .obs-entry{
   background:var(--c2);border:1px solid var(--c3);border-radius:8px;
-  padding:8px 10px;margin-bottom:6px;
+  padding:8px 10px;margin-bottom:6px;transition:border-color .2s;
 }
+.obs-entry-new{border-color:#f59e0b;background:linear-gradient(135deg,#fffbeb 0%,var(--c2) 100%)}
 .obs-entry-hd{display:flex;align-items:flex-start;gap:8px;margin-bottom:4px}
 .obs-validated-badge{
   flex-shrink:0;background:#16a34a;color:#fff;border-radius:50%;
   width:18px;height:18px;display:flex;align-items:center;justify-content:center;
   font-size:10px;font-weight:700;margin-top:1px;
 }
+.obs-new-badge{
+  flex-shrink:0;background:#f59e0b;color:#fff;border-radius:999px;
+  padding:1px 7px;font-size:9px;font-weight:800;letter-spacing:.3px;
+  text-transform:uppercase;animation:obs-pulse 1.6s ease-in-out infinite;
+}
+.obs-new-dot{
+  display:inline-block;width:8px;height:8px;border-radius:50%;
+  background:#f59e0b;margin-left:4px;vertical-align:middle;
+  animation:obs-pulse 1.6s ease-in-out infinite;
+}
+@keyframes obs-pulse{
+  0%,100%{opacity:1;transform:scale(1)}
+  50%{opacity:.7;transform:scale(.9)}
+}
+.tl-item-new{border-left:3px solid #f59e0b !important;background:linear-gradient(135deg,#fffbeb 0%,var(--c) 100%) !important}
+.tl-day-dot-new{background:#f59e0b !important;box-shadow:0 0 0 4px #fef3c7 !important}
 .obs-notes{font-size:11px;color:var(--ink3);margin-top:4px;line-height:1.4}
 .obs-photos{display:flex;gap:5px;flex-wrap:wrap;margin-top:6px}
 .obs-photo{width:60px;height:48px;object-fit:cover;border-radius:6px;cursor:pointer;border:1px solid var(--c3)}
@@ -1668,3 +1685,5 @@ a.tl-sv-pill:hover{background:var(--c3);color:var(--ink)}
 [data-theme="dark"] .tl-comment-open-btn{background:var(--c2);border-color:var(--c4);color:var(--ink3)}
 [data-theme="dark"] .tl-interactions{border-top-color:var(--c4)}
 [data-theme="dark"] .tl-comment-item{border-bottom-color:var(--c4)}
+[data-theme="dark"] .obs-entry-new{background:linear-gradient(135deg,rgba(245,158,11,.12) 0%,var(--c3) 100%);border-color:#d97706}
+[data-theme="dark"] .tl-item-new{background:linear-gradient(135deg,rgba(245,158,11,.1) 0%,var(--c2) 100%) !important;border-left-color:#d97706 !important}
