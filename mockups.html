@@ -1,0 +1,754 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Maquettes — Carnet de Voyages</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,700;1,400&family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet"/>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'Nunito',sans-serif;background:#f5f3ef;color:#1c1917;padding:24px}
+  h1{font-family:'Lora',serif;font-size:22px;font-weight:700;margin-bottom:6px;color:#0f172a}
+  .subtitle{font-size:13px;color:#78716c;margin-bottom:32px}
+
+  /* Tabs */
+  .tabs{display:flex;gap:8px;margin-bottom:24px;border-bottom:2px solid #e7e5e4;padding-bottom:0}
+  .tab{padding:8px 18px;font-size:13px;font-weight:700;cursor:pointer;border-radius:8px 8px 0 0;border:none;background:none;color:#78716c;font-family:'Nunito',sans-serif;transition:all .15s}
+  .tab.active{background:#fff;color:#0d9488;border:2px solid #e7e5e4;border-bottom:2px solid #fff;margin-bottom:-2px}
+  .tab:hover:not(.active){background:#f0fdf4;color:#0d9488}
+
+  .section{display:none}
+  .section.active{display:block}
+
+  /* ═══ TIMELINE ═══ */
+  .tl-wrap{
+    display:flex;gap:0;background:#fff;border-radius:14px;overflow:hidden;
+    border:1.5px solid #e7e5e4;max-width:900px;
+    box-shadow:0 4px 24px rgba(0,0,0,.07)
+  }
+
+  /* Left sidebar: day list */
+  .tl-sidebar{
+    width:180px;flex-shrink:0;border-right:1.5px solid #e7e5e4;
+    background:#fafaf9;display:flex;flex-direction:column;
+  }
+  .tl-sidebar-hd{padding:14px 14px 10px;border-bottom:1px solid #e7e5e4}
+  .tl-sidebar-hd h3{font-size:13px;font-weight:800;color:#0f172a}
+  .tl-sidebar-hd p{font-size:10px;color:#a8a29e;margin-top:2px}
+  .tl-day-item{
+    display:flex;align-items:center;gap:8px;padding:9px 12px;
+    cursor:pointer;border-left:3px solid transparent;transition:.12s
+  }
+  .tl-day-item.active{border-left-color:#0d9488;background:#f0fdfa}
+  .tl-day-item:hover:not(.active){background:#f5f5f4}
+  .tl-day-num{font-size:10px;font-weight:800;color:#a8a29e;width:20px;flex-shrink:0}
+  .tl-day-item.active .tl-day-num{color:#0d9488}
+  .tl-day-info{min-width:0}
+  .tl-day-name{font-size:11px;font-weight:700;color:#1c1917;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .tl-day-date{font-size:9px;color:#a8a29e;margin-top:1px}
+  .tl-day-dot{
+    width:8px;height:8px;border-radius:50%;background:#d6d3d1;flex-shrink:0;margin-left:auto
+  }
+  .tl-day-item.active .tl-day-dot{background:#0d9488}
+  .tl-day-item.partial .tl-day-dot{background:#f59e0b}
+
+  /* Main timeline */
+  .tl-main{flex:1;overflow-y:auto;max-height:580px;padding:0}
+  .tl-day-section{border-bottom:1.5px solid #f5f3ef;padding:20px 24px}
+  .tl-day-section:last-child{border-bottom:none}
+  .tl-day-header{
+    display:flex;align-items:center;gap:10px;margin-bottom:16px;padding-bottom:10px;
+    border-bottom:1px solid #f0ede8
+  }
+  .tl-day-badge{
+    background:#0d9488;color:#fff;border-radius:8px;
+    padding:3px 10px;font-size:11px;font-weight:800;flex-shrink:0
+  }
+  .tl-day-header h4{font-size:14px;font-weight:700;color:#0f172a;flex:1}
+  .tl-day-weather{font-size:18px}
+  .tl-day-stat{font-size:11px;color:#a8a29e;font-weight:600}
+
+  /* Entry card */
+  .tl-entries{display:flex;flex-direction:column;gap:12px}
+  .tl-entry{
+    display:flex;gap:12px;padding:12px;border-radius:10px;
+    background:#fafaf9;border:1px solid #f0ede8;
+  }
+  .tl-entry.validated{background:#f0fdfa;border-color:#99f6e4}
+  .tl-entry-icon{
+    width:38px;height:38px;border-radius:10px;background:#e7e5e4;
+    display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0
+  }
+  .tl-entry.validated .tl-entry-icon{background:#ccfbf1}
+  .tl-entry-body{flex:1;min-width:0}
+  .tl-entry-title{font-size:13px;font-weight:700;color:#1c1917}
+  .tl-entry-meta{display:flex;gap:6px;margin-top:3px;flex-wrap:wrap;align-items:center}
+  .tl-pill{
+    font-size:10px;font-weight:600;padding:2px 7px;border-radius:999px;
+    background:#f5f3ef;color:#78716c;border:1px solid #e7e5e4
+  }
+  .tl-pill.validated{background:#f0fdfa;color:#0d9488;border-color:#99f6e4}
+  .tl-entry-notes{
+    font-size:11px;color:#57534e;margin-top:6px;line-height:1.5;
+    font-style:italic;font-family:'Lora',serif
+  }
+  .tl-photos{display:flex;gap:5px;margin-top:8px;flex-wrap:wrap}
+  .tl-photo{
+    width:72px;height:56px;border-radius:7px;object-fit:cover;
+    border:1px solid #e7e5e4;cursor:pointer;
+  }
+  .tl-photo-placeholder{
+    width:72px;height:56px;border-radius:7px;
+    border:1.5px dashed #d6d3d1;display:flex;align-items:center;justify-content:center;
+    font-size:20px;background:#f5f3ef;cursor:pointer
+  }
+  .tl-connector{
+    display:flex;align-items:center;gap:8px;padding:4px 0 4px 12px;color:#a8a29e
+  }
+  .tl-connector-line{flex:1;height:1px;border-top:1.5px dashed #e7e5e4}
+  .tl-connector-icon{font-size:14px}
+  .tl-connector-label{font-size:10px;font-weight:600;color:#a8a29e}
+
+  /* pending state */
+  .tl-entry.pending{opacity:.55;filter:grayscale(.3)}
+  .tl-pending-overlay{
+    font-size:10px;font-weight:700;color:#d97706;
+    background:#fffbeb;border:1px solid #fde68a;border-radius:6px;
+    padding:2px 7px;margin-left:auto;flex-shrink:0;white-space:nowrap
+  }
+
+  /* Export button */
+  .tl-export-bar{
+    display:flex;align-items:center;gap:10px;padding:12px 24px;
+    background:#f0fdfa;border-bottom:1.5px solid #99f6e4
+  }
+  .tl-export-bar p{font-size:12px;color:#0f766e;flex:1}
+  .btn-export{
+    background:#0d9488;color:#fff;border:none;border-radius:8px;
+    padding:7px 14px;font-size:12px;font-weight:700;cursor:pointer;
+    font-family:'Nunito',sans-serif;display:flex;align-items:center;gap:5px
+  }
+
+  /* ═══ ZONES VISITÉES ═══ */
+  .zones-wrap{
+    display:flex;gap:16px;max-width:900px;
+    background:#fff;border-radius:14px;overflow:hidden;
+    border:1.5px solid #e7e5e4;box-shadow:0 4px 24px rgba(0,0,0,.07)
+  }
+  .zones-map-col{flex:1;position:relative;min-height:400px;background:#dde8f5}
+  .zones-info-col{
+    width:240px;flex-shrink:0;border-left:1.5px solid #e7e5e4;
+    background:#fafaf9;padding:16px;display:flex;flex-direction:column;gap:12px
+  }
+  .zones-info-col h3{font-size:13px;font-weight:800;color:#0f172a}
+  .zones-stat-big{
+    background:#0d9488;border-radius:12px;padding:14px;text-align:center;color:#fff
+  }
+  .zones-stat-big .num{font-size:32px;font-weight:800;line-height:1}
+  .zones-stat-big .lbl{font-size:11px;opacity:.85;margin-top:2px}
+  .zones-sub-stats{display:flex;gap:8px}
+  .zones-sub-stat{
+    flex:1;background:#f0fdfa;border:1.5px solid #99f6e4;border-radius:10px;
+    padding:10px;text-align:center
+  }
+  .zones-sub-stat .num{font-size:18px;font-weight:800;color:#0d9488}
+  .zones-sub-stat .lbl{font-size:9px;color:#5eead4;font-weight:600;margin-top:2px}
+  .zones-country-list{display:flex;flex-direction:column;gap:5px;overflow-y:auto;flex:1}
+  .zones-country-row{
+    display:flex;align-items:center;gap:8px;font-size:12px;
+    padding:5px 8px;border-radius:8px;background:#f5f3ef
+  }
+  .zones-country-row .flag{font-size:16px}
+  .zones-country-row .name{flex:1;font-weight:600;color:#292524}
+  .zones-country-row .trips{font-size:10px;color:#a8a29e;font-weight:600}
+
+  /* SVG world map simulation */
+  .world-svg{width:100%;height:400px;display:block}
+
+  /* Diff annotation */
+  .diff-note{
+    background:#fffbeb;border:1.5px solid #fde68a;border-radius:10px;
+    padding:10px 14px;margin-bottom:14px;font-size:12px;color:#92400e;
+    max-width:900px
+  }
+  .diff-note strong{font-weight:800}
+
+  /* Pins map */
+  .pins-map-wrap{
+    max-width:900px;background:#dde8f5;border-radius:14px;overflow:hidden;
+    border:1.5px solid #e7e5e4;box-shadow:0 4px 24px rgba(0,0,0,.07);
+    position:relative;height:260px
+  }
+
+  /* ═══ GPX ═══ */
+  .gpx-wrap{
+    display:flex;gap:0;background:#fff;border-radius:14px;overflow:hidden;
+    border:1.5px solid #e7e5e4;max-width:900px;
+    box-shadow:0 4px 24px rgba(0,0,0,.07)
+  }
+  .gpx-map{flex:1;min-height:460px;background:#e8f4e8;position:relative}
+  .gpx-panel{
+    width:260px;flex-shrink:0;border-left:1.5px solid #e7e5e4;
+    background:#fafaf9;display:flex;flex-direction:column
+  }
+  .gpx-panel-hd{padding:14px;border-bottom:1px solid #e7e5e4}
+  .gpx-panel-hd h3{font-size:13px;font-weight:800;color:#0f172a}
+  .gpx-panel-hd p{font-size:10px;color:#a8a29e;margin-top:2px}
+  .gpx-stats-grid{
+    display:grid;grid-template-columns:1fr 1fr;gap:6px;padding:12px
+  }
+  .gpx-stat{
+    background:#f0fdfa;border:1.5px solid #99f6e4;border-radius:8px;
+    padding:8px;text-align:center
+  }
+  .gpx-stat .val{font-size:15px;font-weight:800;color:#0d9488}
+  .gpx-stat .lbl{font-size:9px;color:#5eead4;font-weight:700;margin-top:2px}
+  .gpx-elevation{padding:12px;border-top:1px solid #e7e5e4}
+  .gpx-elevation h4{font-size:11px;font-weight:700;color:#57534e;margin-bottom:8px}
+  .gpx-import-btn{
+    margin:12px;background:#0d9488;color:#fff;border:none;border-radius:9px;
+    padding:9px 14px;font-size:12px;font-weight:700;cursor:pointer;
+    font-family:'Nunito',sans-serif;display:flex;align-items:center;justify-content:center;gap:6px
+  }
+
+  .section-title{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.05em;color:#a8a29e;margin-bottom:10px}
+
+  @media(max-width:600px){
+    .tl-wrap,.zones-wrap,.gpx-wrap{flex-direction:column}
+    .tl-sidebar,.zones-info-col,.gpx-panel{width:100%;border-right:none;border-left:none;border-top:1.5px solid #e7e5e4}
+  }
+</style>
+</head>
+<body>
+
+<h1>🗺 Maquettes — Nouvelles fonctionnalités</h1>
+<p class="subtitle">Aperçu visuel de 3 features pour Carnet de Voyages</p>
+
+<div class="tabs">
+  <button class="tab active" onclick="show('timeline',this)">📖 Timeline</button>
+  <button class="tab" onclick="show('zones',this)">🌍 Zones visitées vs Stats</button>
+  <button class="tab" onclick="show('gpx',this)">🏔 Trace GPX</button>
+</div>
+
+<!-- ════════════════ TIMELINE ════════════════ -->
+<div class="section active" id="s-timeline">
+  <p style="font-size:12px;color:#78716c;margin-bottom:14px">
+    La Timeline remplace la vue "Carnet" actuelle. Elle ressemble à un vrai journal de voyage illustré,
+    en lecture seule après le voyage — idéale à partager ou exporter en PDF.
+  </p>
+
+  <div class="tl-wrap">
+    <!-- Sidebar jours -->
+    <div class="tl-sidebar">
+      <div class="tl-sidebar-hd">
+        <h3>🇮🇹 Italie du Nord</h3>
+        <p>7 jours · 12–19 juin 2024</p>
+      </div>
+      <div style="flex:1;overflow-y:auto">
+        <div class="tl-day-item active">
+          <span class="tl-day-num">J1</span>
+          <div class="tl-day-info">
+            <div class="tl-day-name">Rome</div>
+            <div class="tl-day-date">12 juin</div>
+          </div>
+          <div class="tl-day-dot"></div>
+        </div>
+        <div class="tl-day-item partial">
+          <span class="tl-day-num">J2</span>
+          <div class="tl-day-info">
+            <div class="tl-day-name">Rome → Florence</div>
+            <div class="tl-day-date">13 juin</div>
+          </div>
+          <div class="tl-day-dot"></div>
+        </div>
+        <div class="tl-day-item">
+          <span class="tl-day-num">J3</span>
+          <div class="tl-day-info">
+            <div class="tl-day-name">Florence</div>
+            <div class="tl-day-date">14 juin</div>
+          </div>
+          <div class="tl-day-dot" style="background:#e7e5e4"></div>
+        </div>
+        <div class="tl-day-item">
+          <span class="tl-day-num">J4</span>
+          <div class="tl-day-info">
+            <div class="tl-day-name">Cinque Terre</div>
+            <div class="tl-day-date">15 juin</div>
+          </div>
+          <div class="tl-day-dot" style="background:#e7e5e4"></div>
+        </div>
+        <div class="tl-day-item">
+          <span class="tl-day-num">J5</span>
+          <div class="tl-day-info">
+            <div class="tl-day-name">Venise</div>
+            <div class="tl-day-date">16 juin</div>
+          </div>
+          <div class="tl-day-dot" style="background:#e7e5e4"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Main feed -->
+    <div class="tl-main">
+      <div class="tl-export-bar">
+        <p>✅ 8 activités documentées · 3 jours complétés</p>
+        <button class="btn-export">📄 Exporter PDF</button>
+      </div>
+
+      <!-- Jour 1 -->
+      <div class="tl-day-section">
+        <div class="tl-day-header">
+          <span class="tl-day-badge">Jour 1</span>
+          <h4>Rome</h4>
+          <span class="tl-day-weather">☀️</span>
+          <span class="tl-day-stat">+127 €</span>
+        </div>
+        <div class="tl-entries">
+
+          <div class="tl-entry validated">
+            <div class="tl-entry-icon">🏛️</div>
+            <div class="tl-entry-body">
+              <div style="display:flex;align-items:flex-start;gap:6px">
+                <div class="tl-entry-title" style="flex:1">Visite du Colisée</div>
+              </div>
+              <div class="tl-entry-meta">
+                <span class="tl-pill validated">✓ Validé</span>
+                <span class="tl-pill">🕐 9h00</span>
+                <span class="tl-pill">💶 18€</span>
+                <span class="tl-pill">📷 4</span>
+              </div>
+              <div class="tl-entry-notes">"Impressionnant, surtout tôt le matin avant la foule. Vue incroyable depuis le niveau 2."</div>
+              <div class="tl-photos">
+                <div class="tl-photo-placeholder">🏛️</div>
+                <div class="tl-photo-placeholder">🌞</div>
+                <div class="tl-photo-placeholder">📸</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="tl-connector">
+            <div class="tl-connector-line"></div>
+            <span class="tl-connector-icon">🚶</span>
+            <span class="tl-connector-label">15 min à pied</span>
+            <div class="tl-connector-line"></div>
+          </div>
+
+          <div class="tl-entry validated">
+            <div class="tl-entry-icon">🍽️</div>
+            <div class="tl-entry-body">
+              <div class="tl-entry-title">Déjeuner Trattoria da Enzo</div>
+              <div class="tl-entry-meta">
+                <span class="tl-pill validated">✓ Validé</span>
+                <span class="tl-pill">🕐 13h00</span>
+                <span class="tl-pill">💶 34€</span>
+                <span class="tl-pill">⭐⭐⭐⭐⭐</span>
+              </div>
+              <div class="tl-entry-notes">"Cacio e pepe absolument parfaite. À recommander sans hésiter."</div>
+            </div>
+          </div>
+
+          <div class="tl-connector">
+            <div class="tl-connector-line"></div>
+            <span class="tl-connector-icon">🚌</span>
+            <span class="tl-connector-label">Bus ligne 40</span>
+            <div class="tl-connector-line"></div>
+          </div>
+
+          <div class="tl-entry validated">
+            <div class="tl-entry-icon">⛪</div>
+            <div class="tl-entry-body">
+              <div class="tl-entry-title">Vatican & Chapelle Sixtine</div>
+              <div class="tl-entry-meta">
+                <span class="tl-pill validated">✓ Validé</span>
+                <span class="tl-pill">🕐 15h30</span>
+                <span class="tl-pill">💶 22€</span>
+                <span class="tl-pill">📷 12</span>
+              </div>
+              <div class="tl-entry-notes">"Beaucoup de monde mais incontournable. Prévoir 3h minimum."</div>
+              <div class="tl-photos">
+                <div class="tl-photo-placeholder">⛪</div>
+                <div class="tl-photo-placeholder">🎨</div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- Jour 2 -->
+      <div class="tl-day-section">
+        <div class="tl-day-header">
+          <span class="tl-day-badge" style="background:#f59e0b">Jour 2</span>
+          <h4>Rome → Florence</h4>
+          <span class="tl-day-weather">⛅</span>
+          <span class="tl-day-stat" style="color:#f59e0b">2 / 4 validées</span>
+        </div>
+        <div class="tl-entries">
+
+          <div class="tl-entry validated">
+            <div class="tl-entry-icon">🚂</div>
+            <div class="tl-entry-body">
+              <div class="tl-entry-title">Trenitalia Rome → Florence</div>
+              <div class="tl-entry-meta">
+                <span class="tl-pill validated">✓ Validé</span>
+                <span class="tl-pill">🕐 8h15</span>
+                <span class="tl-pill">💶 45€</span>
+                <span class="tl-pill">⏱ 1h35</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="tl-entry pending">
+            <div class="tl-entry-icon">🏛️</div>
+            <div class="tl-entry-body">
+              <div style="display:flex;gap:6px;align-items:center">
+                <div class="tl-entry-title" style="flex:1">Galerie des Offices</div>
+                <span class="tl-pending-overlay">⏳ En attente</span>
+              </div>
+              <div class="tl-entry-meta">
+                <span class="tl-pill">🕐 14h00</span>
+                <span class="tl-pill">💶 20€ prévu</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="tl-entry pending">
+            <div class="tl-entry-icon">🌉</div>
+            <div class="tl-entry-body">
+              <div style="display:flex;gap:6px;align-items:center">
+                <div class="tl-entry-title" style="flex:1">Ponte Vecchio</div>
+                <span class="tl-pending-overlay">⏳ En attente</span>
+              </div>
+              <div class="tl-entry-meta">
+                <span class="tl-pill">🕐 17h00</span>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <div style="margin-top:12px;font-size:11px;color:#a8a29e;max-width:900px">
+    💡 <strong>Différence clé avec le Carnet actuel :</strong> le Carnet actuel = liste de cases à cocher pendant le voyage.
+    La Timeline = récit illustré après le voyage, avec notes, photos groupées et connecteurs de transport.
+  </div>
+</div>
+
+<!-- ════════════════ ZONES VISITÉES ════════════════ -->
+<div class="section" id="s-zones">
+
+  <div class="diff-note">
+    <strong>Quelle est la différence ?</strong><br>
+    <br>
+    🔴 <strong>Ta carte Stats actuelle</strong> = des <strong>points/pins</strong> sur la carte aux endroits précis où tu es allé (Paris, Rome, Tokyo…). Tu vois "où" tu es allé.<br>
+    <br>
+    🟢 <strong>Zones visitées (nouvelle)</strong> = les <strong>pays entiers colorés</strong> sur une mappemonde simplifiée. C'est une vue bilan de vie — tu vois "combien" de pays tu as visité et lesquels.
+    C'est une métrique globale, pas une localisation précise.
+  </div>
+
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;max-width:900px">
+
+    <!-- Carte Stats actuelle -->
+    <div>
+      <div class="section-title">📍 Ta carte Stats actuelle (pins)</div>
+      <div class="pins-map-wrap">
+        <svg viewBox="0 0 500 200" style="width:100%;height:100%;display:block">
+          <!-- Fond mer -->
+          <rect width="500" height="200" fill="#dde8f5"/>
+          <!-- Continents simplifiés -->
+          <ellipse cx="120" cy="90" rx="70" ry="50" fill="#c8d5b9"/>
+          <ellipse cx="280" cy="80" rx="90" ry="55" fill="#c8d5b9"/>
+          <ellipse cx="220" cy="140" rx="30" ry="20" fill="#c8d5b9"/>
+          <ellipse cx="380" cy="100" rx="50" ry="35" fill="#c8d5b9"/>
+          <ellipse cx="460" cy="130" rx="30" ry="20" fill="#c8d5b9"/>
+
+          <!-- Pins de villes -->
+          <!-- Paris -->
+          <circle cx="238" cy="68" r="5" fill="#0d9488"/>
+          <line x1="238" y1="68" x2="238" y2="80" stroke="#0d9488" stroke-width="2"/>
+          <text x="242" y="76" font-size="7" fill="#0f172a" font-family="Nunito">Paris</text>
+
+          <!-- Rome -->
+          <circle cx="258" cy="78" r="5" fill="#0d9488"/>
+          <line x1="258" y1="78" x2="258" y2="90" stroke="#0d9488" stroke-width="2"/>
+          <text x="262" y="86" font-size="7" fill="#0f172a" font-family="Nunito">Rome</text>
+
+          <!-- Tokyo -->
+          <circle cx="408" cy="85" r="5" fill="#d97706"/>
+          <line x1="408" y1="85" x2="408" y2="97" stroke="#d97706" stroke-width="2"/>
+          <text x="412" y="93" font-size="7" fill="#0f172a" font-family="Nunito">Tokyo</text>
+
+          <!-- New York -->
+          <circle cx="148" cy="82" r="5" fill="#7c3aed"/>
+          <line x1="148" y1="82" x2="148" y2="94" stroke="#7c3aed" stroke-width="2"/>
+          <text x="152" y="90" font-size="7" fill="#0f172a" font-family="Nunito">New York</text>
+
+          <!-- Bangkok -->
+          <circle cx="382" cy="112" r="5" fill="#0891b2"/>
+          <line x1="382" y1="112" x2="382" y2="124" stroke="#0891b2" stroke-width="2"/>
+          <text x="386" y="120" font-size="7" fill="#0f172a" font-family="Nunito">Bangkok</text>
+
+          <!-- Légende -->
+          <rect x="8" y="8" width="100" height="40" rx="5" fill="rgba(255,255,255,.8)"/>
+          <text x="14" y="20" font-size="8" font-weight="bold" fill="#1c1917" font-family="Nunito">📍 14 destinations</text>
+          <text x="14" y="32" font-size="7" fill="#78716c" font-family="Nunito">Lieux précis visités</text>
+          <text x="14" y="42" font-size="7" fill="#78716c" font-family="Nunito">5 pays représentés</text>
+        </svg>
+      </div>
+      <p style="font-size:11px;color:#78716c;margin-top:8px">
+        Pins précis = utile pour retrouver un endroit, voir les itinéraires
+      </p>
+    </div>
+
+    <!-- Zones visitées (nouvelle) -->
+    <div>
+      <div class="section-title">🌍 Zones visitées (nouvelle feature)</div>
+      <div style="background:#fff;border-radius:14px;border:1.5px solid #e7e5e4;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,.07)">
+        <svg viewBox="0 0 500 200" style="width:100%;display:block;height:200px">
+          <!-- Mer -->
+          <rect width="500" height="200" fill="#dde8f5"/>
+
+          <!-- Amérique Nord (non visité) -->
+          <ellipse cx="120" cy="80" rx="70" ry="45" fill="#e7e5e4"/>
+
+          <!-- Europe (visité = coloré) -->
+          <ellipse cx="258" cy="72" rx="42" ry="30" fill="#0d9488" opacity=".55"/>
+
+          <!-- Afrique (non visité) -->
+          <ellipse cx="255" cy="130" rx="30" ry="28" fill="#e7e5e4"/>
+
+          <!-- Asie (visité partiel) -->
+          <ellipse cx="370" cy="82" rx="65" ry="40" fill="#0d9488" opacity=".3"/>
+
+          <!-- Australie (non visité) -->
+          <ellipse cx="430" cy="145" rx="30" ry="18" fill="#e7e5e4"/>
+
+          <!-- Amérique Sud (non visité) -->
+          <ellipse cx="158" cy="148" rx="28" ry="30" fill="#e7e5e4"/>
+
+          <!-- Labels pays colorés -->
+          <text x="240" y="70" font-size="7" fill="#fff" font-weight="bold" font-family="Nunito" text-anchor="middle">🇫🇷 🇮🇹 🇪🇸</text>
+          <text x="240" y="80" font-size="6" fill="#fff" font-family="Nunito" text-anchor="middle">Visité</text>
+          <text x="370" y="80" font-size="7" fill="#fff" font-family="Nunito" text-anchor="middle">🇯🇵 🇹🇭</text>
+          <text x="370" y="90" font-size="6" fill="#fff" font-family="Nunito" text-anchor="middle">Visité</text>
+
+          <!-- Légende -->
+          <rect x="8" y="8" width="115" height="52" rx="5" fill="rgba(255,255,255,.9)"/>
+          <text x="14" y="20" font-size="8" font-weight="bold" fill="#1c1917" font-family="Nunito">🌍 7 pays visités</text>
+          <circle cx="16" cy="30" r="4" fill="#0d9488" opacity=".55"/>
+          <text x="24" y="33" font-size="7" fill="#78716c" font-family="Nunito">Pays visité</text>
+          <circle cx="16" cy="42" r="4" fill="#e7e5e4"/>
+          <text x="24" y="45" font-size="7" fill="#78716c" font-family="Nunito">Pas encore visité</text>
+          <text x="14" y="56" font-size="7" fill="#0d9488" font-weight="bold" font-family="Nunito">23% de la planète !</text>
+        </svg>
+        <div style="padding:10px 14px;border-top:1.5px solid #f0ede8;display:flex;gap:10px">
+          <div style="flex:1;text-align:center">
+            <div style="font-size:22px;font-weight:800;color:#0d9488">7</div>
+            <div style="font-size:9px;color:#a8a29e;font-weight:600">PAYS</div>
+          </div>
+          <div style="flex:1;text-align:center">
+            <div style="font-size:22px;font-weight:800;color:#0d9488">3</div>
+            <div style="font-size:9px;color:#a8a29e;font-weight:600">CONTINENTS</div>
+          </div>
+          <div style="flex:1;text-align:center">
+            <div style="font-size:22px;font-weight:800;color:#0d9488">23%</div>
+            <div style="font-size:9px;color:#a8a29e;font-weight:600">DU MONDE</div>
+          </div>
+        </div>
+      </div>
+      <p style="font-size:11px;color:#78716c;margin-top:8px">
+        Pays colorés = vue bilan, stat globale, plus "esthétique" à partager
+      </p>
+    </div>
+  </div>
+
+  <div style="margin-top:14px;font-size:11px;color:#78716c;max-width:900px;background:#f5f3ef;border-radius:8px;padding:10px 14px">
+    💡 En résumé : ta carte Stats actuelle = <strong>où précisément</strong> tu es allé. Zones visitées = <strong>combien de pays</strong> tu as couverts sur la planète. Les deux sont complémentaires.
+    Si tu as déjà cette info dans les stats, la feature aurait surtout de la valeur pour une <strong>vue "mappemonde coloriée" plus soignée</strong> et pour afficher le pourcentage de la planète visité — l'aspect "collection" ludique.
+  </div>
+</div>
+
+<!-- ════════════════ TRACE GPX ════════════════ -->
+<div class="section" id="s-gpx">
+  <p style="font-size:12px;color:#78716c;margin-bottom:14px">
+    À quoi ressemble la carte d'un jour de randonnée avec une trace GPX importée depuis AllTrails ou Komoot.
+  </p>
+
+  <div class="gpx-wrap">
+    <!-- Carte -->
+    <div class="gpx-map">
+      <svg viewBox="0 0 580 460" style="width:100%;height:100%;display:block">
+        <!-- Fond terrain -->
+        <defs>
+          <radialGradient id="hill1" cx="40%" cy="35%" r="40%">
+            <stop offset="0%" stop-color="#b7d4a0"/>
+            <stop offset="100%" stop-color="#8fba72"/>
+          </radialGradient>
+          <radialGradient id="hill2" cx="70%" cy="60%" r="35%">
+            <stop offset="0%" stop-color="#a8cb8f"/>
+            <stop offset="100%" stop-color="#7aaa5c"/>
+          </radialGradient>
+        </defs>
+        <rect width="580" height="460" fill="#c8dba0"/>
+        <ellipse cx="200" cy="160" rx="180" ry="130" fill="url(#hill1)"/>
+        <ellipse cx="380" cy="280" rx="160" ry="110" fill="url(#hill2)"/>
+
+        <!-- Forêts -->
+        <circle cx="80" cy="200" r="30" fill="#6aad4e" opacity=".5"/>
+        <circle cx="110" cy="210" r="25" fill="#5ea043" opacity=".5"/>
+        <circle cx="460" cy="120" r="35" fill="#6aad4e" opacity=".4"/>
+        <circle cx="490" cy="105" r="28" fill="#5ea043" opacity=".4"/>
+        <circle cx="520" cy="380" r="30" fill="#6aad4e" opacity=".5"/>
+
+        <!-- Routes existantes -->
+        <path d="M 0,380 Q 100,360 200,370 Q 300,380 400,360 Q 480,345 580,350" stroke="#d4c4a0" stroke-width="4" fill="none" opacity=".6"/>
+        <path d="M 290,0 Q 300,100 310,200 Q 320,300 315,460" stroke="#d4c4a0" stroke-width="3" fill="none" opacity=".4"/>
+
+        <!-- ─── TRACE GPX principale ─── -->
+        <!-- Ombre de la trace -->
+        <path d="M 75,400 Q 100,370 130,340 Q 160,310 185,280 Q 210,250 240,220 Q 260,200 280,175 Q 300,150 315,120 Q 325,95 330,70 Q 338,50 345,35"
+          stroke="rgba(14,165,233,.3)" stroke-width="10" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+        <!-- Trace principale colorée -->
+        <path d="M 75,400 Q 100,370 130,340 Q 160,310 185,280 Q 210,250 240,220 Q 260,200 280,175 Q 300,150 315,120 Q 325,95 330,70 Q 338,50 345,35"
+          stroke="#0ea5e9" stroke-width="4" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+
+        <!-- Halo début/fin -->
+        <circle cx="75" cy="400" r="10" fill="#22c55e" stroke="#fff" stroke-width="2.5"/>
+        <text x="88" y="404" font-size="9" fill="#15803d" font-weight="bold" font-family="Nunito">Départ</text>
+        <circle cx="345" cy="35" r="10" fill="#ef4444" stroke="#fff" stroke-width="2.5"/>
+        <text x="358" y="39" font-size="9" fill="#b91c1c" font-weight="bold" font-family="Nunito">Sommet</text>
+
+        <!-- Pin activité 1 (déjà existant) -->
+        <circle cx="75" cy="400" r="0"/>
+        <!-- Pin activité validée sur la trace -->
+        <rect x="190" y="255" width="7" height="7" rx="2" fill="#0d9488" stroke="#fff" stroke-width="1.5"/>
+
+        <!-- Waypoints sur la trace -->
+        <circle cx="185" cy="280" r="5" fill="#fff" stroke="#0ea5e9" stroke-width="2"/>
+        <circle cx="280" cy="175" r="5" fill="#fff" stroke="#0ea5e9" stroke-width="2"/>
+
+        <!-- Point position courante -->
+        <circle cx="240" cy="220" r="8" fill="#f59e0b" stroke="#fff" stroke-width="2.5" opacity=".9"/>
+        <circle cx="240" cy="220" r="14" fill="#f59e0b" opacity=".2"/>
+
+        <!-- Distance markers -->
+        <text x="140" y="325" font-size="8" fill="#0369a1" font-family="Nunito" font-weight="bold">2 km</text>
+        <text x="235" y="215" font-size="8" fill="#0369a1" font-family="Nunito" font-weight="bold">5 km</text>
+        <text x="305" y="140" font-size="8" fill="#0369a1" font-family="Nunito" font-weight="bold">8 km</text>
+
+        <!-- Légende carte -->
+        <rect x="10" y="10" width="150" height="65" rx="7" fill="rgba(255,255,255,.9)"/>
+        <text x="18" y="26" font-size="9" font-weight="bold" fill="#1c1917" font-family="Nunito">🏔 Trace GPX importée</text>
+        <line x1="18" y1="35" x2="38" y2="35" stroke="#0ea5e9" stroke-width="3"/>
+        <text x="44" y="38" font-size="8" fill="#0369a1" font-family="Nunito">Trace GPX</text>
+        <circle cx="24" cy="48" r="4" fill="#22c55e" stroke="#fff" stroke-width="1.5"/>
+        <text x="32" y="51" font-size="8" fill="#15803d" font-family="Nunito">Départ / Arrivée</text>
+        <circle cx="24" cy="62" r="4" fill="#f59e0b" stroke="#fff" stroke-width="1.5"/>
+        <text x="32" y="65" font-size="8" fill="#b45309" font-family="Nunito">Position actuelle</text>
+
+        <!-- Profil d'altitude miniature dans la carte -->
+        <rect x="10" y="420" width="200" height="35" rx="5" fill="rgba(255,255,255,.9)"/>
+        <text x="16" y="432" font-size="7" font-weight="bold" fill="#1c1917" font-family="Nunito">Profil altimétrique</text>
+        <polyline points="16,450 30,446 50,440 75,432 100,437 125,430 155,435 175,438 205,445" fill="none" stroke="#0ea5e9" stroke-width="1.5"/>
+        <polyline points="16,450 30,446 50,440 75,432 100,437 125,430 155,435 175,438 205,445 205,450" fill="#0ea5e9" opacity=".15"/>
+      </svg>
+    </div>
+
+    <!-- Panneau GPX -->
+    <div class="gpx-panel">
+      <div class="gpx-panel-hd">
+        <h3>🏔 Jour 4 — Cinque Terre</h3>
+        <p>Randonnée Monterosso → Vernazza</p>
+      </div>
+
+      <!-- Bouton import -->
+      <button class="gpx-import-btn">
+        📂 Importer fichier .gpx
+      </button>
+
+      <!-- Stats -->
+      <div class="gpx-stats-grid">
+        <div class="gpx-stat">
+          <div class="val">12.4</div>
+          <div class="lbl">KM TOTAL</div>
+        </div>
+        <div class="gpx-stat">
+          <div class="val">+680m</div>
+          <div class="lbl">DÉNIVELÉ ↑</div>
+        </div>
+        <div class="gpx-stat">
+          <div class="val">4h20</div>
+          <div class="lbl">DURÉE</div>
+        </div>
+        <div class="gpx-stat">
+          <div class="val">2.9</div>
+          <div class="lbl">KM/H MOY.</div>
+        </div>
+      </div>
+
+      <!-- Profil altitude -->
+      <div class="gpx-elevation">
+        <h4>📈 Profil altimétrique</h4>
+        <svg viewBox="0 0 220 60" style="width:100%;display:block">
+          <defs>
+            <linearGradient id="elev" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="#0ea5e9" stop-opacity=".3"/>
+              <stop offset="100%" stop-color="#0ea5e9" stop-opacity=".05"/>
+            </linearGradient>
+          </defs>
+          <rect width="220" height="60" fill="#f0f9ff" rx="6"/>
+          <!-- Grille -->
+          <line x1="0" y1="15" x2="220" y2="15" stroke="#e0f2fe" stroke-width="1"/>
+          <line x1="0" y1="30" x2="220" y2="30" stroke="#e0f2fe" stroke-width="1"/>
+          <line x1="0" y1="45" x2="220" y2="45" stroke="#e0f2fe" stroke-width="1"/>
+          <!-- Labels altitude -->
+          <text x="3" y="13" font-size="6" fill="#93c5fd" font-family="Nunito">680m</text>
+          <text x="3" y="28" font-size="6" fill="#93c5fd" font-family="Nunito">400m</text>
+          <text x="3" y="43" font-size="6" fill="#93c5fd" font-family="Nunito">100m</text>
+          <!-- Courbe -->
+          <polygon points="20,52 35,44 55,32 80,18 105,24 135,16 160,22 185,28 205,48 205,55 20,55"
+            fill="url(#elev)"/>
+          <polyline points="20,52 35,44 55,32 80,18 105,24 135,16 160,22 185,28 205,48"
+            fill="none" stroke="#0ea5e9" stroke-width="2" stroke-linejoin="round"/>
+          <!-- Point actuel -->
+          <circle cx="105" cy="24" r="3.5" fill="#f59e0b" stroke="#fff" stroke-width="1.5"/>
+        </svg>
+        <div style="display:flex;justify-content:space-between;font-size:9px;color:#a8a29e;margin-top:3px">
+          <span>Départ 85m</span>
+          <span>⬆ Position actuelle</span>
+          <span>Sommet 680m</span>
+        </div>
+      </div>
+
+      <!-- Infos fichier -->
+      <div style="padding:10px 12px;border-top:1px solid #e7e5e4;margin-top:auto">
+        <div style="font-size:10px;font-weight:700;color:#57534e;margin-bottom:6px">Fichier importé</div>
+        <div style="background:#f0fdfa;border:1px solid #99f6e4;border-radius:7px;padding:7px 10px">
+          <div style="font-size:11px;font-weight:700;color:#0f172a">monterosso-vernazza.gpx</div>
+          <div style="font-size:10px;color:#5eead4;margin-top:2px">Source : AllTrails · 1 847 points</div>
+        </div>
+        <div style="font-size:10px;color:#a8a29e;margin-top:6px">Superposé à la carte du Jour 4</div>
+      </div>
+    </div>
+  </div>
+
+  <div style="margin-top:12px;font-size:11px;color:#a8a29e;max-width:900px">
+    💡 La trace GPX se superpose à la carte normale du jour — les pins d'activités planifiées restent visibles.
+    Tu peux importer depuis AllTrails, Komoot, Garmin, ou ton iPhone (fichier .gpx).
+  </div>
+</div>
+
+<script>
+function show(id, btn) {
+  document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.getElementById('s-' + id).classList.add('active');
+  btn.classList.add('active');
+}
+</script>
+</body>
+</html>
