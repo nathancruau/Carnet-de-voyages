@@ -1080,6 +1080,7 @@ function _devalidateItem(tripId, dayId, itemIdx) {
   }
 
   notify('Activité dévalidée', '↩');
+  renderJournal(tripId, _observerMode);
 }
 
 // ── Activities sub-tab ────────────────────────────────────────────────────────
