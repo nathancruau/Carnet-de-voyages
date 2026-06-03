@@ -168,18 +168,12 @@ export function trCol(m) {
  */
 export function fmtFlag(flag) {
   if (!flag) return '';
-  const pts = [...flag].map(c => c.codePointAt(0)).filter(v => v >= 0x1F1E6 && v <= 0x1F1FF);
-  if (pts.length >= 2) {
-    const iso = String.fromCharCode(pts[0] - 0x1F1E6 + 65) + String.fromCharCode(pts[1] - 0x1F1E6 + 65);
-    return String.fromCodePoint(pts[0]) + String.fromCodePoint(pts[1]) + ' ' + iso;
-  }
-  if (/^[A-Za-z]{2}$/.test(flag.trim())) {
-    const iso = flag.trim().toUpperCase();
-    const emoji = String.fromCodePoint(0x1F1E6 + iso.charCodeAt(0) - 65) +
-                  String.fromCodePoint(0x1F1E6 + iso.charCodeAt(1) - 65);
-    return emoji + ' ' + iso;
-  }
-  return flag.trim();
+  const trimmed = flag.trim();
+  const pts = [...trimmed].map(c => c.codePointAt(0)).filter(v => v >= 0x1F1E6 && v <= 0x1F1FF);
+  if (pts.length >= 2)
+    return String.fromCharCode(pts[0] - 0x1F1E6 + 65) + String.fromCharCode(pts[1] - 0x1F1E6 + 65);
+  if (/^[A-Za-z]{2}$/.test(trimmed)) return trimmed.toUpperCase();
+  return trimmed;
 }
 
 // ── Date picker ────────────────────────────────────────────────────────────────

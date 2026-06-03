@@ -556,11 +556,9 @@ function _statsViewHtml(trips) {
   }
   const flagsHtml = [...tripFlagMap.entries()]
     .sort((a, b) => b[1].count - a[1].count)
-    .map(([code, { name, count }]) => {
-      const emoji = String.fromCodePoint(0x1F1E6 + code.charCodeAt(0) - 65) +
-                    String.fromCodePoint(0x1F1E6 + code.charCodeAt(1) - 65);
-      return `<span class="wm-flag-chip" title="${_esc(name)} · ${count} voyage${count > 1 ? 's' : ''}">${emoji}</span>`;
-    }).join('');
+    .map(([code, { name, count }]) =>
+      `<span class="wm-flag-chip" title="${_esc(name)} · ${count} voyage${count > 1 ? 's' : ''}">${code}</span>`
+    ).join('');
 
   // Continent pills
   const contPillsHtml = Object.entries(continentCount)

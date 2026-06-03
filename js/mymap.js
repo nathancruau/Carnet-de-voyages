@@ -868,10 +868,12 @@ export function renderMyMap() {
     _infoPanelEl = document.getElementById('mm-info-panel');
 
     _map = L.map('mymap', {
-      center:      [46.5, 2.5],
-      zoom:        5,
-      zoomControl: true,
-      minZoom:     3,
+      center:             [46.5, 2.5],
+      zoom:               5,
+      zoomControl:        true,
+      minZoom:            3,
+      maxBounds:          [[-85.051129, -1e10], [85.051129, 1e10]],
+      maxBoundsViscosity: 1.0,
     });
 
     L.tileLayer('https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png', {
