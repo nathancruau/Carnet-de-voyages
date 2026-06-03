@@ -161,6 +161,7 @@ let _showDurLabels     = true;     // toggle duration labels on map routes
 let _gpxLayers         = [];       // Leaflet layers for GPX overlays
 let _worldCopyMarkers  = [];       // non-interactive copies at ±360° offsets
 let _worldCopyOffsets  = new Set();
+let _calTab            = 'planning'; // 'planning' | 'transport'
 
 // ─── Public API ───────────────────────────────────────────────────────────────
 
@@ -172,6 +173,7 @@ export function renderMapCal(tripId) {
   _activeEvtKey    = null;
   _pendingMapClick = null;
   _commentDayId    = null;
+  _calTab          = 'planning';
 
   // Remove stale outside-click handler attached by _initMapSearch
   if (_mapSearchOutsideClickFn) {
@@ -204,16 +206,20 @@ export function renderMapCal(tripId) {
   panel.innerHTML = `
     <div class="mapcal">
       <div class="left-panel">
-        <div class="lp-top" style="padding:12px 14px 8px;flex-shrink:0">
+        <div class="lp-tabs">
+          <button class="lp-tab-btn${_calTab === 'planning' ? ' active' : ''}" data-cal-tab="planning">📅 Planning</button>
+          <button class="lp-tab-btn${_calTab === 'transport' ? ' active' : ''}" data-cal-tab="transport">🚗 Déplacements</button>
+        </div>
+        <div class="lp-top" id="lp-top-section" style="padding:12px 14px 8px;flex-shrink:0${_calTab === 'transport' ? ';display:none' : ''}">
           <h3 id="lp-title" style="font-family:var(--sf);font-size:15px;font-weight:700;color:var(--ink)">Planning</h3>
           <p style="font-size:11px;color:var(--ink4);margin-top:2px">Cliquez sur un événement pour les détails</p>
         </div>
-        <div class="cal-hdr" id="cal-hdr">
+        <div class="cal-hdr" id="cal-hdr" style="${_calTab === 'transport' ? 'display:none' : ''}">
           <span class="cal-hdr-lbl">Calendrier</span>
           <span class="cal-hdr-btn" id="cal-toggle">▲</span>
         </div>
-        <div class="mini-cal" id="mini-cal"></div>
-        <div class="days-list-header" style="display:flex;align-items:center;justify-content:space-between;padding:4px 14px 2px;flex-shrink:0">
+        <div class="mini-cal" id="mini-cal" style="${_calTab === 'transport' ? 'display:none' : ''}"></div>
+        <div class="days-list-header" id="days-list-header" style="display:${_calTab === 'transport' ? 'none' : 'flex'};align-items:center;justify-content:space-between;padding:4px 14px 2px;flex-shrink:0">
           <span style="font-size:11px;font-weight:600;color:var(--ink4);text-transform:uppercase;letter-spacing:.04em">Jours</span>
           <div style="display:flex;gap:4px;align-items:center">
             <button class="bc" id="fold-all-btn"
@@ -224,7 +230,8 @@ export function renderMapCal(tripId) {
               title="Ajouter un jour / étape">＋</button>
           </div>
         </div>
-        <div class="days-scroll" id="days-list"></div>
+        <div class="days-scroll" id="days-list" style="${_calTab === 'transport' ? 'display:none' : ''}"></div>
+        <div class="days-scroll" id="transport-list" style="${_calTab === 'transport' ? '' : 'display:none'}"></div>
       </div>
       <div class="map-col">
         <button class="lp-toggle-btn" id="lp-toggle" title="Masquer / afficher le panneau">◀</button>
@@ -273,6 +280,34 @@ export function renderMapCal(tripId) {
 
   // Attach event delegation for left panel (including drag-and-drop)
   _attachLeftPanelListeners(panel);
+
+  // Wire planning / transport tab switcher
+  panel.querySelectorAll('[data-cal-tab]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      _calTab = btn.dataset.calTab;
+      panel.querySelectorAll('[data-cal-tab]').forEach(b => b.classList.toggle('active', b.dataset.calTab === _calTab));
+      const isTransport = _calTab === 'transport';
+      const hide = s => { if (s) s.style.display = 'none'; };
+      const show = (s, disp = '') => { if (s) s.style.display = disp; };
+      hide(panel.querySelector('#lp-top-section'));
+      hide(panel.querySelector('#cal-hdr'));
+      hide(panel.querySelector('#mini-cal'));
+      hide(panel.querySelector('#days-list-header'));
+      hide(panel.querySelector('#days-list'));
+      hide(panel.querySelector('#transport-list'));
+      if (isTransport) {
+        show(panel.querySelector('#transport-list'));
+        const freshTrip = getTrip(tripId);
+        if (freshTrip) _renderTransportContent(freshTrip, tripId);
+      } else {
+        show(panel.querySelector('#lp-top-section'));
+        show(panel.querySelector('#cal-hdr'));
+        show(panel.querySelector('#mini-cal'));
+        show(panel.querySelector('#days-list-header'), 'flex');
+        show(panel.querySelector('#days-list'));
+      }
+    });
+  });
 
   // Init or re-init Leaflet map
   _initMap(tripId);
@@ -942,6 +977,50 @@ function _collectAllWaypoints(trip) {
     }
   }
   return wps;
+}
+
+const _TRANSPORT_MODES = [
+  { key: 'car',   emoji: '🚗', label: 'Voiture' },
+  { key: 'train', emoji: '🚆', label: 'Train' },
+  { key: 'bus',   emoji: '🚌', label: 'Bus/Taxi' },
+  { key: 'bike',  emoji: '🚲', label: 'Vélo' },
+  { key: 'foot',  emoji: '🚶', label: 'À pied' },
+  { key: 'plane', emoji: '✈️', label: 'Avion' },
+  { key: 'ferry', emoji: '⛴️', label: 'Bateau' },
+];
+
+function _renderTransportContent(trip, tripId) {
+  const container = document.getElementById('transport-list');
+  if (!container) return;
+
+  const wps = _collectAllWaypoints(trip);
+  if (wps.length < 2) {
+    container.innerHTML = `
+      <div style="text-align:center;padding:32px 16px;color:var(--ink4)">
+        <div style="font-size:28px;margin-bottom:6px">🗺</div>
+        <div style="font-size:12px">Ajoutez des étapes avec des coordonnées GPS<br>pour gérer les déplacements.</div>
+      </div>`;
+    return;
+  }
+
+  container.innerHTML = wps.slice(1).map((toWp, idx) => {
+    const fromWp = wps[idx];
+    const cur    = toWp.mode || 'car';
+    const modeBtns = _TRANSPORT_MODES.map(m =>
+      `<button class="tp-mode-btn${cur === m.key ? ' active' : ''}"
+        data-action="pick-transport" data-seg="${idx}" data-mode="${m.key}"
+        title="${m.label}">${m.emoji}</button>`
+    ).join('');
+    return `
+      <div class="tp-seg">
+        <div class="tp-seg-label">
+          <span class="tp-seg-from">${_esc(fromWp.label || '—')}</span>
+          <span class="tp-seg-arrow">→</span>
+          <span class="tp-seg-to">${_esc(toWp.label || '—')}</span>
+        </div>
+        <div class="tp-seg-modes">${modeBtns}</div>
+      </div>`;
+  }).join('');
 }
 
 // Make a polyline segment clickable for transport mode selection
@@ -2010,6 +2089,31 @@ function _attachLeftPanelListeners(panel) {
         _openCommentPanel(_tripId, dayId);
         _renderDaysList(_tripId); // refresh badge active state
       }
+
+    } else if (action === 'pick-transport') {
+      e.stopPropagation();
+      const segIdx    = parseInt(target.dataset.seg, 10);
+      const mode      = target.dataset.mode;
+      const freshTrip = getTrip(_tripId);
+      if (!freshTrip) return;
+      const allWps = _collectAllWaypoints(freshTrip);
+      if (segIdx + 1 >= allWps.length) return;
+      const toWp2 = allWps[segIdx + 1];
+      const days  = (freshTrip.days || []).map(d => ({ ...d, items: [...(d.items || [])] }));
+      if (toWp2.itemId) {
+        const day   = days.find(d => d.id === toWp2.dayId);
+        const itIdx = (day?.items || []).findIndex(it => it.id === toWp2.itemId);
+        if (itIdx >= 0) day.items[itIdx] = { ...day.items[itIdx], routeMode: mode };
+      } else {
+        const dayIdx = days.findIndex(d => d.id === toWp2.dayId);
+        if (dayIdx >= 0) days[dayIdx] = { ...days[dayIdx], routeMode: mode };
+      }
+      updateTrip(_tripId, { days });
+      const updated = getTrip(_tripId);
+      if (updated) _renderTransportContent(updated, _tripId);
+      _routeLayers.forEach(l => { try { _map?.removeLayer(l); } catch (_) {} });
+      _routeLayers = [];
+      if (updated) _drawRoutes(updated, []);
     }
   });
 

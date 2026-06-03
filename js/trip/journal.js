@@ -512,27 +512,19 @@ function _tlItemHtml(day, item, itemIdx, isObserver, tripId, sharedDoc, currentU
     const commentCount   = itemComments.length;
     const myReacted      = currentUid ? itemReactions[currentUid] === '❤️' : false;
 
-    if (isObserver) {
-      interactionsHtml = `
-        <div class="tl-interactions">
-          <button class="tl-react-btn${myReacted ? ' reacted' : ''}"
-                  data-action="toggle-reaction" data-item-id="${_esc(item.id)}">
-            ❤️${heartCount > 0 ? `<span class="tl-react-count">${heartCount}</span>` : ''}
-          </button>
-          <button class="tl-comment-open-btn"
-                  data-action="open-comments"
-                  data-item-id="${_esc(item.id)}"
-                  data-item-text="${_esc(item.text || '')}">
-            💬${commentCount > 0 ? `<span class="tl-react-count">${commentCount}</span>` : ''}
-          </button>
-        </div>`;
-    } else if (heartCount > 0 || commentCount > 0) {
-      interactionsHtml = `
-        <div class="tl-interactions tl-interactions-ro">
-          ${heartCount > 0 ? `<span class="tl-react-ro">❤️ ${heartCount}</span>` : ''}
-          ${commentCount > 0 ? `<span class="tl-react-ro">💬 ${commentCount}</span>` : ''}
-        </div>`;
-    }
+    interactionsHtml = `
+      <div class="tl-interactions">
+        <button class="tl-react-btn${myReacted ? ' reacted' : ''}"
+                data-action="toggle-reaction" data-item-id="${_esc(item.id)}">
+          ❤️${heartCount > 0 ? `<span class="tl-react-count">${heartCount}</span>` : ''}
+        </button>
+        <button class="tl-comment-open-btn"
+                data-action="open-comments"
+                data-item-id="${_esc(item.id)}"
+                data-item-text="${_esc(item.text || '')}">
+          💬${commentCount > 0 ? `<span class="tl-react-count">${commentCount}</span>` : ''}
+        </button>
+      </div>`;
   }
 
   return `
@@ -924,7 +916,7 @@ function _openCommentsModal(tripId, itemId, itemText) {
     <h3 style="font-family:var(--sf);font-size:15px;font-weight:700;margin-bottom:4px">💬 Commentaires</h3>
     <div style="font-size:12px;color:var(--ink3);margin-bottom:12px;padding:6px 10px;background:var(--c2);border-radius:7px;border:1px solid var(--c3)">${_esc(itemText || '—')}</div>
     <div id="cmt-list" style="max-height:220px;overflow-y:auto;margin-bottom:4px">${_buildCommentsList()}</div>
-    ${_observerMode ? `
+    ${sharedDoc ? `
     <div style="display:flex;gap:8px;margin-top:10px">
       <input type="text" id="cmt-input" placeholder="Votre commentaire…"
              style="flex:1;padding:7px 10px;border:1.5px solid var(--c3);border-radius:7px;font-size:12px;background:var(--c);color:var(--ink)"

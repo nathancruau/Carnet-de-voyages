@@ -1846,3 +1846,47 @@ a.tl-sv-pill:hover{background:var(--c3);color:var(--ink)}
   pointer-events:none;
 }
 .offline-bar.visible{transform:translateY(0)}
+
+/* ── Home library tabs ────────────────────────────────────────────────────── */
+.hl-tabs{display:flex;gap:8px;margin-bottom:14px}
+.hl-tab{
+  padding:7px 16px;border-radius:999px;font-size:12px;font-weight:700;
+  cursor:pointer;border:1.5px solid var(--c3);background:var(--c);
+  color:var(--ink3);transition:all .15s;white-space:nowrap;
+}
+.hl-tab.active{background:var(--teal);color:#fff;border-color:transparent;box-shadow:0 2px 8px rgba(13,148,136,.25)}
+.hl-tab-badge{
+  display:inline-block;padding:1px 6px;border-radius:999px;
+  font-size:10px;font-weight:700;margin-left:5px;
+  background:rgba(255,255,255,.3);vertical-align:middle;
+}
+.hl-tab:not(.active) .hl-tab-badge{background:var(--teal);color:#fff}
+
+/* ── Planning left-panel tab switcher ────────────────────────────────────── */
+.lp-tabs{display:flex;border-bottom:1.5px solid var(--c3);flex-shrink:0}
+.lp-tab-btn{
+  flex:1;padding:9px 12px;font-size:12px;font-weight:700;cursor:pointer;
+  background:none;border:none;color:var(--ink4);transition:all .15s;
+  border-bottom:2px solid transparent;margin-bottom:-1.5px;
+}
+.lp-tab-btn.active{color:var(--teal);border-bottom-color:var(--teal)}
+.lp-tab-btn:hover:not(.active){color:var(--ink2)}
+
+/* ── Transport segment list ───────────────────────────────────────────────── */
+.tp-seg{padding:10px 14px;border-bottom:1px solid var(--c3)}
+.tp-seg-label{
+  display:flex;align-items:center;gap:5px;font-size:12px;
+  font-weight:600;color:var(--ink);margin-bottom:7px;flex-wrap:wrap;
+}
+.tp-seg-from,.tp-seg-to{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tp-seg-arrow{color:var(--ink4);flex-shrink:0}
+.tp-seg-modes{display:flex;gap:4px;flex-wrap:wrap}
+.tp-mode-btn{
+  padding:5px 9px;border-radius:7px;font-size:14px;cursor:pointer;
+  background:var(--c2);color:var(--ink3);border:1.5px solid var(--c3);
+  transition:all .12s;line-height:1;
+}
+.tp-mode-btn.active{background:var(--teal);color:#fff;border-color:var(--teal)}
+.tp-mode-btn:hover:not(.active){background:var(--c3)}
+[data-theme="dark"] .tp-mode-btn{background:var(--c2);border-color:var(--c4)}
+[data-theme="dark"] .tp-mode-btn.active{background:var(--teal);border-color:var(--teal)}

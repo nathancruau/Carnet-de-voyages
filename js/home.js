@@ -20,13 +20,14 @@ import {
 import { importFile } from './import.js';
 import { getCurrentUser, logout, isFirebaseConfigured } from './auth.js';
 import { requestNotificationPermission, notificationPermissionGranted } from './notifications.js';
-import { openShareModal, leaveSharedTrip, removeSharedTripMember } from './share.js';
+import { openShareModal, leaveSharedTrip, removeSharedTripMember, isCurrentUserObserver } from './share.js';
 
 // ── Module state ───────────────────────────────────────────────────────────────
 
 let _currentFilter    = 'all';
 let _currentTab       = 'trips';   // 'trips' | 'stats'
 let _statsTypeFilter  = 'all';     // 'all' | 'voyage' | 'weekend' | 'sortie'
+let _homeLibTab       = 'mine';    // 'mine' | 'observing'
 let _listenerAttached = false;
 
 // Companion list being edited in the open modal
@@ -1020,20 +1021,51 @@ export function renderHome(filter = _currentFilter) {
     return da > db ? -1 : da < db ? 1 : 0;
   });
 
-  wrap.innerHTML = `
-    ${_heroHtml(allTrips)}
-    <div class="home-sec">
+  const myTrips        = sorted.filter(t => !isCurrentUserObserver(t.id));
+  const observingTrips = allTrips.filter(t => isCurrentUserObserver(t.id));
+
+  const tabsHtml = `
+    <div class="hl-tabs">
+      <button class="hl-tab${_homeLibTab === 'mine' ? ' active' : ''}" data-action="lib-tab" data-tab="mine">🧳 Mes voyages</button>
+      <button class="hl-tab${_homeLibTab === 'observing' ? ' active' : ''}" data-action="lib-tab" data-tab="observing">
+        📡 En direct${observingTrips.length > 0 ? `<span class="hl-tab-badge">${observingTrips.length}</span>` : ''}
+      </button>
+    </div>`;
+
+  let secContent;
+  if (_homeLibTab === 'observing') {
+    secContent = `
+      <div class="home-sec-hd">
+        <h2>En direct</h2>
+      </div>
+      ${tabsHtml}
+      ${observingTrips.length === 0 ? `
+        <div style="text-align:center;padding:40px 16px;color:var(--ink4)">
+          <div style="font-size:36px;margin-bottom:10px">📡</div>
+          <div style="font-size:14px;font-weight:600;margin-bottom:6px">Aucun voyage suivi</div>
+          <div style="font-size:12px">Rejoignez un voyage en tant qu'observateur<br>avec le lien d'invitation du voyageur.</div>
+        </div>` : `
+        <div class="trips-grid" id="trips-grid">
+          ${observingTrips.map(_tripCardHtml).join('')}
+        </div>`}`;
+  } else {
+    secContent = `
       <div class="home-sec-hd">
         <h2>Mes voyages</h2>
         <button class="btn-new" data-action="new-trip">＋ Nouveau</button>
       </div>
+      ${tabsHtml}
       ${_filterTabsHtml(filter, 'trips')}
       <div id="search-results-area" class="sr-area" style="display:none"></div>
       <div class="trips-grid" id="trips-grid">
-        ${sorted.map(_tripCardHtml).join('')}
+        ${myTrips.map(_tripCardHtml).join('')}
         ${_addCardHtml()}
-      </div>
-    </div>
+      </div>`;
+  }
+
+  wrap.innerHTML = `
+    ${_heroHtml(allTrips)}
+    <div class="home-sec">${secContent}</div>
   `;
 
   // Attach the click listener only once; subsequent renderHome calls reuse it
@@ -1385,6 +1417,11 @@ function _attachListeners(wrap) {
         break;
 
       case 'go-home':
+        renderHome(_currentFilter);
+        break;
+
+      case 'lib-tab':
+        _homeLibTab = target.dataset.tab;
         renderHome(_currentFilter);
         break;
 
