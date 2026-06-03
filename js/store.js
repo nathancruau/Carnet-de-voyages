@@ -67,6 +67,7 @@ export function createTrip(data = {}) {
     endDate:        data.endDate     || null,   // 'YYYY-MM-DD' or null
     companions,
     createdAt:      now,
+    updatedAt:      Date.now(),
     status:         data.status         || 'planning',  // 'planning' | 'done'
     countryCode:    data.countryCode    || '',
 
@@ -161,7 +162,10 @@ export function replaceTripFromNetwork(id, tripData) {
   const migrated = _migrateTrip({ ...tripData });
   const idx = state.trips.findIndex(t => t.id === id);
   if (idx !== -1) {
-    state.trips[idx] = migrated;
+    // Only overwrite if the network version is at least as recent as the local version
+    if ((migrated.updatedAt || 0) >= (state.trips[idx].updatedAt || 0)) {
+      state.trips[idx] = migrated;
+    }
   } else {
     state.trips.unshift(migrated);
   }
@@ -169,9 +173,25 @@ export function replaceTripFromNetwork(id, tripData) {
 }
 
 
-export function setState(data) {
-  if (!data || typeof data !== 'object') return;
-  state = { trips: [], ...data };
+export function setState(cloudData) {
+  if (!cloudData || typeof cloudData !== 'object') return;
+
+  const localTrips  = Array.isArray(state.trips) ? state.trips : [];
+  const cloudTrips  = Array.isArray(cloudData.trips) ? cloudData.trips : [];
+  const localById   = new Map(localTrips.map(t => [t.id, t]));
+
+  // For each cloud trip, keep whichever version is newer
+  const merged = cloudTrips.map(ct => {
+    const lt = localById.get(ct.id);
+    localById.delete(ct.id);
+    if (lt && (lt.updatedAt || 0) > (ct.updatedAt || 0)) return lt;
+    return ct;
+  });
+
+  // Append local-only trips not yet synced to cloud
+  for (const lt of localById.values()) merged.push(lt);
+
+  state = { ...cloudData, trips: merged };
   if (!Array.isArray(state.trips)) state.trips = [];
   state.trips = state.trips.map(t => _migrateTrip(t));
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
@@ -238,9 +258,13 @@ export function saveData() {
   // Debounce Firestore pushes so rapid edits don't flood the cloud.
   clearTimeout(_syncTimer);
   _syncTimer = setTimeout(() => {
+    _syncTimer = null;
     if (_syncCallback) _syncCallback(state);
   }, 400);
 }
+
+/** True during the 400 ms debounce window before a local edit reaches Firestore. */
+export function hasPendingLocalChanges() { return !!_syncTimer; }
 
 export function getTrips() {
   return state.trips;
@@ -316,7 +340,7 @@ export function updateTrip(id, updates) {
   const idx = state.trips.findIndex(t => t.id === id);
   if (idx === -1) return null;
   const prev = state.trips[idx];
-  state.trips[idx] = { ...prev, ...updates };
+  state.trips[idx] = { ...prev, ...updates, updatedAt: Date.now() };
   saveData();
   if (_sharedSyncCallback && _sharedTripIds.has(id)) {
     _sharedSyncCallback(id, state.trips[idx], _detectChange(prev, updates));

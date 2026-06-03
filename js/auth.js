@@ -75,6 +75,16 @@ export async function initAuth(onReady) {
     _arrayUnionFn        = dbMod.arrayUnion;
     _deleteFieldFn       = dbMod.deleteField;
 
+    // Enable Firestore offline persistence (IndexedDB) so reads/writes work
+    // without network and sync automatically when connection returns.
+    if (dbMod.enableIndexedDbPersistence) {
+      dbMod.enableIndexedDbPersistence(_db).catch(err => {
+        if (err.code !== 'failed-precondition' && err.code !== 'unimplemented') {
+          console.warn('[carnet] Firestore offline persistence:', err.code);
+        }
+      });
+    }
+
     // Kick off redirect-result processing immediately (non-blocking).
     // On a normal page-load this resolves with null in < 100 ms.
     // After returning from Google OAuth it resolves with the UserCredential
@@ -263,6 +273,7 @@ export async function addComment(tripId, dayId, text, author) {
   const comment = {
     id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
     author,
+    uid: _user?.uid || null,
     text,
     ts: new Date().toISOString(),
   };

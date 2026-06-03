@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,600;0,700;1,400;1,600;1,700&family=Nunito:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="style.css?v=36" />
+  <link rel="stylesheet" href="style.css?v=54" />
   <script>
     (function(){try{
       var d=JSON.parse(localStorage.getItem('carnet_voyages_v1')||'{}');
@@ -17,6 +17,9 @@
       else if(t==='auto'&&window.matchMedia('(prefers-color-scheme:dark)').matches)
         document.documentElement.dataset.theme='dark';
     }catch(_){}}());
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw.js').catch(() => {});
+    }
   </script>
 </head>
 <body>
@@ -50,6 +53,9 @@
   <!-- Modal Overlay -->
   <div id="modal-overlay" class="ov" onclick="window._closeModalOnBg && closeModal()"></div>
 
+  <!-- Offline indicator -->
+  <div class="offline-bar" id="offline-bar">📶 Hors-ligne — les modifications sont enregistrées et se synchroniseront à la reconnexion</div>
+
   <!-- Notification -->
   <div class="notif" id="notif">
     <span id="n-ic">✓</span>
@@ -70,6 +76,6 @@
         + '</div>';
     });
   </script>
-  <script type="module" src="js/app.js?v=36"></script>
+  <script type="module" src="js/app.js?v=54"></script>
 </body>
 </html>

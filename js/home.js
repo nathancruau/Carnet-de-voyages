@@ -186,9 +186,11 @@ const _CONTINENT_COLOR = { EU:'#0d9488',AF:'#d97706',AM:'#7c3aed',AS:'#0891b2',O
 
 function _isoFromFlag(flag) {
   if (!flag) return '';
-  const pts = [...flag].map(c => c.codePointAt(0)).filter(cp => cp >= 0x1F1E6 && cp <= 0x1F1FF);
-  if (pts.length < 2) return '';
-  return pts.slice(0, 2).map(cp => String.fromCharCode(cp - 0x1F1E6 + 65)).join('');
+  const trimmed = flag.trim();
+  const pts = [...trimmed].map(c => c.codePointAt(0)).filter(cp => cp >= 0x1F1E6 && cp <= 0x1F1FF);
+  if (pts.length >= 2) return pts.slice(0, 2).map(cp => String.fromCharCode(cp - 0x1F1E6 + 65)).join('');
+  if (/^[A-Za-z]{2}$/.test(trimmed)) return trimmed.toUpperCase();
+  return '';
 }
 
 function _tripIsoCodes(trip) {
@@ -542,19 +544,20 @@ function _statsViewHtml(trips) {
     if (cont) continentCount[cont] = (continentCount[cont] || 0) + 1;
   }
 
-  // Visited flags strip — use emoji stored directly on trips (avoids font-support issues)
-  const tripFlagMap = new Map();
+  // Visited flags strip — normalise to ISO code so "🇫🇷" and "FR" merge into one entry
+  const tripFlagMap = new Map(); // key = ISO-2 code
   for (const trip of trips) {
     if (!trip.flag) continue;
-    const code = _isoFromFlag(trip.flag) || '';
-    const name = (code && _A2_NAME[code]) || trip.destination || trip.flag;
-    const prev = tripFlagMap.get(trip.flag) || { name, count: 0 };
-    tripFlagMap.set(trip.flag, { name, count: prev.count + 1 });
+    const code = _isoFromFlag(trip.flag);
+    if (!code) continue;
+    const name = _A2_NAME[code] || trip.destination || trip.flag;
+    const prev = tripFlagMap.get(code) || { name, count: 0 };
+    tripFlagMap.set(code, { name, count: prev.count + 1 });
   }
   const flagsHtml = [...tripFlagMap.entries()]
     .sort((a, b) => b[1].count - a[1].count)
-    .map(([flag, { name, count }]) =>
-      `<span class="wm-flag-chip" title="${_esc(name)} · ${count} voyage${count > 1 ? 's' : ''}">${flag}</span>`
+    .map(([code, { name, count }]) =>
+      `<span class="wm-flag-chip" title="${_esc(name)} · ${count} voyage${count > 1 ? 's' : ''}">${code}</span>`
     ).join('');
 
   // Continent pills

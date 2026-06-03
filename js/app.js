@@ -128,7 +128,8 @@ function _onAuthReady(user, cloudData) {
     setSyncCallback(syncToFirestore);
 
     if (cloudData) {
-      // Cloud data takes priority
+      // Read localStorage first so setState can merge local edits that didn't reach Firestore yet
+      loadData();
       setState(cloudData);
     } else {
       // First login on this device: upload existing local trips to cloud
@@ -162,6 +163,15 @@ function _onAuthReady(user, cloudData) {
     if (errEl) errEl.textContent = 'Erreur lors du chargement. Réessayez.';
   }
 }
+
+// ── Offline indicator ──────────────────────────────────────────────────────────
+
+function _setOfflineBar(offline) {
+  document.getElementById('offline-bar')?.classList.toggle('visible', offline);
+}
+window.addEventListener('online',  () => _setOfflineBar(false));
+window.addEventListener('offline', () => _setOfflineBar(true));
+if (!navigator.onLine) _setOfflineBar(true);
 
 // ── Global bindings (for onclick="" in HTML / modals / map popups) ─────────────
 window.goHome         = goHome;

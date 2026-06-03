@@ -6,7 +6,8 @@
    ============================================================ */
 
 import { getTrips, TRIP_TYPES, getPinTypes } from './store.js';
-import { fmtDate, fmtDateShort, trCol } from './utils.js';
+import { fmtDate, fmtDateShort, trCol, fmtFlag } from './utils.js';
+import { parseGpx, generateGpx, downloadFile, estimateTileCount } from './gpx.js';
 
 // ── PIN type helper (dynamic from settings) ────────────────────────────────────
 
@@ -20,12 +21,16 @@ function _pinTypeMap() {
 let _map             = null;   // Leaflet map instance
 let _markers         = [];     // { marker, trip, entry } objects currently on the map
 let _routeLayers     = [];     // L.Polyline instances for trip routes
+let _gpxLayers       = [];     // L.Polyline instances for imported GPX overlays
 let _legendControl   = null;   // Leaflet legend control
 let _allPins         = [];     // All { trip, entry, lat, lng } built from store
 let _filters         = { type: 'all', pinType: 'all', tripId: 'all' };
 let _showRoutes      = false;  // whether itinerary lines are drawn
 let _collapsedGroups = new Set();  // trip ids whose sidebar group is folded
+let _footerExpanded  = false;      // tools/export footer collapsed by default
 let _infoPanelEl     = null;   // info panel DOM element
+let _mergedPinsCache = [];     // current merged pins, kept for dynamic world-copy expansion
+let _activeOffsets   = new Set(); // longitude offsets (multiples of 360) that have markers placed
 
 // Transport mode metadata (mirrors mapcal.js / utils.trCol)
 const _TR_MODES = [
@@ -40,14 +45,28 @@ const _OSRM_PROFILE = { car: 'driving', bus: 'driving', foot: 'foot', bike: 'cyc
 
 // ── Country color mapping ──────────────────────────────────────────────────────
 
-/** Extract ISO-2 country code from a flag emoji. */
+/** Extract ISO-2 country code from a flag emoji or plain ISO text ("FR"). */
 function _isoFromFlag(flag) {
   if (!flag) return '';
-  const pts = [...flag]
-    .map(c => c.codePointAt(0))
-    .filter(cp => cp >= 0x1F1E6 && cp <= 0x1F1FF);
-  if (pts.length < 2) return '';
-  return pts.slice(0, 2).map(cp => String.fromCharCode(cp - 0x1F1E6 + 65)).join('');
+  const trimmed = flag.trim();
+  const pts = [...trimmed].map(c => c.codePointAt(0)).filter(cp => cp >= 0x1F1E6 && cp <= 0x1F1FF);
+  if (pts.length >= 2) return pts.slice(0, 2).map(cp => String.fromCharCode(cp - 0x1F1E6 + 65)).join('');
+  if (/^[A-Za-z]{2}$/.test(trimmed)) return trimmed.toUpperCase();
+  return '';
+}
+
+/** Return only the flag emoji characters (no ISO text suffix) for compact display. */
+function _flagEmojiOnly(flag) {
+  if (!flag) return '';
+  const trimmed = flag.trim();
+  const pts = [...trimmed].map(c => c.codePointAt(0)).filter(v => v >= 0x1F1E6 && v <= 0x1F1FF);
+  if (pts.length >= 2) return String.fromCodePoint(pts[0]) + String.fromCodePoint(pts[1]);
+  if (/^[A-Za-z]{2}$/.test(trimmed)) {
+    const iso = trimmed.toUpperCase();
+    return String.fromCodePoint(0x1F1E6 + iso.charCodeAt(0) - 65) +
+           String.fromCodePoint(0x1F1E6 + iso.charCodeAt(1) - 65);
+  }
+  return trimmed;
 }
 
 /** 12 visually distinct colors for country hashing. */
@@ -116,6 +135,31 @@ function _makeIcon(color, size = 13, emoji = null) {
   });
 }
 
+/** Merge overlapping pins (within ~11 m, 4 decimal places) into clusters. */
+function _mergedPins(rawPins) {
+  const grid = new Map();
+  for (const pin of rawPins) {
+    const key = pin.lat.toFixed(4) + ',' + pin.lng.toFixed(4);
+    if (!grid.has(key)) grid.set(key, { lat: pin.lat, lng: pin.lng, entries: [] });
+    grid.get(key).entries.push(pin);
+  }
+  return [...grid.values()];
+}
+
+/** Multi-visit icon: teal circle with count badge. */
+function _makeMultiIcon(count) {
+  return L.divIcon({
+    className: '',
+    html: `<div style="position:relative;width:28px;height:28px">
+      <div style="width:28px;height:28px;border-radius:50%;background:#0d9488;border:2.5px solid #fff;box-shadow:0 1px 6px rgba(0,0,0,.45);cursor:pointer"></div>
+      <span style="position:absolute;top:-4px;right:-4px;background:#e85d3e;color:#fff;border-radius:50%;min-width:16px;height:16px;font-size:9px;font-weight:800;display:flex;align-items:center;justify-content:center;border:1.5px solid #fff;padding:0 2px">${count}</span>
+    </div>`,
+    iconSize:    [28, 28],
+    iconAnchor:  [14, 14],
+    popupAnchor: [0, -20],
+  });
+}
+
 // ── Info panel (rich display on pin/legend click) ──────────────────────────────
 
 function _mmShowInfo(trip, entry) {
@@ -138,7 +182,7 @@ function _mmShowInfo(trip, entry) {
   _infoPanelEl.innerHTML = `
     <div style="padding:12px 14px;border-bottom:1px solid var(--c3);display:flex;align-items:flex-start;gap:8px;flex-shrink:0">
       <div style="flex:1;min-width:0">
-        <div style="font-size:11px;font-weight:700;color:${color};margin-bottom:2px">${_esc(trip.flag || '')} ${_esc(trip.name)}</div>
+        <div style="font-size:11px;font-weight:700;color:${color};margin-bottom:2px">${_esc(fmtFlag(trip.flag))} ${_esc(trip.name)}</div>
         <div style="font-size:14px;font-weight:700;color:var(--ink)">${typeEmoji} ${_esc(entry.title)}</div>
         ${entry.dayLabel ? `<div style="font-size:11px;color:var(--ink4);margin-top:1px">📅 ${_esc(entry.dayLabel)}</div>` : ''}
         ${entry.date    ? `<div style="font-size:11px;color:var(--ink4)">${fmtDate(entry.date)}</div>` : ''}
@@ -154,6 +198,14 @@ function _mmShowInfo(trip, entry) {
       ${entry.amount     ? `<div style="font-size:12px;color:var(--ink3)">💶 ${entry.amount} €</div>` : ''}
       ${!entry._validated && !entry.weather && !photosHtml && !entry.content
         ? `<div style="font-size:12px;color:var(--ink4)">Aucune information enregistrée pour ce PIN.</div>` : ''}
+      ${entry.lat != null && entry.lng != null ? `
+        <a href="https://maps.google.com/maps?layer=c&cbll=${entry.lat},${entry.lng}"
+           target="_blank" rel="noopener"
+           style="display:block;margin-top:6px;width:100%;background:var(--c2);border:1.5px solid var(--c3);
+                  border-radius:8px;padding:8px;font-size:12px;font-weight:700;cursor:pointer;
+                  font-family:var(--fn);text-align:center;color:var(--ink3);text-decoration:none">
+          🔭 Street View
+        </a>` : ''}
       <button onclick="window.navigateToTrip && window.navigateToTrip('${trip.id}')"
         style="margin-top:6px;width:100%;background:var(--teal);color:#fff;border:none;border-radius:8px;
                padding:8px;font-size:12px;font-weight:700;cursor:pointer;font-family:var(--fn)">
@@ -162,6 +214,49 @@ function _mmShowInfo(trip, entry) {
     </div>
   `;
 
+  _infoPanelEl.style.display = 'flex';
+}
+
+/** Show info panel for a merged pin (one or many entries at same location). */
+function _mmShowMergedInfo(mp) {
+  if (!_infoPanelEl) return;
+  if (mp.entries.length === 1) {
+    _mmShowInfo(mp.entries[0].trip, mp.entries[0].entry);
+    return;
+  }
+
+  const _ptm = _pinTypeMap();
+  const visitBlocks = mp.entries.map(({ trip, entry }) => {
+    const color    = _colorForFlag(entry.dayFlag || trip.flag);
+    const typeEmoji = (entry.pinType && _ptm[entry.pinType]) ? _ptm[entry.pinType] : '📍';
+    const photosHtml = (entry.photos || []).slice(0, 3).map(p =>
+      `<img src="${_esc(p.url)}" style="height:56px;min-width:56px;border-radius:6px;object-fit:cover;flex-shrink:0;border:1px solid var(--c3)" onerror="this.style.display='none'">`
+    ).join('');
+    return `
+      <div style="padding:10px 14px;border-bottom:1px solid var(--c3)">
+        <div style="font-size:10px;font-weight:700;color:${color};margin-bottom:3px">${_esc(fmtFlag(entry.dayFlag || trip.flag))} ${_esc(trip.name)}</div>
+        <div style="font-size:13px;font-weight:700;color:var(--ink);margin-bottom:2px">${typeEmoji} ${_esc(entry.title)}</div>
+        ${entry.dayLabel ? `<div style="font-size:11px;color:var(--ink4)">📅 ${_esc(entry.dayLabel)}</div>` : ''}
+        ${entry.date     ? `<div style="font-size:11px;color:var(--ink4)">${fmtDate(entry.date)}</div>` : ''}
+        ${entry.content  ? `<div style="font-size:11px;color:var(--ink2);margin-top:4px;white-space:pre-wrap;line-height:1.4">${_esc(entry.content)}</div>` : ''}
+        ${entry.weather  ? `<div style="font-size:18px;margin-top:2px">${entry.weather}</div>` : ''}
+        ${photosHtml     ? `<div style="display:flex;gap:4px;margin-top:6px;overflow-x:auto">${photosHtml}</div>` : ''}
+        ${entry._validated ? `<div style="font-size:10px;font-weight:700;color:#16a34a;margin-top:3px">✓ Validé</div>` : ''}
+        <button onclick="window.navigateToTrip && window.navigateToTrip('${trip.id}')"
+          style="margin-top:7px;width:100%;background:var(--c2);border:1px solid var(--c3);border-radius:7px;
+                 padding:6px;font-size:11px;font-weight:600;cursor:pointer;font-family:var(--fn);color:var(--ink3)">
+          Ouvrir le voyage →
+        </button>
+      </div>`;
+  }).join('');
+
+  _infoPanelEl.innerHTML = `
+    <div style="padding:10px 14px;border-bottom:1px solid var(--c3);display:flex;align-items:center;gap:8px;flex-shrink:0">
+      <div style="font-size:13px;font-weight:700;color:var(--ink);flex:1">📍 ${mp.entries.length} visites de ce lieu</div>
+      <button onclick="_mmCloseInfo()" style="background:none;border:none;cursor:pointer;color:var(--ink4);font-size:16px;padding:0;line-height:1">✕</button>
+    </div>
+    <div style="flex:1;overflow-y:auto">${visitBlocks}</div>
+  `;
   _infoPanelEl.style.display = 'flex';
 }
 
@@ -273,10 +368,13 @@ function _buildSidebarTree(pins) {
     }
   }
 
-  // Merge: always show all trips in sidebar (use allPins to build trip list), but pin rows show only visible pins
+  // Build trip list respecting the active type and tripId filters (pin-type filter only hides rows)
   const allTripMap = new Map();
   for (const { trip } of _allPins) {
-    if (!allTripMap.has(trip.id)) allTripMap.set(trip.id, { trip, pins: [] });
+    if (allTripMap.has(trip.id)) continue;
+    if (_filters.type   !== 'all' && trip.type  !== _filters.type)  continue;
+    if (_filters.tripId !== 'all' && trip.id    !== _filters.tripId) continue;
+    allTripMap.set(trip.id, { trip, pins: [] });
   }
   for (const pin of pins) {
     allTripMap.get(pin.trip.id)?.pins.push(pin);
@@ -284,11 +382,35 @@ function _buildSidebarTree(pins) {
 
   let html = '';
   for (const { trip, pins: tPins } of allTripMap.values()) {
-    const typeInfo    = TRIP_TYPES[trip.type] || TRIP_TYPES.voyage;
-    const color       = _colorForFlag(trip.flag);
-    const groupId     = 'mm-grp-' + trip.id;
+    const typeInfo = TRIP_TYPES[trip.type] || TRIP_TYPES.voyage;
+    const color    = _colorForFlag(trip.flag);
+    const groupId  = 'mm-grp-' + trip.id;
+    const isFocused = _filters.tripId === trip.id;
+
+    // Sorties have a single PIN — render as a flat clickable row (no collapsible body)
+    if (trip.type === 'sortie') {
+      if (tPins.length === 0) continue;
+      const pin = tPins[0];
+      const _ptm = _pinTypeMap();
+      const pinEmoji = (pin.entry?.pinType && _ptm[pin.entry.pinType]) ? _ptm[pin.entry.pinType] : '📍';
+      const dateStr = pin.entry.date ? fmtDateShort(pin.entry.date) : '';
+      html += `
+        <div class="mm-trip-group" id="${groupId}">
+          <div class="mm-trip-header" style="cursor:pointer"
+               onclick="_mmFlyTo(${pin.lat}, ${pin.lng}, '${trip.id}')">
+            <span class="mm-trip-chevron" style="pointer-events:none;cursor:default">▶</span>
+            <span style="font-size:15px">${typeInfo.icon}</span>
+            <span class="mm-trip-name${isFocused ? ' mm-trip-focused' : ''}" style="cursor:pointer">
+              ${_isoFromFlag(trip.flag)} ${_esc(trip.name)}
+            </span>
+            <span style="font-size:11px;flex-shrink:0">${pinEmoji}</span>
+            ${dateStr ? `<span style="font-size:9px;color:var(--ink4);flex-shrink:0;margin-left:2px">${dateStr}</span>` : ''}
+          </div>
+        </div>`;
+      continue;
+    }
+
     const isCollapsed = _collapsedGroups.has(trip.id);
-    const isFocused   = _filters.tripId === trip.id;
 
     const pinsHtml = tPins.map(pin => {
       const _ptm = _pinTypeMap();
@@ -302,7 +424,7 @@ function _buildSidebarTree(pins) {
         <div class="mm-pin-row"
              data-lat="${pin.lat}" data-lng="${pin.lng}" data-tripid="${trip.id}"
              onclick="_mmFlyTo(${pin.lat}, ${pin.lng}, '${trip.id}')">
-          <span style="color:${pinColor};flex-shrink:0">${pin.entry?.dayFlag || pinEmoji}</span>
+          <span style="font-size:11px;font-weight:600;color:${pinColor};flex-shrink:0">${fmtFlag(pin.entry?.dayFlag) || pinEmoji}</span>
           <span class="mm-pin-label">${label}</span>
           ${dateStr ? `<span style="font-size:9px;color:var(--ink4);flex-shrink:0;white-space:nowrap">${dateStr}</span>` : ''}
         </div>`;
@@ -316,7 +438,7 @@ function _buildSidebarTree(pins) {
           <span class="mm-trip-name${isFocused ? ' mm-trip-focused' : ''}"
                 onclick="_mmFocusTrip('${trip.id}')"
                 title="${isFocused ? 'Voir tous les voyages' : 'Filtrer sur ce voyage'}"
-                style="cursor:pointer">${trip.flag || ''} ${trip.name}</span>
+                style="cursor:pointer">${_isoFromFlag(trip.flag)} ${_esc(trip.name)}</span>
           <span class="mm-pin-count">${tPins.length}</span>
         </div>
         <div class="mm-trip-body">${pinsHtml || '<div style="padding:4px 12px 4px 28px;font-size:10px;color:var(--ink4)">Aucun PIN visible</div>'}</div>
@@ -372,10 +494,54 @@ function _sidebarHtml(pins) {
       ${tree}
     </div>
 
-    <div class="mm-sidebar-footer">
-      <button class="mm-export-btn" onclick="_mmExportKml()">⬇ Exporter KML</button>
+    <div class="mm-sidebar-footer" id="mm-footer">
+      <div class="mm-footer-toggle" onclick="_mmToggleFooter()">
+        <span class="mm-trip-chevron">${_footerExpanded ? '▼' : '▶'}</span>
+        <span style="font-size:11px;font-weight:700;color:var(--ink3)">Outils &amp; Export</span>
+      </div>
+      ${_footerExpanded ? `<div class="mm-footer-body">
+        <button class="mm-export-btn" onclick="_mmExportKml()">⬇ KML</button>
+        <button class="mm-export-btn" onclick="_mmExportGpx()">⬇ GPX</button>
+        <button class="mm-export-btn" onclick="_mmImportGpx()">↑ GPX</button>
+        <button class="mm-export-btn" onclick="_mmDownloadOffline()" title="Mettre les tuiles de carte en cache pour consultation hors-ligne">📶 Hors-ligne</button>
+      </div>` : ''}
     </div>
+    <input type="file" id="mm-gpx-input" accept=".gpx" style="display:none">
   `;
+}
+
+// ── Infinite world-copy marker management ─────────────────────────────────────
+
+/** Place all current merged pins at a given longitude offset (one world copy). */
+function _addOffsetMarkers(offset) {
+  if (!_map || _activeOffsets.has(offset)) return;
+  _activeOffsets.add(offset);
+  for (const mp of _mergedPinsCache) {
+    const isMulti = mp.entries.length > 1;
+    const primary = mp.entries[0];
+    const color   = _colorForFlag(primary.entry?.dayFlag || primary.trip.flag);
+    const emoji   = isMulti ? null : (_pinTypeMap()[primary.entry?.pinType] || null);
+    const icon    = isMulti ? _makeMultiIcon(mp.entries.length) : _makeIcon(color, 14, emoji);
+    const marker  = L.marker([mp.lat, mp.lng + offset], { icon });
+    marker.on('click', () => _mmShowMergedInfo(mp));
+    marker.addTo(_map);
+    _markers.push({ marker, trip: primary.trip, entry: primary.entry });
+  }
+}
+
+/**
+ * Called on every map moveend: ensures pins exist at every 360° offset that
+ * overlaps (or is adjacent to) the current viewport.  This makes panning
+ * east or west infinitely seamless — new world copies get markers on demand.
+ */
+function _ensureMarkersForViewport() {
+  if (!_map || _mergedPinsCache.length === 0) return;
+  const bounds = _map.getBounds();
+  const lo = Math.floor((bounds.getWest() - 360) / 360) * 360;
+  const hi = Math.ceil ((bounds.getEast() + 360) / 360) * 360;
+  for (let offset = lo; offset <= hi; offset += 360) {
+    _addOffsetMarkers(offset);
+  }
 }
 
 // ── Redraw markers on the map ──────────────────────────────────────────────────
@@ -383,23 +549,16 @@ function _sidebarHtml(pins) {
 function _redrawMarkers(pins) {
   if (!_map) return;
 
-  // Remove old markers
-  for (const { marker } of _markers) {
-    marker.remove();
-  }
-  _markers = [];
+  for (const { marker } of _markers) marker.remove();
+  _markers        = [];
+  _activeOffsets  = new Set();
+  _mergedPinsCache = _mergedPins(pins);
 
-  const bounds = [];
+  const bounds = _mergedPinsCache.map(mp => [mp.lat, mp.lng]);
 
-  for (const pin of pins) {
-    const color  = _colorForFlag(pin.entry?.dayFlag || pin.trip.flag);
-    const emoji  = _pinTypeMap()[pin.entry?.pinType] || null;
-    const marker = L.marker([pin.lat, pin.lng], { icon: _makeIcon(color, 14, emoji) });
-    marker.on('click', () => _mmShowInfo(pin.trip, pin.entry));
-    marker.addTo(_map);
-    _markers.push({ marker, trip: pin.trip, entry: pin.entry });
-    bounds.push([pin.lat, pin.lng]);
-  }
+  // Seed the canonical copy + whatever the current viewport needs
+  _addOffsetMarkers(0);
+  _ensureMarkersForViewport();
 
   // Fit map view
   if (bounds.length > 0) {
@@ -492,7 +651,7 @@ async function _redrawRoutes() {
       }
 
       if (!_map || !line) return;
-      line.bindTooltip(`${trip.flag || ''} ${trip.name}`, { sticky: true, className: 'mm-route-tooltip' });
+      line.bindTooltip(`${_isoFromFlag(trip.flag)} ${trip.name}`, { sticky: true, className: 'mm-route-tooltip' });
       line.addTo(_map);
       _routeLayers.push(line);
     }
@@ -591,10 +750,13 @@ function _escXml(s) {
 
 window._mmFlyTo = function(lat, lng, tripId) {
   if (!_map) return;
-  _map.flyTo([lat, lng], 12, { duration: 1 });
-  // Find pin and open info panel
-  const pin = _allPins.find(p => p.trip.id === tripId && p.lat == lat && p.lng == lng);
-  if (pin) setTimeout(() => _mmShowInfo(pin.trip, pin.entry), 500);
+  _map.flyTo([parseFloat(lat), parseFloat(lng)], 13, { duration: 0.8 });
+  // Find the merged pin at this location and show its info panel
+  const key = parseFloat(lat).toFixed(4) + ',' + parseFloat(lng).toFixed(4);
+  const visible = _visiblePins();
+  const merged  = _mergedPins(visible);
+  const mp = merged.find(m => m.lat.toFixed(4) + ',' + m.lng.toFixed(4) === key);
+  if (mp) setTimeout(() => _mmShowMergedInfo(mp), 450);
 };
 
 window._mmCloseInfo = function() {
@@ -647,11 +809,141 @@ window._mmSetPinType = function(val) {
 
 window._mmExportKml = _mmExportKml;
 
+// ── GPX import / export ───────────────────────────────────────────────────────
+
+window._mmExportGpx = function() {
+  const pins = _visiblePins();
+  const waypoints = pins.map(({ trip, entry }) => ({
+    lat:  entry.lat,
+    lng:  entry.lng,
+    name: `${trip.name}${entry.title ? ' – ' + entry.title : ''}`,
+    desc: entry.date || '',
+  }));
+  const gpx = generateGpx('Carnet de Voyages', waypoints);
+  downloadFile('carnet-voyages.gpx', gpx);
+};
+
+window._mmImportGpx = function() {
+  const input = document.getElementById('mm-gpx-input');
+  if (!input) return;
+  input.onchange = async () => {
+    const file = input.files?.[0];
+    if (!file) return;
+    input.value = '';
+    try {
+      const text    = await file.text();
+      const { tracks, waypoints } = parseGpx(text);
+      if (!tracks.length && !waypoints.length) {
+        alert('Aucune trace trouvée dans ce fichier GPX.');
+        return;
+      }
+      // Draw tracks on map
+      const colors = ['#e85d3e','#0284c7','#16a34a','#7c3aed','#d97706','#db2777'];
+      tracks.forEach((trk, i) => {
+        const latlngs = trk.points.map(p => [p.lat, p.lng]);
+        const color   = colors[i % colors.length];
+        const line    = L.polyline(latlngs, { color, weight: 3, opacity: 0.8 });
+        line.bindTooltip(trk.name, { sticky: true });
+        line.addTo(_map);
+        _gpxLayers.push(line);
+      });
+      // Draw waypoints as small markers
+      waypoints.forEach(w => {
+        const mk = L.circleMarker([w.lat, w.lng], { radius: 5, color: '#f59e0b', fillColor: '#f59e0b', fillOpacity: 1 });
+        if (w.name) mk.bindTooltip(w.name);
+        mk.addTo(_map);
+        _gpxLayers.push(mk);
+      });
+      if (_gpxLayers.length && _map) {
+        const group = L.featureGroup(_gpxLayers.filter(l => l.getBounds || l.getLatLng));
+        try { _map.fitBounds(group.getBounds?.() || _map.getBounds(), { padding: [30, 30] }); } catch (_) {}
+      }
+    } catch (err) {
+      alert('Erreur : ' + err.message);
+    }
+  };
+  input.click();
+};
+
+window._mmClearGpx = function() {
+  for (const layer of _gpxLayers) { try { layer.remove(); } catch (_) {} }
+  _gpxLayers = [];
+};
+
+// ── Offline tile pre-cache ────────────────────────────────────────────────────
+
+window._mmDownloadOffline = function() {
+  if (!('serviceWorker' in navigator) || !navigator.serviceWorker.controller) {
+    alert('Le mode hors-ligne n\'est pas encore prêt. Rechargez la page et réessayez.');
+    return;
+  }
+
+  const pins = _visiblePins();
+  if (!pins.length) { alert('Aucun PIN visible à mettre en cache.'); return; }
+
+  const lats = pins.map(p => p.lat);
+  const lngs = pins.map(p => p.lng);
+  const bounds = {
+    north: Math.min(90,  Math.max(...lats) + 0.5),
+    south: Math.max(-90, Math.min(...lats) - 0.5),
+    east:  Math.min(180, Math.max(...lngs) + 0.5),
+    west:  Math.max(-180,Math.min(...lngs) - 0.5),
+  };
+
+  const MIN_Z = 5, MAX_Z = 13;
+  const count = estimateTileCount(bounds, MIN_Z, MAX_Z);
+  if (!confirm(`Télécharger environ ${count.toLocaleString()} tuiles pour cette zone (zoom ${MIN_Z}–${MAX_Z}) ?\nCela peut prendre quelques minutes.`)) return;
+
+  navigator.serviceWorker.controller.postMessage({ type: 'PRECACHE_TILES', ...bounds, minZoom: MIN_Z, maxZoom: MAX_Z });
+
+  const onMsg = e => {
+    if (e.data?.type === 'PRECACHE_PROGRESS') {
+      const pct = Math.round(e.data.done / e.data.total * 100);
+      document.getElementById('offline-bar')?.classList.add('visible');
+      const bar = document.getElementById('offline-bar');
+      if (bar) bar.textContent = `📶 Mise en cache hors-ligne : ${pct}% (${e.data.done}/${e.data.total})`;
+    }
+    if (e.data?.type === 'PRECACHE_DONE') {
+      navigator.serviceWorker.removeEventListener('message', onMsg);
+      const bar = document.getElementById('offline-bar');
+      if (bar) { bar.textContent = `✓ ${e.data.total.toLocaleString()} tuiles mises en cache — carte disponible hors-ligne`; }
+      setTimeout(() => {
+        document.getElementById('offline-bar')?.classList.remove('visible');
+        const b = document.getElementById('offline-bar');
+        if (b) b.textContent = '📶 Hors-ligne — les modifications sont enregistrées et se synchroniseront à la reconnexion';
+      }, 4000);
+    }
+  };
+  navigator.serviceWorker.addEventListener('message', onMsg);
+};
+
 window._mmToggleRoutes = function() {
   _showRoutes = !_showRoutes;
   const sidebar = document.getElementById('mm-sidebar');
   if (sidebar) sidebar.innerHTML = _sidebarHtml(_visiblePins());
   _redrawRoutes(); // async
+};
+
+window._mmToggleFooter = function() {
+  _footerExpanded = !_footerExpanded;
+  const footer = document.getElementById('mm-footer');
+  if (!footer) return;
+  const chevron = footer.querySelector('.mm-trip-chevron');
+  if (chevron) chevron.textContent = _footerExpanded ? '▼' : '▶';
+  let body = footer.querySelector('.mm-footer-body');
+  if (_footerExpanded && !body) {
+    body = document.createElement('div');
+    body.className = 'mm-footer-body';
+    body.innerHTML = `
+      <button class="mm-export-btn" onclick="_mmExportKml()">⬇ KML</button>
+      <button class="mm-export-btn" onclick="_mmExportGpx()">⬇ GPX</button>
+      <button class="mm-export-btn" onclick="_mmImportGpx()">↑ GPX</button>
+      <button class="mm-export-btn" onclick="_mmDownloadOffline()" title="Mettre les tuiles de carte en cache pour consultation hors-ligne">📶 Hors-ligne</button>
+    `;
+    footer.appendChild(body);
+  } else if (!_footerExpanded && body) {
+    body.remove();
+  }
 };
 
 // ── Public API ─────────────────────────────────────────────────────────────────
@@ -660,8 +952,9 @@ export function renderMyMap() {
   const wrap = document.getElementById('mymap-wrap');
   if (!wrap) return;
 
-  // Reset filters to default
-  _filters = { type: 'all', pinType: 'all', tripId: 'all' };
+  // Reset filters and UI state to default
+  _filters        = { type: 'all', pinType: 'all', tripId: 'all' };
+  _footerExpanded = false;
 
   // Build pin data
   _buildAllPins();
@@ -719,15 +1012,21 @@ export function renderMyMap() {
     _infoPanelEl = document.getElementById('mm-info-panel');
 
     _map = L.map('mymap', {
-      center:      [46.5, 2.5],
-      zoom:        5,
-      zoomControl: true,
+      center:             [46.5, 2.5],
+      zoom:               5,
+      zoomControl:        true,
+      minZoom:            3,
+      maxBounds:          [[-85.051129, -1e10], [85.051129, 1e10]],
+      maxBoundsViscosity: 1.0,
     });
 
     L.tileLayer('https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png', {
       attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
       maxZoom: 19,
     }).addTo(_map);
+
+    // Lazily add marker copies for every world-copy the user pans into
+    _map.on('moveend', _ensureMarkersForViewport);
 
     _redrawMarkers(pins);
     _redrawRoutes(); // async
@@ -740,6 +1039,9 @@ export function destroyMyMap() {
     try { _map.remove(); } catch (_) { /* already removed */ }
     _map = null;
   }
-  _markers     = [];
-  _routeLayers = [];
+  _markers         = [];
+  _routeLayers     = [];
+  _gpxLayers       = [];
+  _mergedPinsCache = [];
+  _activeOffsets   = new Set();
 }

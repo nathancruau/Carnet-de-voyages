@@ -28,6 +28,7 @@ import {
   getTrip, markTripShared, unmarkTripShared, isTripShared,
   replaceTripFromNetwork, setSharedSyncCallback,
   getSharedTripIds, setSharedTripIds, getSettings,
+  hasPendingLocalChanges,
 } from './store.js';
 import { notifyCollaboratorChange } from './notifications.js';
 import { showModal, closeModal, notify } from './utils.js';
@@ -214,6 +215,7 @@ export async function submitComment(tripId, dayId, text) {
     const comment = {
       id: Date.now().toString(36),
       author: authorName,
+      uid: user.uid,
       text: text.trim(),
       ts: new Date().toISOString(),
     };
@@ -228,6 +230,24 @@ export async function submitComment(tripId, dayId, text) {
   }
 
   await addComment(tripId, dayId, text.trim(), authorName);
+}
+
+/**
+ * Delete a day comment by id. Removes it locally and overwrites the
+ * day's comment array in Firestore (no arrayRemove — filter + rewrite).
+ */
+export async function deleteDayComment(tripId, dayId, commentId) {
+  const sharedDoc = _sharedDocData.get(tripId);
+  if (!sharedDoc) return;
+  const filtered = (sharedDoc.comments?.[dayId] || []).filter(c => c.id !== commentId);
+  _sharedDocData.set(tripId, {
+    ...sharedDoc,
+    comments: { ...(sharedDoc.comments || {}), [dayId]: filtered },
+  });
+  if (typeof window._rerenderCurrentView === 'function') {
+    window._rerenderCurrentView(tripId);
+  }
+  await updateSharedTripFields(tripId, { [`comments.${dayId}`]: filtered });
 }
 
 // ── Initialisation ──────────────────────────────────────────────────────────────
@@ -290,7 +310,14 @@ async function _loadAndListen(tripId) {
   if (!doc?.trip) return;
 
   markTripShared(tripId);
-  replaceTripFromNetwork(tripId, doc.trip);
+  // Only replace local data if cloud version is at least as recent (prevents overwriting unsaved edits)
+  const localTrip = getTrip(tripId);
+  if (!localTrip || (doc.trip.updatedAt || 0) >= (localTrip.updatedAt || 0)) {
+    replaceTripFromNetwork(tripId, doc.trip);
+  } else {
+    // Local version is newer — push it to Firestore instead of overwriting
+    saveSharedTrip(tripId, localTrip).catch(() => {});
+  }
   _sharedDocData.set(tripId, doc);
 
   // Mark current user as present
@@ -348,9 +375,9 @@ function _onNetworkUpdate(tripId, data, hasPendingWrites) {
 
   _sharedDocData.set(tripId, data);
   // Only overwrite local trip state when all local writes are confirmed.
-  // Skipping during hasPendingWrites prevents stale server snapshots from
-  // undoing unsaved local edits (e.g. event type change not yet committed).
-  if (!hasPendingWrites) {
+  // hasPendingWrites: Firestore hasn't ACKed the last write yet.
+  // hasPendingLocalChanges: within the 400ms debounce before we've even sent it.
+  if (!hasPendingWrites && !hasPendingLocalChanges()) {
     replaceTripFromNetwork(tripId, data.trip);
   }
 
@@ -515,6 +542,11 @@ export async function openShareModal(tripId) {
       });
     });
 
+    document.getElementById('share-presentiel-btn')?.addEventListener('click', () => {
+      closeModal();
+      _showPresentielOverlay(trip, tripId, obsUrl);
+    });
+
   } catch (err) {
     console.error('[share] openShareModal failed:', err);
     showModal(`
@@ -563,10 +595,81 @@ function _shareModalHtml(trip, collabUrl, obsUrl, memberCount) {
         <input class="share-link-input" type="text" readonly value="${_esc(obsUrl)}" onclick="this.select()" />
         <button class="share-copy-btn" id="share-copy-obs">Copier</button>
       </div>
+      <button class="share-presentiel-btn" id="share-presentiel-btn">📺 Mode présentiel</button>
     </div>
 
     <div class="ma" style="margin-top:14px"><button class="bc" onclick="closeModal()">Fermer</button></div>
   `;
+}
+
+// ── Mode présentiel (QR plein écran) ────────────────────────────────────────────
+
+function _showPresentielOverlay(trip, tripId, obsUrl) {
+  document.getElementById('presentiel-overlay')?.remove();
+
+  const sz    = Math.max(200, Math.min(Math.round(Math.min(window.innerWidth, window.innerHeight) * 0.55), 360));
+  const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=${sz * 2}x${sz * 2}&data=${encodeURIComponent(obsUrl)}&bgcolor=ffffff&color=1a1a2e&margin=14`;
+
+  const overlay = document.createElement('div');
+  overlay.id        = 'presentiel-overlay';
+  overlay.className = 'presentiel-overlay';
+  overlay.setAttribute('tabindex', '-1');
+  overlay.innerHTML = `
+    <button class="presentiel-close" id="presentiel-close">✕</button>
+    <button class="presentiel-fs-btn" id="presentiel-fs-btn" title="Plein écran">⛶</button>
+    <div class="presentiel-content">
+      <div class="presentiel-trip-title">${_esc(trip.flag || '')} ${_esc(trip.name)}</div>
+      <div class="presentiel-qr-card">
+        <img class="presentiel-qr" src="${_esc(qrUrl)}" width="${sz}" height="${sz}" alt="QR code" />
+      </div>
+      <div class="presentiel-hint">Scannez pour suivre ce voyage en direct</div>
+      <div class="presentiel-counter" id="presentiel-counter">👁 — observateurs</div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  overlay.focus();
+
+  let _pollTimer = null;
+
+  async function _refreshCounter() {
+    try {
+      const doc = await loadSharedTrip(tripId);
+      if (!doc) return;
+      const members  = doc.members || {};
+      const obsCount = Object.values(members).filter(m => m.role === 'observer').length;
+      const el = document.getElementById('presentiel-counter');
+      if (el) {
+        el.textContent = obsCount === 0
+          ? '👁 En attente de participants…'
+          : `👁 ${obsCount} observateur${obsCount > 1 ? 's' : ''} connecté${obsCount > 1 ? 's' : ''}`;
+      }
+    } catch (_) {}
+  }
+
+  _refreshCounter();
+  _pollTimer = setInterval(_refreshCounter, 5000);
+
+  function _close() {
+    clearInterval(_pollTimer);
+    if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
+    overlay.remove();
+  }
+
+  document.getElementById('presentiel-close')?.addEventListener('click', _close);
+  overlay.addEventListener('keydown', e => { if (e.key === 'Escape') _close(); });
+
+  document.getElementById('presentiel-fs-btn')?.addEventListener('click', () => {
+    if (!document.fullscreenElement) {
+      overlay.requestFullscreen?.().catch(() => {});
+    } else {
+      document.exitFullscreen?.().catch(() => {});
+    }
+  });
+
+  document.addEventListener('fullscreenchange', () => {
+    const btn = document.getElementById('presentiel-fs-btn');
+    if (btn) btn.textContent = document.fullscreenElement ? '✕⛶' : '⛶';
+  }, { once: false });
 }
 
 // ── Invite acceptance (guest side) ──────────────────────────────────────────────
