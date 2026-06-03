@@ -56,6 +56,12 @@ export function renderBudget(tripId) {
   const cats  = trip.budgetCats  || [];
   const lines = trip.budgetLines || [];
 
+  // Reset category selection if the stored id doesn't belong to this trip
+  // (happens when navigating from one trip's budget to another's)
+  if (_selectedCatId && !cats.some(c => c.id === _selectedCatId)) {
+    _selectedCatId = null;
+  }
+
   panel.innerHTML = `
     <div class="bud-layout">
       <div class="bud-side">
@@ -485,18 +491,24 @@ function _openLineModal(tripId, lineId) {
 
     updateTrip(tripId, { budgetLines: newLines });
 
-    // Reverse sync: if this line came from an event, update the event's cost too
+    // Reverse sync: if this line came from an event, update the event's cost/title too.
+    // Deep-copy days before mutating to avoid dirtying the live store reference
+    // before the write is persisted.
     if (isEdit) {
       const updLine = newLines.find(l => l.id === lineId);
       if (updLine?.source === 'event' && updLine?.eventId) {
         const syncTrip = getTrip(tripId);
         if (syncTrip) {
-          const syncDays = syncTrip.days || [];
-          for (const day of syncDays) {
-            const evt = (day.items || []).find(it => it.id === updLine.eventId);
-            if (evt) { evt.cost = amount; evt.text = desc; break; }
-          }
-          updateTrip(tripId, { days: syncDays });
+          let changed = false;
+          const syncDays = (syncTrip.days || []).map(day => {
+            const evtIdx = (day.items || []).findIndex(it => it.id === updLine.eventId);
+            if (evtIdx === -1) return day;
+            changed = true;
+            const items = [...day.items];
+            items[evtIdx] = { ...items[evtIdx], cost: amount, text: desc };
+            return { ...day, items };
+          });
+          if (changed) updateTrip(tripId, { days: syncDays });
         }
       }
     }

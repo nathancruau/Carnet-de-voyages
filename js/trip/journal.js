@@ -233,6 +233,13 @@ export async function renderJournal(tripId, isObserver = false) {
   const panel = document.getElementById('panel-journal');
   if (!panel) return;
 
+  // Reset per-trip UI state when the trip changes so stale filter/view from a
+  // previous trip doesn't bleed into the new one's render.
+  if (tripId !== _journalTripId) {
+    _activeDayFilter = null;
+    _journalView     = 'map';
+  }
+
   if (_journalMap) destroyJournalMap();
 
   const trip = getTrip(tripId);
@@ -848,7 +855,7 @@ function _openCommentsModal(tripId, itemId, itemText) {
   const allComments  = sharedDoc.observerComments || {};
   const itemComments = Object.entries(allComments)
     .filter(([, c]) => c.itemId === itemId)
-    .sort(([, a], [, b]) => a.ts.localeCompare(b.ts));
+    .sort(([, a], [, b]) => (a.ts || '').localeCompare(b.ts || ''));
 
   function _buildCommentsList() {
     if (itemComments.length === 0) {
@@ -904,7 +911,8 @@ function _openCommentsModal(tripId, itemId, itemText) {
   }
 
   sendBtn?.addEventListener('click', _doSend);
-  input?.addEventListener('keydown', e => { if (e.key === 'Enter') _doSend(); });
+  // Guard: Enter key must not trigger a second send while the first is still in-flight
+  input?.addEventListener('keydown', e => { if (e.key === 'Enter' && !sendBtn?.disabled) _doSend(); });
 
   // Delete comment
   document.getElementById('cmt-list')?.addEventListener('click', async e => {
@@ -1201,6 +1209,8 @@ function _openValidateModal(tripId, dayId, itemIdx) {
     state.amount = parseFloat(document.getElementById('vld-amount')?.value || '0') || 0;
 
     const freshTrip = getTrip(tripId);
+    // Guard: trip may have been deleted while the modal was open
+    if (!freshTrip) { closeModal(); return; }
     const days      = [...(freshTrip.days || [])];
     const dayIdx    = days.findIndex(d => d.id === dayId);
     if (dayIdx === -1) { closeModal(); return; }

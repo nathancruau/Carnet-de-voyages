@@ -32,6 +32,8 @@ let _drawRouteGen = 0;             // incremented each time _refreshMapPins fire
 let _pendingMapClick = null;       // callback when user clicks map to pick coords
 let _tempSearchPin    = null;       // temporary search result pin
 let _commentDayId    = null;       // day id for the open comment panel (null = closed)
+// Tracked so it can be removed before re-attaching on each render (prevents leaks)
+let _mapSearchOutsideClickFn = null;
 
 // ─── Weather cache (key: "lat:lng:date") ──────────────────────────────────────
 const _wxCache  = {};
@@ -162,6 +164,18 @@ let _gpxLayers         = [];       // Leaflet layers for GPX overlays
 
 export function renderMapCal(tripId) {
   _tripId = tripId;
+
+  // Reset per-trip UI state so stale selections from a previous trip don't bleed in
+  _openDayIds.clear();
+  _activeEvtKey    = null;
+  _pendingMapClick = null;
+  _commentDayId    = null;
+
+  // Remove stale outside-click handler attached by _initMapSearch
+  if (_mapSearchOutsideClickFn) {
+    document.removeEventListener('click', _mapSearchOutsideClickFn);
+    _mapSearchOutsideClickFn = null;
+  }
 
   // Destroy existing map before replacing panel HTML to prevent
   // "Map container is already initialized" on re-render.
@@ -957,7 +971,12 @@ async function _drawRoutes(trip, _days, myGen) {
   const wps = _collectAllWaypoints(trip);
 
   for (let i = 0; i < wps.length - 1; i++) {
-    if (!_map || _drawRouteGen !== myGen) { _routeLoading = false; return; }
+    if (!_map || _drawRouteGen !== myGen) {
+      // A newer generation started — clean up spinner so it doesn't freeze on screen
+      if (loadEl) loadEl.style.display = 'none';
+      _routeLoading = false;
+      return;
+    }
     const from = wps[i];
     const to   = wps[i + 1];
     const mode = to.mode || 'car';
@@ -2106,21 +2125,27 @@ function _reorderEvent(dayId, fromIdx, toIdx, tripId) {
 function _deleteEvent(dayId, evtIdx, tripId) {
   const trip = getTrip(tripId);
   if (!trip) return;
-  const day = (trip.days || []).find(d => d.id === dayId);
+
+  // Deep-copy days so we never mutate the live store reference before the write
+  const days = (trip.days || []).map(d =>
+    d.id === dayId ? { ...d, items: [...(d.items || [])] } : d
+  );
+  const day = days.find(d => d.id === dayId);
   if (!day) return;
+
   day.items.splice(evtIdx, 1);
 
   // Re-derive day pin from remaining items to avoid ghost markers
-  const firstPin = (day.items || []).find(it => it.lat != null && it.lng != null);
+  const firstPin = day.items.find(it => it.lat != null && it.lng != null);
   if (firstPin) {
     day.lat = firstPin.lat;
     day.lng = firstPin.lng;
-  } else if (!(day.items || []).some(it => it.lat != null)) {
+  } else if (!day.items.some(it => it.lat != null)) {
     day.lat = null;
     day.lng = null;
   }
 
-  updateTrip(tripId, { days: trip.days });
+  updateTrip(tripId, { days });
   _activeEvtKey = null;
   _closeEDP();
   _renderDaysList(tripId);
@@ -2261,11 +2286,17 @@ function _initMapSearch(tripId) {
     _deb = setTimeout(_doSearch, 450);
   });
 
-  // Close dropdown when clicking outside
+  // Close dropdown when clicking outside the search bar.
+  // Store the handler at module scope so renderMapCal can clean it up on re-render.
   const _outsideClick = e => {
-    if (!document.getElementById('ms-results')) { document.removeEventListener('click', _outsideClick); return; }
+    if (!document.getElementById('ms-results')) {
+      document.removeEventListener('click', _outsideClick);
+      _mapSearchOutsideClickFn = null;
+      return;
+    }
     if (!e.target.closest('#map-srch')) results.style.display = 'none';
   };
+  _mapSearchOutsideClickFn = _outsideClick;
   document.addEventListener('click', _outsideClick);
 }
 

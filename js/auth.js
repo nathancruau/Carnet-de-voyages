@@ -143,8 +143,9 @@ export async function loginWithGoogle() {
 
 export async function logout() {
   if (!_auth || !_signOutFn) return;
-  _user = null;
-  _uid  = null;
+  // Do NOT clear _user/_uid here: a pending 400 ms debounce timer may still
+  // be counting down, and syncToFirestore guards on _uid. Let signOut() fire
+  // onAuthStateChanged which will clear them after Firebase confirms the logout.
   await _signOutFn(_auth);
 }
 

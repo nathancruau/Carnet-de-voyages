@@ -195,6 +195,10 @@ export function renderTricount(tripId) {
     _handlers.delete(panel);
   }
 
+  // Always start on the main expenses tab when entering a trip for the first time
+  // so a stale "bilans" or "budgetvsdep" selection from a previous trip isn't shown
+  _activeTab = 'depenses';
+
   const participants = getParticipants(trip);
   const balances    = computeBalances(trip);
   const settlements = computeSettlements(balances);

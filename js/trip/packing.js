@@ -368,7 +368,8 @@ function _deleteItem(tripId, catId, itemId) {
   const catIdx = cats.findIndex(c => c.id === catId);
   if (catIdx === -1) return;
 
-  cats[catIdx] = { ...cats[catIdx], items: cats[catIdx].items.filter(i => i.id !== itemId) };
+  // Guard: a category imported from an older data version may lack an items array
+  cats[catIdx] = { ...cats[catIdx], items: (cats[catIdx].items || []).filter(i => i.id !== itemId) };
   updateTrip(tripId, { packingCats: cats });
   renderPacking(tripId);
   notify('Article supprimé', '🗑');

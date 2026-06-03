@@ -229,9 +229,14 @@ function _migrateTrip(t) {
   if (t.photo   === undefined) t.photo      = '';
   if (t.color   === undefined) t.color      = '#0d9488';
   if (t.type    === undefined) t.type       = 'voyage';
-  if (!t.status)               t.status    = 'done';   // legacy trips assumed done
+  // Only mark legacy (pre-status) trips as done — don't overwrite an explicit '' or 'planning'
+  if (t.status === undefined || t.status === null) t.status = 'done';
   if (t.countryCode   === undefined) t.countryCode   = '';
   if (t.multiCountry  === undefined) t.multiCountry  = false;
+  // Normalise updatedAt: Firestore may return it as an ISO string when merged
+  // from older documents; the merge comparisons in setState/replaceTripFromNetwork
+  // expect a numeric timestamp so coerce here.
+  if (typeof t.updatedAt === 'string') t.updatedAt = new Date(t.updatedAt).getTime() || 0;
   // Sortie: ensure pin object exists
   if (t.type === 'sortie' && !t.pin) {
     t.pin = {

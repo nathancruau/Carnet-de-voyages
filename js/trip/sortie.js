@@ -115,6 +115,11 @@ function _initMap(trip) {
   const zoom      = hasCoords ? 13 : 2;
 
   requestAnimationFrame(() => {
+    // Guard: the user may have navigated away while waiting for the animation frame.
+    // If the container is no longer in the DOM, abort to avoid initialising a
+    // Leaflet map on a detached element (which leaves _map non-null and causes
+    // "Map container not found" on the next render).
+    if (!document.getElementById('sortie-map')) return;
     try {
       _map = L.map('sortie-map', { zoomControl: true }).setView(center, zoom);
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {

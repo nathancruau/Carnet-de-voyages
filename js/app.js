@@ -25,6 +25,9 @@ import { checkDepartureNotifications } from './notifications.js';
 export let currentScreen = 'home';
 export let currentTripId = null;
 
+// Stored so we can remove and re-add on each auth cycle without leaking
+let _darkModeMediaListener = null;
+
 // ── Screen management ──────────────────────────────────────────────────────────
 
 export function showScreen(id) {
@@ -144,11 +147,18 @@ function _onAuthReady(user, cloudData) {
     showScreen('home');
 
     checkDepartureNotifications(getTrips(), getSettings());
-    // Re-apply theme listener for 'auto' mode
+
+    // Re-apply theme listener for 'auto' mode.
+    // Remove any previous listener first to avoid accumulation across auth cycles.
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    if (_darkModeMediaListener) mq.removeEventListener('change', _darkModeMediaListener);
     if (getSettings().theme === 'auto') {
-      window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', e => {
+      _darkModeMediaListener = e => {
         document.documentElement.dataset.theme = e.matches ? 'dark' : '';
-      });
+      };
+      mq.addEventListener('change', _darkModeMediaListener);
+    } else {
+      _darkModeMediaListener = null;
     }
 
     // Load shared trips and handle any pending invite link (non-blocking)
