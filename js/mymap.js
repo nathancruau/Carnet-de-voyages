@@ -26,6 +26,8 @@ let _filters         = { type: 'all', pinType: 'all', tripId: 'all' };
 let _showRoutes      = false;  // whether itinerary lines are drawn
 let _collapsedGroups = new Set();  // trip ids whose sidebar group is folded
 let _infoPanelEl     = null;   // info panel DOM element
+let _mergedPinsCache = [];     // current merged pins, kept for dynamic world-copy expansion
+let _activeOffsets   = new Set(); // longitude offsets (multiples of 360) that have markers placed
 
 // Transport mode metadata (mirrors mapcal.js / utils.trCol)
 const _TR_MODES = [
@@ -495,36 +497,55 @@ function _sidebarHtml(pins) {
   `;
 }
 
-// ── Redraw markers on the map ──────────────────────────────────────────────────
+// ── Infinite world-copy marker management ─────────────────────────────────────
 
-function _redrawMarkers(pins) {
-  if (!_map) return;
-
-  // Remove old markers
-  for (const { marker } of _markers) {
-    marker.remove();
-  }
-  _markers = [];
-
-  const bounds = [];
-
-  for (const mp of _mergedPins(pins)) {
+/** Place all current merged pins at a given longitude offset (one world copy). */
+function _addOffsetMarkers(offset) {
+  if (!_map || _activeOffsets.has(offset)) return;
+  _activeOffsets.add(offset);
+  for (const mp of _mergedPinsCache) {
     const isMulti = mp.entries.length > 1;
     const primary = mp.entries[0];
     const color   = _colorForFlag(primary.entry?.dayFlag || primary.trip.flag);
     const emoji   = isMulti ? null : (_pinTypeMap()[primary.entry?.pinType] || null);
     const icon    = isMulti ? _makeMultiIcon(mp.entries.length) : _makeIcon(color, 14, emoji);
-
-    // Duplicate markers across 7 world copies (-1080° to +1080°) so pins
-    // remain visible however far the user pans east or west.
-    for (const offset of [-1080, -720, -360, 0, 360, 720, 1080]) {
-      const marker = L.marker([mp.lat, mp.lng + offset], { icon });
-      marker.on('click', () => _mmShowMergedInfo(mp));
-      marker.addTo(_map);
-      _markers.push({ marker, trip: primary.trip, entry: primary.entry });
-    }
-    bounds.push([mp.lat, mp.lng]);
+    const marker  = L.marker([mp.lat, mp.lng + offset], { icon });
+    marker.on('click', () => _mmShowMergedInfo(mp));
+    marker.addTo(_map);
+    _markers.push({ marker, trip: primary.trip, entry: primary.entry });
   }
+}
+
+/**
+ * Called on every map moveend: ensures pins exist at every 360° offset that
+ * overlaps (or is adjacent to) the current viewport.  This makes panning
+ * east or west infinitely seamless — new world copies get markers on demand.
+ */
+function _ensureMarkersForViewport() {
+  if (!_map || _mergedPinsCache.length === 0) return;
+  const bounds = _map.getBounds();
+  const lo = Math.floor((bounds.getWest() - 360) / 360) * 360;
+  const hi = Math.ceil ((bounds.getEast() + 360) / 360) * 360;
+  for (let offset = lo; offset <= hi; offset += 360) {
+    _addOffsetMarkers(offset);
+  }
+}
+
+// ── Redraw markers on the map ──────────────────────────────────────────────────
+
+function _redrawMarkers(pins) {
+  if (!_map) return;
+
+  for (const { marker } of _markers) marker.remove();
+  _markers        = [];
+  _activeOffsets  = new Set();
+  _mergedPinsCache = _mergedPins(pins);
+
+  const bounds = _mergedPinsCache.map(mp => [mp.lat, mp.lng]);
+
+  // Seed the canonical copy + whatever the current viewport needs
+  _addOffsetMarkers(0);
+  _ensureMarkersForViewport();
 
   // Fit map view
   if (bounds.length > 0) {
@@ -858,6 +879,9 @@ export function renderMyMap() {
       maxZoom: 19,
     }).addTo(_map);
 
+    // Lazily add marker copies for every world-copy the user pans into
+    _map.on('moveend', _ensureMarkersForViewport);
+
     _redrawMarkers(pins);
     _redrawRoutes(); // async
   });
@@ -869,6 +893,8 @@ export function destroyMyMap() {
     try { _map.remove(); } catch (_) { /* already removed */ }
     _map = null;
   }
-  _markers     = [];
-  _routeLayers = [];
+  _markers         = [];
+  _routeLayers     = [];
+  _mergedPinsCache = [];
+  _activeOffsets   = new Set();
 }
