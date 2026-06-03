@@ -465,8 +465,9 @@ function _drawGpxOverlays(tripId) {
     line.bindTooltip(track.name, { sticky: true });
 
     if (assocDayId !== null) {
-      // Click on trace → open linked event EDP
-      line.on('click', () => {
+      // Click on trace → open linked event EDP (stop propagation to prevent map click)
+      line.on('click', (e) => {
+        L.DomEvent.stopPropagation(e);
         _openDayIds.add(assocDayId);
         _openEDP(assocDayId, assocEvtIdx, tripId);
       });
@@ -480,7 +481,8 @@ function _drawGpxOverlays(tripId) {
         iconSize: [26, 26], iconAnchor: [13, 13], popupAnchor: [0, -18],
       });
       const startMarker = L.marker([startPt.lat, startPt.lng], { icon: gpxIcon, zIndexOffset: 100 });
-      startMarker.on('click', () => {
+      startMarker.on('click', (e) => {
+        L.DomEvent.stopPropagation(e);
         _openDayIds.add(assocDayId);
         _openEDP(assocDayId, assocEvtIdx, tripId);
       });
@@ -639,6 +641,15 @@ function _openGpxImportModal(tripId, track, stats) {
 
     const startPt = track.points[0];
     const selEt   = evtTypes.find(t => t.key === selType);
+    // Subsample track to ≤300 points for Firestore storage (available to observers)
+    const _pts = track.points;
+    const _max = 300;
+    const gpxPoints = _pts.length <= _max
+      ? _pts.map(p => ({ lat: p.lat, lng: p.lng }))
+      : Array.from({ length: _max }, (_, i) => {
+          const p = _pts[Math.round(i * (_pts.length - 1) / (_max - 1))];
+          return { lat: p.lat, lng: p.lng };
+        });
     const event   = {
       id:         'e_' + uid(),
       type:       selType,
@@ -652,6 +663,7 @@ function _openGpxImportModal(tripId, track, stats) {
       lng:        startPt.lng,
       gpxTrackId: track.id,
       gpxStats:   stats,
+      gpxPoints,
     };
 
     if (day.lat == null) {
@@ -1410,42 +1422,61 @@ function _openEDP(dayId, evtIdx, tripId) {
 
   // GPX stats block — shown only when this event is linked to a GPX track
   let gpxSectionHtml = '';
+  let _gpxElevSeries = [], _gpxSpeedSeries = [];
   if (item.gpxTrackId) {
     const st    = item.gpxStats || {};
     const distM = st.distanceM || 0;
     const dist  = distM >= 1000 ? (distM / 1000).toFixed(1) + ' km' : distM + ' m';
-    const gain  = st.elevGain ? '+' + Math.round(st.elevGain) + ' m' : '—';
-    const loss  = st.elevLoss ? '−' + Math.round(st.elevLoss) + ' m' : '—';
-    let durHtml = '';
+    const gain  = st.elevGain ? '+' + st.elevGain + ' m' : '—';
+    const loss  = st.elevLoss ? '−' + st.elevLoss + ' m' : '—';
+    let durLabel = '';
     if (st.durationSecs) {
       const h = Math.floor(st.durationSecs / 3600);
       const m = Math.round((st.durationSecs % 3600) / 60);
-      const s = h > 0 ? `${h}h${String(m).padStart(2, '0')}` : `${m} min`;
-      durHtml = `<div style="text-align:center;grid-column:1/-1;margin-top:2px">
-        <div style="font-size:13px;font-weight:700;color:var(--ink)">${s}</div>
-        <div style="font-size:10px;color:var(--ink4)">Durée</div>
-      </div>`;
+      durLabel = h > 0 ? `${h}h${String(m).padStart(2, '0')}` : `${m} min`;
     }
+
+    // Build chart series from localStorage track points
+    const _gpxTrack = getLocalGpxTracks(tripId).find(t => t.id === item.gpxTrackId);
+    if (_gpxTrack?.points?.length >= 2) {
+      let cumDist = 0;
+      const pts = _gpxTrack.points;
+      for (let i = 0; i < pts.length; i++) {
+        if (i > 0) {
+          const seg = _haversineMeters(pts[i - 1], pts[i]);
+          cumDist += seg;
+          if (pts[i - 1].time && pts[i].time) {
+            const dt = (new Date(pts[i].time).getTime() - new Date(pts[i - 1].time).getTime()) / 1000;
+            if (dt > 0) _gpxSpeedSeries.push({ d: cumDist, v: (seg / dt) * 3.6 });
+          }
+        }
+        if (pts[i].ele != null) _gpxElevSeries.push({ d: cumDist, v: pts[i].ele });
+      }
+    }
+    const hasChart = _gpxElevSeries.length >= 2 || _gpxSpeedSeries.length >= 2;
+
+    const statCell = (val, lbl, color = 'var(--ink)') =>
+      `<div><div style="font-size:13px;font-weight:700;color:${color}">${val}</div><div style="font-size:10px;color:var(--ink4)">${lbl}</div></div>`;
+
     gpxSectionHtml = `
       <div class="edp-sect">
         <div class="edp-sect-lbl">Trace GPS</div>
         <div style="background:var(--c2);border-radius:8px;padding:10px 12px;border:1px solid var(--c3)">
-          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;text-align:center">
-            <div>
-              <div style="font-size:14px;font-weight:700;color:var(--ink)">${dist}</div>
-              <div style="font-size:10px;color:var(--ink4)">Distance</div>
-            </div>
-            <div>
-              <div style="font-size:13px;font-weight:700;color:#16a34a">${gain}</div>
-              <div style="font-size:10px;color:var(--ink4)">Dénivelé +</div>
-            </div>
-            <div>
-              <div style="font-size:13px;font-weight:700;color:#e85d3e">${loss}</div>
-              <div style="font-size:10px;color:var(--ink4)">Dénivelé −</div>
-            </div>
-            ${durHtml}
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px 4px;text-align:center;margin-bottom:8px">
+            ${statCell(dist, 'Distance')}
+            ${statCell(gain, 'D+', '#16a34a')}
+            ${statCell(loss, 'D−', '#e85d3e')}
+            ${durLabel ? statCell(durLabel, 'Durée') : ''}
+            ${st.altMin != null ? statCell(st.altMin + '–' + st.altMax + ' m', 'Altitude') : ''}
+            ${st.speedAvgKph != null ? statCell(st.speedAvgKph + ' km/h', 'Vit. moy.') : ''}
+            ${st.speedMaxKph != null ? statCell(st.speedMaxKph + ' km/h', 'Vit. max') : ''}
           </div>
-          ${st.pointCount ? `<div style="font-size:10px;color:var(--ink4);text-align:center;margin-top:4px">${st.pointCount} points GPS</div>` : ''}
+          ${hasChart ? `
+          <div style="display:flex;gap:4px;margin-bottom:6px">
+            <button id="edp-chart-elev" style="flex:1;font-size:10px;font-weight:700;padding:3px 0;border-radius:5px;cursor:pointer;border:1.5px solid var(--teal);background:var(--tl);color:var(--td)">⛰ Altitude</button>
+            <button id="edp-chart-speed" style="flex:1;font-size:10px;font-weight:700;padding:3px 0;border-radius:5px;cursor:pointer;border:1.5px solid var(--c3);background:var(--c2);color:var(--ink3)">⚡ Vitesse</button>
+          </div>
+          <canvas id="edp-gpx-canvas" style="width:100%;height:80px;display:block;border-radius:6px"></canvas>` : ''}
           <button id="edp-gpx-del" style="margin-top:8px;width:100%;background:none;border:1.5px solid #e85d3e;color:#e85d3e;border-radius:6px;padding:5px;font-size:11px;font-weight:700;cursor:pointer;font-family:var(--fn)">🗑 Supprimer la trace GPX</button>
         </div>
       </div>`;
@@ -1520,8 +1551,76 @@ function _openEDP(dayId, evtIdx, tripId) {
   // Animate in
   requestAnimationFrame(() => { edp.classList.add('open'); });
 
-  // GPX trace delete
+  // GPX chart + delete
   if (item.gpxTrackId) {
+    // Chart
+    const canvas = edp.querySelector('#edp-gpx-canvas');
+    if (canvas && (_gpxElevSeries.length >= 2 || _gpxSpeedSeries.length >= 2)) {
+      let _chartMode = _gpxElevSeries.length >= 2 ? 'elevation' : 'speed';
+
+      const _drawChart = (mode) => {
+        const series = mode === 'elevation' ? _gpxElevSeries : _gpxSpeedSeries;
+        const W = canvas.offsetWidth || 260;
+        const H = 80;
+        canvas.width  = W;
+        canvas.height = H;
+        const ctx = canvas.getContext('2d');
+        ctx.clearRect(0, 0, W, H);
+        if (series.length < 2) return;
+
+        const xs = series.map(p => p.d);
+        const ys = series.map(p => p.v);
+        const xMin = xs[0], xMax = xs[xs.length - 1];
+        const yMin = Math.min(...ys), yMax = Math.max(...ys);
+        const yRange = yMax - yMin || 1;
+        const pad = { t: 4, b: 18, l: 4, r: 4 };
+        const toX = d => pad.l + (d - xMin) / (xMax - xMin) * (W - pad.l - pad.r);
+        const toY = v => H - pad.b - (v - yMin) / yRange * (H - pad.t - pad.b);
+
+        const color = mode === 'elevation' ? '#0891b2' : '#d97706';
+        ctx.beginPath();
+        ctx.moveTo(toX(xs[0]), toY(ys[0]));
+        for (let i = 1; i < series.length; i++) ctx.lineTo(toX(xs[i]), toY(ys[i]));
+        ctx.lineTo(toX(xs[xs.length - 1]), H - pad.b);
+        ctx.lineTo(toX(xs[0]), H - pad.b);
+        ctx.closePath();
+        ctx.fillStyle = mode === 'elevation' ? 'rgba(8,145,178,.15)' : 'rgba(217,119,6,.15)';
+        ctx.fill();
+        ctx.beginPath();
+        ctx.moveTo(toX(xs[0]), toY(ys[0]));
+        for (let i = 1; i < series.length; i++) ctx.lineTo(toX(xs[i]), toY(ys[i]));
+        ctx.strokeStyle = color; ctx.lineWidth = 1.5; ctx.stroke();
+
+        // Y axis labels
+        ctx.fillStyle = 'rgba(100,100,100,.8)'; ctx.font = '9px sans-serif'; ctx.textAlign = 'left';
+        const unit = mode === 'elevation' ? 'm' : 'km/h';
+        ctx.fillText(Math.round(yMax) + unit, pad.l + 2, pad.t + 9);
+        ctx.fillText(Math.round(yMin) + unit, pad.l + 2, H - pad.b - 2);
+        // X axis labels
+        ctx.textAlign = 'center';
+        const distKm = xMax >= 1000;
+        ctx.fillText('0', toX(xMin), H - 4);
+        ctx.fillText(distKm ? (xMax / 1000).toFixed(1) + ' km' : Math.round(xMax) + ' m', toX(xMax), H - 4);
+      };
+
+      const _setMode = (mode) => {
+        _chartMode = mode;
+        _drawChart(mode);
+        const elevBtn  = edp.querySelector('#edp-chart-elev');
+        const speedBtn = edp.querySelector('#edp-chart-speed');
+        if (elevBtn)  { elevBtn.style.background  = mode === 'elevation' ? 'var(--tl)' : 'var(--c2)';  elevBtn.style.borderColor  = mode === 'elevation' ? 'var(--teal)' : 'var(--c3)';  elevBtn.style.color  = mode === 'elevation' ? 'var(--td)' : 'var(--ink3)'; }
+        if (speedBtn) { speedBtn.style.background = mode === 'speed'     ? 'var(--tl)' : 'var(--c2)';  speedBtn.style.borderColor = mode === 'speed'     ? 'var(--teal)' : 'var(--c3)';  speedBtn.style.color = mode === 'speed'     ? 'var(--td)' : 'var(--ink3)'; }
+      };
+
+      requestAnimationFrame(() => { _drawChart(_chartMode); });
+      edp.querySelector('#edp-chart-elev')?.addEventListener('click',  () => _setMode('elevation'));
+      edp.querySelector('#edp-chart-speed')?.addEventListener('click', () => _setMode('speed'));
+
+      // Disable unavailable modes
+      if (_gpxElevSeries.length  < 2) edp.querySelector('#edp-chart-elev')?.setAttribute('disabled', '');
+      if (_gpxSpeedSeries.length < 2) edp.querySelector('#edp-chart-speed')?.setAttribute('disabled', '');
+    }
+
     edp.querySelector('#edp-gpx-del')?.addEventListener('click', () => {
       if (!confirm(`Supprimer la trace GPX et cet événement ?`)) return;
       removeLocalGpxTrack(tripId, item.gpxTrackId);
