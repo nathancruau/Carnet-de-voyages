@@ -27,6 +27,7 @@ let _allPins         = [];     // All { trip, entry, lat, lng } built from store
 let _filters         = { type: 'all', pinType: 'all', tripId: 'all' };
 let _showRoutes      = false;  // whether itinerary lines are drawn
 let _collapsedGroups = new Set();  // trip ids whose sidebar group is folded
+let _footerExpanded  = false;      // tools/export footer collapsed by default
 let _infoPanelEl     = null;   // info panel DOM element
 let _mergedPinsCache = [];     // current merged pins, kept for dynamic world-copy expansion
 let _activeOffsets   = new Set(); // longitude offsets (multiples of 360) that have markers placed
@@ -493,11 +494,17 @@ function _sidebarHtml(pins) {
       ${tree}
     </div>
 
-    <div class="mm-sidebar-footer">
-      <button class="mm-export-btn" onclick="_mmExportKml()">⬇ KML</button>
-      <button class="mm-export-btn" onclick="_mmExportGpx()">⬇ GPX</button>
-      <button class="mm-export-btn" onclick="_mmImportGpx()">↑ GPX</button>
-      <button class="mm-export-btn" onclick="_mmDownloadOffline()" title="Mettre les tuiles de carte en cache pour consultation hors-ligne">📶 Hors-ligne</button>
+    <div class="mm-sidebar-footer" id="mm-footer">
+      <div class="mm-footer-toggle" onclick="_mmToggleFooter()">
+        <span class="mm-trip-chevron">${_footerExpanded ? '▼' : '▶'}</span>
+        <span style="font-size:11px;font-weight:700;color:var(--ink3)">Outils &amp; Export</span>
+      </div>
+      ${_footerExpanded ? `<div class="mm-footer-body">
+        <button class="mm-export-btn" onclick="_mmExportKml()">⬇ KML</button>
+        <button class="mm-export-btn" onclick="_mmExportGpx()">⬇ GPX</button>
+        <button class="mm-export-btn" onclick="_mmImportGpx()">↑ GPX</button>
+        <button class="mm-export-btn" onclick="_mmDownloadOffline()" title="Mettre les tuiles de carte en cache pour consultation hors-ligne">📶 Hors-ligne</button>
+      </div>` : ''}
     </div>
     <input type="file" id="mm-gpx-input" accept=".gpx" style="display:none">
   `;
@@ -917,14 +924,37 @@ window._mmToggleRoutes = function() {
   _redrawRoutes(); // async
 };
 
+window._mmToggleFooter = function() {
+  _footerExpanded = !_footerExpanded;
+  const footer = document.getElementById('mm-footer');
+  if (!footer) return;
+  const chevron = footer.querySelector('.mm-trip-chevron');
+  if (chevron) chevron.textContent = _footerExpanded ? '▼' : '▶';
+  let body = footer.querySelector('.mm-footer-body');
+  if (_footerExpanded && !body) {
+    body = document.createElement('div');
+    body.className = 'mm-footer-body';
+    body.innerHTML = `
+      <button class="mm-export-btn" onclick="_mmExportKml()">⬇ KML</button>
+      <button class="mm-export-btn" onclick="_mmExportGpx()">⬇ GPX</button>
+      <button class="mm-export-btn" onclick="_mmImportGpx()">↑ GPX</button>
+      <button class="mm-export-btn" onclick="_mmDownloadOffline()" title="Mettre les tuiles de carte en cache pour consultation hors-ligne">📶 Hors-ligne</button>
+    `;
+    footer.appendChild(body);
+  } else if (!_footerExpanded && body) {
+    body.remove();
+  }
+};
+
 // ── Public API ─────────────────────────────────────────────────────────────────
 
 export function renderMyMap() {
   const wrap = document.getElementById('mymap-wrap');
   if (!wrap) return;
 
-  // Reset filters to default
-  _filters = { type: 'all', pinType: 'all', tripId: 'all' };
+  // Reset filters and UI state to default
+  _filters        = { type: 'all', pinType: 'all', tripId: 'all' };
+  _footerExpanded = false;
 
   // Build pin data
   _buildAllPins();
