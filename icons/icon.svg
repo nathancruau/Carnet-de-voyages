@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Background -->
+  <rect width="512" height="512" rx="112" fill="#0d9488"/>
+  <!-- Subtle radial glow -->
+  <radialGradient id="g" cx="40%" cy="35%" r="60%">
+    <stop offset="0%" stop-color="#14b8a6" stop-opacity=".6"/>
+    <stop offset="100%" stop-color="#0d9488" stop-opacity="0"/>
+  </radialGradient>
+  <rect width="512" height="512" rx="112" fill="url(#g)"/>
+  <!-- Airplane body -->
+  <g fill="#fff" opacity=".97">
+    <!-- Main fuselage -->
+    <path d="M256 128 C268 128 312 172 320 220 L388 256 C388 256 388 272 376 272 L320 260 L316 300 L340 316 C340 316 340 328 332 328 L280 308 L260 384 C260 384 248 388 244 384 L232 308 L180 328 C172 328 172 316 172 316 L196 300 L192 260 L136 272 C124 272 124 256 124 256 L192 220 C200 172 244 128 256 128Z"/>
+  </g>
+  <!-- Small compass rose hint at bottom -->
+  <circle cx="256" cy="420" r="28" fill="none" stroke="#fff" stroke-width="3" opacity=".4"/>
+  <line x1="256" y1="396" x2="256" y2="404" stroke="#fff" stroke-width="3" stroke-linecap="round" opacity=".5"/>
+  <line x1="256" y1="436" x2="256" y2="444" stroke="#fff" stroke-width="3" stroke-linecap="round" opacity=".5"/>
+  <line x1="232" y1="420" x2="240" y2="420" stroke="#fff" stroke-width="3" stroke-linecap="round" opacity=".5"/>
+  <line x1="272" y1="420" x2="280" y2="420" stroke="#fff" stroke-width="3" stroke-linecap="round" opacity=".5"/>
+  <circle cx="256" cy="420" r="4" fill="#fff" opacity=".5"/>
+</svg>

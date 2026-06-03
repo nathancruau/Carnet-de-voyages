@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Full bleed background for maskable icon (safe zone = center 80%) -->
+  <rect width="512" height="512" fill="#0d9488"/>
+  <radialGradient id="g" cx="40%" cy="35%" r="60%">
+    <stop offset="0%" stop-color="#14b8a6" stop-opacity=".6"/>
+    <stop offset="100%" stop-color="#0d9488" stop-opacity="0"/>
+  </radialGradient>
+  <rect width="512" height="512" fill="url(#g)"/>
+  <g fill="#fff" opacity=".97">
+    <path d="M256 148 C268 148 308 188 316 232 L376 264 C376 264 376 278 365 278 L316 267 L312 304 L334 319 C334 319 334 330 327 330 L278 311 L259 378 C259 378 248 382 244 378 L225 311 L176 330 C169 330 169 319 169 319 L191 304 L187 267 L138 278 C127 278 127 264 127 264 L187 232 C195 188 244 148 256 148Z"/>
+  </g>
+</svg>

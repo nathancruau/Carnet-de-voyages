@@ -2,13 +2,35 @@
 <html lang="fr">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <title>Carnet de Voyages</title>
+
+  <!-- PWA manifest -->
+  <link rel="manifest" href="/manifest.json" />
+
+  <!-- Theme & status bar -->
+  <meta name="theme-color" content="#0d9488" />
+  <meta name="mobile-web-app-capable" content="yes" />
+
+  <!-- iOS / Safari PWA -->
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Carnet" />
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+
+  <!-- Favicon -->
+  <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png" />
+  <link rel="icon" type="image/svg+xml" href="/icons/icon.svg" />
+
+  <!-- SEO / sharing -->
+  <meta name="description" content="Planifiez, organisez et vivez vos aventures de voyage." />
+  <meta name="application-name" content="Carnet de Voyages" />
+
   <link rel="stylesheet" href="vendor/leaflet.css" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,600;0,700;1,400;1,600;1,700&family=Nunito:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="style.css?v=59" />
+  <link rel="stylesheet" href="style.css?v=60" />
   <script>
     (function(){try{
       var d=JSON.parse(localStorage.getItem('carnet_voyages_v1')||'{}');
@@ -76,6 +98,58 @@
         + '</div>';
     });
   </script>
-  <script type="module" src="js/app.js?v=59"></script>
+  <!-- PWA install prompt (Android) -->
+  <div id="pwa-install-bar" style="display:none;position:fixed;bottom:0;left:0;right:0;z-index:99999;
+    background:linear-gradient(135deg,#0d9488,#0b7a6e);color:#fff;
+    padding:12px 16px;display:none;align-items:center;gap:12px;
+    box-shadow:0 -2px 20px rgba(0,0,0,.18);font-family:var(--fn)">
+    <img src="/icons/icon-192.png" style="width:40px;height:40px;border-radius:10px;flex-shrink:0" alt="">
+    <div style="flex:1;min-width:0">
+      <div style="font-size:13px;font-weight:700">Installer Carnet de Voyages</div>
+      <div style="font-size:11px;opacity:.85">Accès rapide depuis votre écran d'accueil</div>
+    </div>
+    <button id="pwa-install-btn"
+      style="background:#fff;color:#0d9488;border:none;border-radius:8px;padding:8px 14px;font-size:12px;font-weight:700;cursor:pointer;flex-shrink:0;white-space:nowrap">
+      Installer
+    </button>
+    <button id="pwa-install-dismiss"
+      style="background:none;border:none;color:#fff;opacity:.7;cursor:pointer;font-size:18px;padding:0 4px;flex-shrink:0;line-height:1">
+      ✕
+    </button>
+  </div>
+
+  <script>
+    // Android / Chrome: intercept beforeinstallprompt
+    let _pwaPrompt = null;
+    window.addEventListener('beforeinstallprompt', e => {
+      e.preventDefault();
+      _pwaPrompt = e;
+      // Don't show if already dismissed in this session
+      if (!sessionStorage.getItem('pwa-dismissed')) {
+        const bar = document.getElementById('pwa-install-bar');
+        if (bar) bar.style.display = 'flex';
+      }
+    });
+    document.getElementById('pwa-install-btn')?.addEventListener('click', () => {
+      if (!_pwaPrompt) return;
+      _pwaPrompt.prompt();
+      _pwaPrompt.userChoice.then(() => {
+        _pwaPrompt = null;
+        const bar = document.getElementById('pwa-install-bar');
+        if (bar) bar.style.display = 'none';
+      });
+    });
+    document.getElementById('pwa-install-dismiss')?.addEventListener('click', () => {
+      sessionStorage.setItem('pwa-dismissed', '1');
+      const bar = document.getElementById('pwa-install-bar');
+      if (bar) bar.style.display = 'none';
+    });
+    // Hide if already running as standalone
+    if (window.matchMedia('(display-mode: standalone)').matches || navigator.standalone) {
+      const bar = document.getElementById('pwa-install-bar');
+      if (bar) bar.style.display = 'none';
+    }
+  </script>
+  <script type="module" src="js/app.js?v=60"></script>
 </body>
 </html>
