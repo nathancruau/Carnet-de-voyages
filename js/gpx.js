@@ -52,6 +52,49 @@ export function parseGpx(xmlStr) {
   return { tracks, waypoints };
 }
 
+/** Compute stats from an array of track points: distance, elevation gain/loss, duration. */
+export function computeGpxStats(points) {
+  let distanceM    = 0;
+  let elevGain     = 0;
+  let elevLoss     = 0;
+  let durationSecs = null;
+
+  for (let i = 1; i < points.length; i++) {
+    const a = points[i - 1];
+    const b = points[i];
+    distanceM += _haversineM(a, b);
+    if (a.ele != null && b.ele != null) {
+      const diff = b.ele - a.ele;
+      if (diff > 0) elevGain += diff;
+      else elevLoss += -diff;
+    }
+  }
+
+  if (points.length > 1 && points[0].time && points[points.length - 1].time) {
+    const t0 = new Date(points[0].time).getTime();
+    const t1 = new Date(points[points.length - 1].time).getTime();
+    if (!isNaN(t0) && !isNaN(t1) && t1 > t0) durationSecs = Math.round((t1 - t0) / 1000);
+  }
+
+  return {
+    distanceM:   Math.round(distanceM),
+    elevGain:    Math.round(elevGain),
+    elevLoss:    Math.round(elevLoss),
+    durationSecs,
+    pointCount:  points.length,
+  };
+}
+
+function _haversineM(a, b) {
+  const R = 6371000;
+  const toRad = x => x * Math.PI / 180;
+  const dLat = toRad(b.lat - a.lat);
+  const dLng = toRad(b.lng - a.lng);
+  const x = Math.sin(dLat / 2) ** 2
+    + Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(x));
+}
+
 /** Generate a GPX 1.1 XML string from waypoints and optional track points. */
 export function generateGpx(name, waypoints = [], trackPoints = []) {
   const x = s => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');

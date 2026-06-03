@@ -7,7 +7,7 @@
  */
 
 import { getTrip, updateTrip, saveData, uid, getEventTypes, getLanguage, isTripShared } from '../store.js';
-import { parseGpx, generateGpx, downloadFile, getLocalGpxTracks, saveLocalGpxTrack, removeLocalGpxTrack } from '../gpx.js';
+import { parseGpx, generateGpx, downloadFile, getLocalGpxTracks, saveLocalGpxTrack, removeLocalGpxTrack, computeGpxStats } from '../gpx.js';
 import { getSharedDocData, submitComment, deleteDayComment } from '../share.js';
 import { getCurrentUser } from '../auth.js';
 import {
@@ -321,15 +321,30 @@ export function renderMapCal(tripId) {
       if (!file) return;
       gpxInput.value = '';
       try {
-        const text  = await file.text();
+        const text    = await file.text();
         const { tracks, waypoints } = parseGpx(text);
         if (!tracks.length && !waypoints.length) { notify('Aucune trace dans ce fichier GPX.', '⚠️'); return; }
+        const allPoints = tracks.flatMap(t => t.points);
+        if (!allPoints.length) { notify('Aucun point GPS dans cette trace.', '⚠️'); return; }
         const colors = ['#e85d3e','#0284c7','#7c3aed','#16a34a','#d97706'];
         const id     = 'gpx_' + Date.now();
-        const track  = { id, name: file.name.replace(/\.gpx$/i,''), color: colors[_gpxLayers.length % colors.length], points: tracks.flatMap(t => t.points), importedAt: new Date().toISOString() };
-        saveLocalGpxTrack(tripId, track);
-        _drawGpxOverlays(tripId);
-        notify(`Trace "${track.name}" importée (${track.points.length} pts)`, '🗺');
+        const track  = {
+          id,
+          name:       tracks[0]?.name || file.name.replace(/\.gpx$/i, ''),
+          color:      colors[getLocalGpxTracks(tripId).length % colors.length],
+          points:     allPoints,
+          importedAt: new Date().toISOString(),
+        };
+        const stats = computeGpxStats(allPoints);
+        const trip2 = getTrip(tripId);
+        if (!trip2?.days?.length) {
+          // No days yet — save directly without creating an event
+          saveLocalGpxTrack(tripId, track);
+          _drawGpxOverlays(tripId);
+          notify(`Trace "${track.name}" importée`, '🗺');
+          return;
+        }
+        _openGpxImportModal(tripId, track, stats);
       } catch (err) { notify('Erreur GPX : ' + err.message, '⚠️'); }
     });
   }
@@ -424,17 +439,62 @@ function _drawGpxOverlays(tripId) {
   for (const layer of _gpxLayers) { try { _map.removeLayer(layer); } catch (_) {} }
   _gpxLayers = [];
 
+  const trip = getTrip(tripId);
+
   for (const track of getLocalGpxTracks(tripId)) {
     if (!track.points?.length) continue;
+
+    // Find the event item linked to this track via gpxTrackId
+    let assocDayId  = null;
+    let assocEvtIdx = -1;
+    if (trip) {
+      outer: for (const day of (trip.days || [])) {
+        for (let i = 0; i < (day.items || []).length; i++) {
+          if (day.items[i].gpxTrackId === track.id) {
+            assocDayId  = day.id;
+            assocEvtIdx = i;
+            break outer;
+          }
+        }
+      }
+    }
+
+    const color   = track.color || '#e85d3e';
     const latlngs = track.points.map(p => [p.lat, p.lng]);
-    const line    = L.polyline(latlngs, { color: track.color || '#e85d3e', weight: 3, opacity: 0.75, dashArray: '6 3' });
+    const line    = L.polyline(latlngs, { color, weight: 3.5, opacity: 0.8, dashArray: '6 3' });
     line.bindTooltip(track.name, { sticky: true });
-    // Right-click to delete the track
-    line.on('contextmenu', () => {
-      if (!confirm(`Supprimer la trace "${track.name}" ?`)) return;
-      removeLocalGpxTrack(tripId, track.id);
-      _drawGpxOverlays(tripId);
-    });
+
+    if (assocDayId !== null) {
+      // Click on trace → open linked event EDP
+      line.on('click', () => {
+        _openDayIds.add(assocDayId);
+        _openEDP(assocDayId, assocEvtIdx, tripId);
+      });
+      // Draw a start PIN marker for this trace
+      const startPt  = track.points[0];
+      const assocEvt = trip?.days?.flatMap(d => d.items || []).find(it => it.gpxTrackId === track.id);
+      const et       = assocEvt ? getEventTypes().find(t => t.key === assocEvt.type) : null;
+      const gpxIcon  = L.divIcon({
+        className: '',
+        html: `<div style="background:${color};border:2px solid #fff;border-radius:50%;width:26px;height:26px;display:flex;align-items:center;justify-content:center;font-size:14px;box-shadow:0 1px 5px rgba(0,0,0,.4);cursor:pointer">${et?.emoji || '🥾'}</div>`,
+        iconSize: [26, 26], iconAnchor: [13, 13], popupAnchor: [0, -18],
+      });
+      const startMarker = L.marker([startPt.lat, startPt.lng], { icon: gpxIcon, zIndexOffset: 100 });
+      startMarker.on('click', () => {
+        _openDayIds.add(assocDayId);
+        _openEDP(assocDayId, assocEvtIdx, tripId);
+      });
+      startMarker.addTo(_map);
+      _gpxLayers.push(startMarker);
+    } else {
+      // Legacy track (no linked event): right-click to delete
+      line.on('contextmenu', () => {
+        if (!confirm(`Supprimer la trace "${track.name}" ?`)) return;
+        removeLocalGpxTrack(tripId, track.id);
+        _drawGpxOverlays(tripId);
+      });
+    }
+
     line.addTo(_map);
     _gpxLayers.push(line);
   }
@@ -458,6 +518,158 @@ function _exportGpx(tripId) {
   const gpx = generateGpx(trip.name, waypoints);
   downloadFile(`${trip.name.replace(/[^a-z0-9]/gi, '-')}.gpx`, gpx);
   notify(`${waypoints.length} waypoints exportés en GPX`, '✓');
+}
+
+// ─── GPX import modal ────────────────────────────────────────────────────────
+
+function _openGpxImportModal(tripId, track, stats) {
+  const trip      = getTrip(tripId);
+  if (!trip) return;
+  const evtTypes  = getEventTypes();
+  const hikerType = evtTypes.find(t => t.key === 'hiker') || evtTypes.find(t => t.key === 'activity') || evtTypes[0];
+  let selType     = hikerType?.key || 'activity';
+  const days      = trip.days || [];
+  const defaultDayId = [..._openDayIds][0] || days[0]?.id || '';
+
+  function _fmtDist(m) {
+    return m >= 1000 ? (m / 1000).toFixed(1) + ' km' : m + ' m';
+  }
+  function _fmtDur(s) {
+    if (!s) return null;
+    const h = Math.floor(s / 3600);
+    const m = Math.round((s % 3600) / 60);
+    return h > 0 ? `${h}h${String(m).padStart(2, '0')}` : `${m} min`;
+  }
+
+  const distStr = _fmtDist(stats.distanceM || 0);
+  const gainStr = stats.elevGain ? '+' + Math.round(stats.elevGain) + ' m' : '—';
+  const lossStr = stats.elevLoss ? '−' + Math.round(stats.elevLoss) + ' m' : '—';
+  const durStr  = _fmtDur(stats.durationSecs);
+
+  const dayOptions = days.map(d =>
+    `<option value="${_esc(d.id)}"${d.id === defaultDayId ? ' selected' : ''}>Jour ${d.num}${d.title ? ' – ' + _esc(d.title) : ''}${d.date ? ' (' + d.date + ')' : ''}</option>`
+  ).join('');
+
+  showModal(`
+    <h3>🗺 Importer une trace GPX</h3>
+
+    <div class="fg">
+      <label>Nom</label>
+      <input type="text" id="gi-name" value="${_esc(track.name)}" placeholder="Nom de la randonnée…" autocomplete="off">
+    </div>
+
+    <div style="background:var(--c2);border-radius:8px;padding:10px 14px;margin-bottom:12px;border:1px solid var(--c3)">
+      <div style="font-size:11px;font-weight:700;color:var(--ink3);margin-bottom:8px">Statistiques de la trace</div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;text-align:center">
+        <div>
+          <div style="font-size:15px;font-weight:800;color:var(--ink)">${distStr}</div>
+          <div style="font-size:10px;color:var(--ink4)">Distance</div>
+        </div>
+        <div>
+          <div style="font-size:14px;font-weight:700;color:#16a34a">${gainStr}</div>
+          <div style="font-size:10px;color:var(--ink4)">Dénivelé +</div>
+        </div>
+        <div>
+          <div style="font-size:14px;font-weight:700;color:#e85d3e">${lossStr}</div>
+          <div style="font-size:10px;color:var(--ink4)">Dénivelé −</div>
+        </div>
+        ${durStr ? `<div style="grid-column:1/-1;margin-top:2px">
+          <div style="font-size:14px;font-weight:700;color:var(--ink)">${durStr}</div>
+          <div style="font-size:10px;color:var(--ink4)">Durée</div>
+        </div>` : ''}
+      </div>
+      <div style="font-size:10px;color:var(--ink4);text-align:center;margin-top:6px">${stats.pointCount} points GPS</div>
+    </div>
+
+    <div class="fg">
+      <label>Type d'événement</label>
+      <div style="display:flex;gap:6px;flex-wrap:wrap" id="gi-types">
+        ${evtTypes.map(et => {
+          const active = et.key === selType;
+          return `<button class="tp${active ? ' sel' : ''}" data-gi-type="${_esc(et.key)}"
+            style="${active ? `background:${et.color};border-color:${et.color};color:#fff` : ''}">${et.emoji} ${et.label}</button>`;
+        }).join('')}
+      </div>
+    </div>
+
+    <div class="fg">
+      <label>Ajouter au jour</label>
+      <select id="gi-day" style="width:100%;padding:7px 8px;border:1.5px solid var(--c3);border-radius:6px;font-size:12px;background:var(--bg);color:var(--ink)">
+        ${dayOptions}
+      </select>
+    </div>
+
+    <div class="fg">
+      <label>Notes</label>
+      <textarea id="gi-notes" class="notes-ta" placeholder="Conditions, remarques…" style="min-height:45px"></textarea>
+    </div>
+
+    <div class="ma">
+      <button class="bc" id="gi-cancel">Annuler</button>
+      <button class="bs" id="gi-save">Ajouter comme événement</button>
+    </div>
+  `);
+
+  document.getElementById('gi-types')?.addEventListener('click', e => {
+    const pill = e.target.closest('[data-gi-type]');
+    if (!pill) return;
+    selType = pill.dataset.giType;
+    document.querySelectorAll('[data-gi-type]').forEach(p => {
+      const tKey   = p.dataset.giType;
+      const et     = evtTypes.find(t => t.key === tKey);
+      const active = tKey === selType;
+      p.classList.toggle('sel', active);
+      p.style.background  = active ? (et?.color || '') : '';
+      p.style.borderColor = active ? (et?.color || '') : '';
+      p.style.color       = active ? '#fff' : '';
+    });
+  });
+
+  document.getElementById('gi-cancel')?.addEventListener('click', closeModal);
+
+  document.getElementById('gi-save')?.addEventListener('click', () => {
+    const name  = (document.getElementById('gi-name')?.value  || '').trim() || track.name;
+    const dayId = document.getElementById('gi-day')?.value;
+    const notes = (document.getElementById('gi-notes')?.value || '').trim();
+
+    const trip2 = getTrip(tripId);
+    if (!trip2) return;
+    const day = (trip2.days || []).find(d => d.id === dayId);
+    if (!day) { notify('Jour introuvable', '⚠️'); return; }
+
+    const startPt = track.points[0];
+    const selEt   = evtTypes.find(t => t.key === selType);
+    const event   = {
+      id:         'e_' + uid(),
+      type:       selType,
+      emoji:      selEt?.emoji || null,
+      color:      selEt?.color || null,
+      text:       name,
+      time:       null,
+      cost:       0,
+      notes,
+      lat:        startPt.lat,
+      lng:        startPt.lng,
+      gpxTrackId: track.id,
+      gpxStats:   stats,
+    };
+
+    if (day.lat == null) {
+      day.lat = startPt.lat;
+      day.lng = startPt.lng;
+    }
+    day.items.push(event);
+    updateTrip(tripId, { days: trip2.days });
+
+    saveLocalGpxTrack(tripId, track);
+
+    closeModal();
+    _openDayIds.add(dayId);
+    _renderDaysList(tripId);
+    _refreshMapPins(tripId);
+    _drawGpxOverlays(tripId);
+    notify(`Trace "${name}" importée`, '🥾');
+  });
 }
 
 // ─── Map initialization ───────────────────────────────────────────────────────
@@ -1196,6 +1408,49 @@ function _openEDP(dayId, evtIdx, tripId) {
 
   const inputStyle = 'width:100%;padding:5px 8px;border:1.5px solid var(--c3);border-radius:6px;font-size:12px;background:var(--bg);color:var(--ink);box-sizing:border-box';
 
+  // GPX stats block — shown only when this event is linked to a GPX track
+  let gpxSectionHtml = '';
+  if (item.gpxTrackId) {
+    const st    = item.gpxStats || {};
+    const distM = st.distanceM || 0;
+    const dist  = distM >= 1000 ? (distM / 1000).toFixed(1) + ' km' : distM + ' m';
+    const gain  = st.elevGain ? '+' + Math.round(st.elevGain) + ' m' : '—';
+    const loss  = st.elevLoss ? '−' + Math.round(st.elevLoss) + ' m' : '—';
+    let durHtml = '';
+    if (st.durationSecs) {
+      const h = Math.floor(st.durationSecs / 3600);
+      const m = Math.round((st.durationSecs % 3600) / 60);
+      const s = h > 0 ? `${h}h${String(m).padStart(2, '0')}` : `${m} min`;
+      durHtml = `<div style="text-align:center;grid-column:1/-1;margin-top:2px">
+        <div style="font-size:13px;font-weight:700;color:var(--ink)">${s}</div>
+        <div style="font-size:10px;color:var(--ink4)">Durée</div>
+      </div>`;
+    }
+    gpxSectionHtml = `
+      <div class="edp-sect">
+        <div class="edp-sect-lbl">Trace GPS</div>
+        <div style="background:var(--c2);border-radius:8px;padding:10px 12px;border:1px solid var(--c3)">
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;text-align:center">
+            <div>
+              <div style="font-size:14px;font-weight:700;color:var(--ink)">${dist}</div>
+              <div style="font-size:10px;color:var(--ink4)">Distance</div>
+            </div>
+            <div>
+              <div style="font-size:13px;font-weight:700;color:#16a34a">${gain}</div>
+              <div style="font-size:10px;color:var(--ink4)">Dénivelé +</div>
+            </div>
+            <div>
+              <div style="font-size:13px;font-weight:700;color:#e85d3e">${loss}</div>
+              <div style="font-size:10px;color:var(--ink4)">Dénivelé −</div>
+            </div>
+            ${durHtml}
+          </div>
+          ${st.pointCount ? `<div style="font-size:10px;color:var(--ink4);text-align:center;margin-top:4px">${st.pointCount} points GPS</div>` : ''}
+          <button id="edp-gpx-del" style="margin-top:8px;width:100%;background:none;border:1.5px solid #e85d3e;color:#e85d3e;border-radius:6px;padding:5px;font-size:11px;font-weight:700;cursor:pointer;font-family:var(--fn)">🗑 Supprimer la trace GPX</button>
+        </div>
+      </div>`;
+  }
+
   function _typeButtons() {
     const evtTypesEdp = getEventTypes();
     return evtTypesEdp.map(et => {
@@ -1252,6 +1507,7 @@ function _openEDP(dayId, evtIdx, tripId) {
         <div class="edp-sect-lbl">Notes</div>
         <textarea class="notes-ta" id="edp-notes" placeholder="Vos notes…" style="min-height:55px">${_esc(item.notes || '')}</textarea>
       </div>
+      ${gpxSectionHtml}
     </div>
     <div class="edp-actions">
       <button class="edp-del" id="edp-del">🗑 Supprimer</button>
@@ -1263,6 +1519,16 @@ function _openEDP(dayId, evtIdx, tripId) {
 
   // Animate in
   requestAnimationFrame(() => { edp.classList.add('open'); });
+
+  // GPX trace delete
+  if (item.gpxTrackId) {
+    edp.querySelector('#edp-gpx-del')?.addEventListener('click', () => {
+      if (!confirm(`Supprimer la trace GPX et cet événement ?`)) return;
+      removeLocalGpxTrack(tripId, item.gpxTrackId);
+      _deleteEvent(dayId, evtIdx, tripId);
+      _drawGpxOverlays(tripId);
+    });
+  }
 
   // Close
   edp.querySelector('#edp-close').addEventListener('click', () => {
