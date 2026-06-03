@@ -920,16 +920,23 @@ function _ensureWorldCopiesForViewport() {
 }
 
 function _makeDayIcon(day) {
-  const color = day.color || '#0d9488';
-  const label = day.num != null ? String(day.num) : '•';
+  const color      = day.color || '#0d9488';
+  const num        = day.num != null ? String(day.num) : '•';
+  const firstPin   = (day.items || []).find(it => it.lat != null && it.lng != null);
+  const typeEmoji  = firstPin ? tIc(firstPin.type, firstPin) : null;
+  const pinW       = typeEmoji ? 36 : 28;
+  const innerHtml  = typeEmoji
+    ? `<span style="font-size:10px;line-height:1;margin-right:1px">${typeEmoji}</span><span>${num}</span>`
+    : num;
+  const radius     = typeEmoji ? 'border-radius:10px' : 'border-radius:50%';
   return L.divIcon({
     className: '',
     html: `<div class="wp-pin">
-      <div class="pin-c" style="background:${color};">${label}</div>
+      <div class="pin-c" style="background:${color};width:${pinW}px;${radius}">${innerHtml}</div>
       <div class="pin-tail" style="background:${color};"></div>
     </div>`,
-    iconSize:   [28, 36],
-    iconAnchor: [14, 36],
+    iconSize:   [pinW, 36],
+    iconAnchor: [pinW / 2, 36],
     popupAnchor:[0, -38],
   });
 }
@@ -2230,7 +2237,18 @@ function _moveEvent(sourceDayId, evtIdx, targetDayId, tripId) {
   const [moved] = srcItems.splice(evtIdx, 1);
   srcDay.items = srcItems;
 
-  tgtDay.items = [...(tgtDay.items || []), moved];
+  // If the event's coords were the source day's representative pin (no other items
+  // with coords remain and they match the day's fallback), clear them so the target
+  // day doesn't inherit the wrong location.
+  const stillHaveCoords = srcItems.some(it => it.lat != null && it.lng != null);
+  const movedEvent = (
+    !stillHaveCoords &&
+    moved.lat != null &&
+    moved.lat === srcDay.lat &&
+    moved.lng === srcDay.lng
+  ) ? { ...moved, lat: null, lng: null } : moved;
+
+  tgtDay.items = [...(tgtDay.items || []), movedEvent];
 
   updateTrip(tripId, { days });
   _activeEvtKey = null;

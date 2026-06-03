@@ -1336,6 +1336,9 @@ html,body{height:100%;font-family:var(--fn);background:var(--c);color:var(--ink)
   .hs-v{font-size:17px}
   .home-sec{padding:12px 12px}
   .trips-grid{grid-template-columns:1fr;gap:10px}
+  /* Hide low-priority hero actions on small screens to save vertical space */
+  .hero-btn-import,.hero-btn-export{display:none}
+  .hl-tab{padding:4px 10px;font-size:11px}
 
   /* ── Trip cards: bigger action buttons for touch ── */
   .tc-edit-btn,.tc-share-btn{width:34px;height:34px;font-size:15px;border-radius:8px}
@@ -1848,16 +1851,17 @@ a.tl-sv-pill:hover{background:var(--c3);color:var(--ink)}
 .offline-bar.visible{transform:translateY(0)}
 
 /* ── Home library tabs ────────────────────────────────────────────────────── */
-.hl-tabs{display:flex;gap:8px;margin-bottom:14px}
+.hl-tabs{display:flex;gap:6px;margin-bottom:0;align-items:center}
+.hl-tabs-inline{margin-bottom:0}
 .hl-tab{
-  padding:7px 16px;border-radius:999px;font-size:12px;font-weight:700;
+  padding:5px 13px;border-radius:999px;font-size:12px;font-weight:700;
   cursor:pointer;border:1.5px solid var(--c3);background:var(--c);
-  color:var(--ink3);transition:all .15s;white-space:nowrap;
+  color:var(--ink3);transition:all .15s;white-space:nowrap;line-height:1.4;
 }
 .hl-tab.active{background:var(--teal);color:#fff;border-color:transparent;box-shadow:0 2px 8px rgba(13,148,136,.25)}
 .hl-tab-badge{
   display:inline-block;padding:1px 6px;border-radius:999px;
-  font-size:10px;font-weight:700;margin-left:5px;
+  font-size:10px;font-weight:700;margin-left:4px;
   background:rgba(255,255,255,.3);vertical-align:middle;
 }
 .hl-tab:not(.active) .hl-tab-badge{background:var(--teal);color:#fff}

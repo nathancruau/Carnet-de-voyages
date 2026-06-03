@@ -786,8 +786,8 @@ function _heroHtml(trips) {
         </div>
         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
           ${userHtml}
-          <button class="btn-new" data-action="open-import" title="Importer KML/CSV">⬆ Importer</button>
-          <button class="btn-new" data-action="export-all" title="Exporter tous les voyages en CSV">⬇ Exporter</button>
+          <button class="btn-new hero-btn-import" data-action="open-import" title="Importer KML/CSV">⬆ Importer</button>
+          <button class="btn-new hero-btn-export" data-action="export-all" title="Exporter tous les voyages en CSV">⬇ Exporter</button>
           <button class="btn-new" data-action="show-stats">📊 Statistiques</button>
           <button class="btn-new" data-action="open-mymap">🗺 MyMap</button>
           <button class="btn-new" data-action="open-settings" title="Paramètres" style="padding:6px 10px;font-size:16px;line-height:1">⚙️</button>
@@ -1024,8 +1024,9 @@ export function renderHome(filter = _currentFilter) {
   const myTrips        = sorted.filter(t => !isCurrentUserObserver(t.id));
   const observingTrips = allTrips.filter(t => isCurrentUserObserver(t.id));
 
-  const tabsHtml = `
-    <div class="hl-tabs">
+  // Inline tab switcher — lives inside home-sec-hd so it adds no extra row
+  const tabSwitcher = `
+    <div class="hl-tabs hl-tabs-inline">
       <button class="hl-tab${_homeLibTab === 'mine' ? ' active' : ''}" data-action="lib-tab" data-tab="mine">🧳 Mes voyages</button>
       <button class="hl-tab${_homeLibTab === 'observing' ? ' active' : ''}" data-action="lib-tab" data-tab="observing">
         📡 En direct${observingTrips.length > 0 ? `<span class="hl-tab-badge">${observingTrips.length}</span>` : ''}
@@ -1036,9 +1037,8 @@ export function renderHome(filter = _currentFilter) {
   if (_homeLibTab === 'observing') {
     secContent = `
       <div class="home-sec-hd">
-        <h2>En direct</h2>
+        ${tabSwitcher}
       </div>
-      ${tabsHtml}
       ${observingTrips.length === 0 ? `
         <div style="text-align:center;padding:40px 16px;color:var(--ink4)">
           <div style="font-size:36px;margin-bottom:10px">📡</div>
@@ -1051,10 +1051,9 @@ export function renderHome(filter = _currentFilter) {
   } else {
     secContent = `
       <div class="home-sec-hd">
-        <h2>Mes voyages</h2>
+        ${tabSwitcher}
         <button class="btn-new" data-action="new-trip">＋ Nouveau</button>
       </div>
-      ${tabsHtml}
       ${_filterTabsHtml(filter, 'trips')}
       <div id="search-results-area" class="sr-area" style="display:none"></div>
       <div class="trips-grid" id="trips-grid">
