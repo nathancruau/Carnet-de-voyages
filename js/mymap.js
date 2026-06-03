@@ -40,14 +40,28 @@ const _OSRM_PROFILE = { car: 'driving', bus: 'driving', foot: 'foot', bike: 'cyc
 
 // ── Country color mapping ──────────────────────────────────────────────────────
 
-/** Extract ISO-2 country code from a flag emoji. */
+/** Extract ISO-2 country code from a flag emoji or plain ISO text ("FR"). */
 function _isoFromFlag(flag) {
   if (!flag) return '';
-  const pts = [...flag]
-    .map(c => c.codePointAt(0))
-    .filter(cp => cp >= 0x1F1E6 && cp <= 0x1F1FF);
-  if (pts.length < 2) return '';
-  return pts.slice(0, 2).map(cp => String.fromCharCode(cp - 0x1F1E6 + 65)).join('');
+  const trimmed = flag.trim();
+  const pts = [...trimmed].map(c => c.codePointAt(0)).filter(cp => cp >= 0x1F1E6 && cp <= 0x1F1FF);
+  if (pts.length >= 2) return pts.slice(0, 2).map(cp => String.fromCharCode(cp - 0x1F1E6 + 65)).join('');
+  if (/^[A-Za-z]{2}$/.test(trimmed)) return trimmed.toUpperCase();
+  return '';
+}
+
+/** Return only the flag emoji characters (no ISO text suffix) for compact display. */
+function _flagEmojiOnly(flag) {
+  if (!flag) return '';
+  const trimmed = flag.trim();
+  const pts = [...trimmed].map(c => c.codePointAt(0)).filter(v => v >= 0x1F1E6 && v <= 0x1F1FF);
+  if (pts.length >= 2) return String.fromCodePoint(pts[0]) + String.fromCodePoint(pts[1]);
+  if (/^[A-Za-z]{2}$/.test(trimmed)) {
+    const iso = trimmed.toUpperCase();
+    return String.fromCodePoint(0x1F1E6 + iso.charCodeAt(0) - 65) +
+           String.fromCodePoint(0x1F1E6 + iso.charCodeAt(1) - 65);
+  }
+  return trimmed;
 }
 
 /** 12 visually distinct colors for country hashing. */
@@ -180,7 +194,7 @@ function _mmShowInfo(trip, entry) {
       ${!entry._validated && !entry.weather && !photosHtml && !entry.content
         ? `<div style="font-size:12px;color:var(--ink4)">Aucune information enregistrée pour ce PIN.</div>` : ''}
       ${entry.lat != null && entry.lng != null ? `
-        <a href="https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${entry.lat},${entry.lng}"
+        <a href="https://maps.google.com/maps?layer=c&cbll=${entry.lat},${entry.lng}"
            target="_blank" rel="noopener"
            style="display:block;margin-top:6px;width:100%;background:var(--c2);border:1.5px solid var(--c3);
                   border-radius:8px;padding:8px;font-size:12px;font-weight:700;cursor:pointer;
@@ -349,10 +363,13 @@ function _buildSidebarTree(pins) {
     }
   }
 
-  // Merge: always show all trips in sidebar (use allPins to build trip list), but pin rows show only visible pins
+  // Build trip list respecting the active type and tripId filters (pin-type filter only hides rows)
   const allTripMap = new Map();
   for (const { trip } of _allPins) {
-    if (!allTripMap.has(trip.id)) allTripMap.set(trip.id, { trip, pins: [] });
+    if (allTripMap.has(trip.id)) continue;
+    if (_filters.type   !== 'all' && trip.type  !== _filters.type)  continue;
+    if (_filters.tripId !== 'all' && trip.id    !== _filters.tripId) continue;
+    allTripMap.set(trip.id, { trip, pins: [] });
   }
   for (const pin of pins) {
     allTripMap.get(pin.trip.id)?.pins.push(pin);
@@ -392,7 +409,7 @@ function _buildSidebarTree(pins) {
           <span class="mm-trip-name${isFocused ? ' mm-trip-focused' : ''}"
                 onclick="_mmFocusTrip('${trip.id}')"
                 title="${isFocused ? 'Voir tous les voyages' : 'Filtrer sur ce voyage'}"
-                style="cursor:pointer">${fmtFlag(trip.flag)} ${trip.name}</span>
+                style="cursor:pointer">${_flagEmojiOnly(trip.flag)} ${trip.name}</span>
           <span class="mm-pin-count">${tPins.length}</span>
         </div>
         <div class="mm-trip-body">${pinsHtml || '<div style="padding:4px 12px 4px 28px;font-size:10px;color:var(--ink4)">Aucun PIN visible</div>'}</div>
@@ -801,14 +818,18 @@ export function renderMyMap() {
     _infoPanelEl = document.getElementById('mm-info-panel');
 
     _map = L.map('mymap', {
-      center:      [46.5, 2.5],
-      zoom:        5,
-      zoomControl: true,
+      center:             [46.5, 2.5],
+      zoom:               5,
+      zoomControl:        true,
+      minZoom:            2,
+      maxBounds:          [[-90, -180], [90, 180]],
+      maxBoundsViscosity: 1.0,
     });
 
     L.tileLayer('https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png', {
       attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
       maxZoom: 19,
+      noWrap:  true,
     }).addTo(_map);
 
     _redrawMarkers(pins);
