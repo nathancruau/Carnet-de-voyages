@@ -7,6 +7,7 @@
 
 import { getTrips, TRIP_TYPES, getPinTypes } from './store.js';
 import { fmtDate, fmtDateShort, trCol, fmtFlag } from './utils.js';
+import { parseGpx, generateGpx, downloadFile, estimateTileCount } from './gpx.js';
 
 // ── PIN type helper (dynamic from settings) ────────────────────────────────────
 
@@ -20,6 +21,7 @@ function _pinTypeMap() {
 let _map             = null;   // Leaflet map instance
 let _markers         = [];     // { marker, trip, entry } objects currently on the map
 let _routeLayers     = [];     // L.Polyline instances for trip routes
+let _gpxLayers       = [];     // L.Polyline instances for imported GPX overlays
 let _legendControl   = null;   // Leaflet legend control
 let _allPins         = [];     // All { trip, entry, lat, lng } built from store
 let _filters         = { type: 'all', pinType: 'all', tripId: 'all' };
@@ -492,8 +494,12 @@ function _sidebarHtml(pins) {
     </div>
 
     <div class="mm-sidebar-footer">
-      <button class="mm-export-btn" onclick="_mmExportKml()">⬇ Exporter KML</button>
+      <button class="mm-export-btn" onclick="_mmExportKml()">⬇ KML</button>
+      <button class="mm-export-btn" onclick="_mmExportGpx()">⬇ GPX</button>
+      <button class="mm-export-btn" onclick="_mmImportGpx()">↑ GPX</button>
+      <button class="mm-export-btn" onclick="_mmDownloadOffline()" title="Mettre les tuiles de carte en cache pour consultation hors-ligne">📶 Hors-ligne</button>
     </div>
+    <input type="file" id="mm-gpx-input" accept=".gpx" style="display:none">
   `;
 }
 
@@ -796,6 +802,114 @@ window._mmSetPinType = function(val) {
 
 window._mmExportKml = _mmExportKml;
 
+// ── GPX import / export ───────────────────────────────────────────────────────
+
+window._mmExportGpx = function() {
+  const pins = _visiblePins();
+  const waypoints = pins.map(({ trip, entry }) => ({
+    lat:  entry.lat,
+    lng:  entry.lng,
+    name: `${trip.name}${entry.title ? ' – ' + entry.title : ''}`,
+    desc: entry.date || '',
+  }));
+  const gpx = generateGpx('Carnet de Voyages', waypoints);
+  downloadFile('carnet-voyages.gpx', gpx);
+};
+
+window._mmImportGpx = function() {
+  const input = document.getElementById('mm-gpx-input');
+  if (!input) return;
+  input.onchange = async () => {
+    const file = input.files?.[0];
+    if (!file) return;
+    input.value = '';
+    try {
+      const text    = await file.text();
+      const { tracks, waypoints } = parseGpx(text);
+      if (!tracks.length && !waypoints.length) {
+        alert('Aucune trace trouvée dans ce fichier GPX.');
+        return;
+      }
+      // Draw tracks on map
+      const colors = ['#e85d3e','#0284c7','#16a34a','#7c3aed','#d97706','#db2777'];
+      tracks.forEach((trk, i) => {
+        const latlngs = trk.points.map(p => [p.lat, p.lng]);
+        const color   = colors[i % colors.length];
+        const line    = L.polyline(latlngs, { color, weight: 3, opacity: 0.8 });
+        line.bindTooltip(trk.name, { sticky: true });
+        line.addTo(_map);
+        _gpxLayers.push(line);
+      });
+      // Draw waypoints as small markers
+      waypoints.forEach(w => {
+        const mk = L.circleMarker([w.lat, w.lng], { radius: 5, color: '#f59e0b', fillColor: '#f59e0b', fillOpacity: 1 });
+        if (w.name) mk.bindTooltip(w.name);
+        mk.addTo(_map);
+        _gpxLayers.push(mk);
+      });
+      if (_gpxLayers.length && _map) {
+        const group = L.featureGroup(_gpxLayers.filter(l => l.getBounds || l.getLatLng));
+        try { _map.fitBounds(group.getBounds?.() || _map.getBounds(), { padding: [30, 30] }); } catch (_) {}
+      }
+    } catch (err) {
+      alert('Erreur : ' + err.message);
+    }
+  };
+  input.click();
+};
+
+window._mmClearGpx = function() {
+  for (const layer of _gpxLayers) { try { layer.remove(); } catch (_) {} }
+  _gpxLayers = [];
+};
+
+// ── Offline tile pre-cache ────────────────────────────────────────────────────
+
+window._mmDownloadOffline = function() {
+  if (!('serviceWorker' in navigator) || !navigator.serviceWorker.controller) {
+    alert('Le mode hors-ligne n\'est pas encore prêt. Rechargez la page et réessayez.');
+    return;
+  }
+
+  const pins = _visiblePins();
+  if (!pins.length) { alert('Aucun PIN visible à mettre en cache.'); return; }
+
+  const lats = pins.map(p => p.lat);
+  const lngs = pins.map(p => p.lng);
+  const bounds = {
+    north: Math.min(90,  Math.max(...lats) + 0.5),
+    south: Math.max(-90, Math.min(...lats) - 0.5),
+    east:  Math.min(180, Math.max(...lngs) + 0.5),
+    west:  Math.max(-180,Math.min(...lngs) - 0.5),
+  };
+
+  const MIN_Z = 5, MAX_Z = 13;
+  const count = estimateTileCount(bounds, MIN_Z, MAX_Z);
+  if (!confirm(`Télécharger environ ${count.toLocaleString()} tuiles pour cette zone (zoom ${MIN_Z}–${MAX_Z}) ?\nCela peut prendre quelques minutes.`)) return;
+
+  navigator.serviceWorker.controller.postMessage({ type: 'PRECACHE_TILES', ...bounds, minZoom: MIN_Z, maxZoom: MAX_Z });
+
+  const onMsg = e => {
+    if (e.data?.type === 'PRECACHE_PROGRESS') {
+      const pct = Math.round(e.data.done / e.data.total * 100);
+      document.getElementById('offline-bar')?.classList.add('visible');
+      const bar = document.getElementById('offline-bar');
+      if (bar) bar.textContent = `📶 Mise en cache hors-ligne : ${pct}% (${e.data.done}/${e.data.total})`;
+    }
+    if (e.data?.type === 'PRECACHE_DONE') {
+      navigator.serviceWorker.removeEventListener('message', onMsg);
+      const bar = document.getElementById('offline-bar');
+      if (bar) { bar.textContent = `✓ ${e.data.total.toLocaleString()} tuiles mises en cache — carte disponible hors-ligne`; }
+      setTimeout(() => {
+        document.getElementById('offline-bar')?.classList.remove('visible');
+        const b = document.getElementById('offline-bar');
+        if (b) b.textContent = '📶 Hors-ligne — les modifications sont enregistrées et se synchroniseront à la reconnexion';
+      }, 4000);
+    }
+  };
+  navigator.serviceWorker.addEventListener('message', onMsg);
+};
+
 window._mmToggleRoutes = function() {
   _showRoutes = !_showRoutes;
   const sidebar = document.getElementById('mm-sidebar');
@@ -897,6 +1011,7 @@ export function destroyMyMap() {
   }
   _markers         = [];
   _routeLayers     = [];
+  _gpxLayers       = [];
   _mergedPinsCache = [];
   _activeOffsets   = new Set();
 }

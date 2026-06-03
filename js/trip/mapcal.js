@@ -7,6 +7,7 @@
  */
 
 import { getTrip, updateTrip, saveData, uid, getEventTypes, getLanguage, isTripShared } from '../store.js';
+import { parseGpx, generateGpx, downloadFile, getLocalGpxTracks, saveLocalGpxTrack, removeLocalGpxTrack } from '../gpx.js';
 import { getSharedDocData, submitComment, deleteDayComment } from '../share.js';
 import { getCurrentUser } from '../auth.js';
 import {
@@ -155,6 +156,7 @@ function _fmtDistance(meters) {
 let _dragEvt          = null;      // { dayId, idx } being dragged
 let _pendingModeChange = null;     // callback for route-mode popup
 let _showDurLabels     = true;     // toggle duration labels on map routes
+let _gpxLayers         = [];       // Leaflet layers for GPX overlays
 
 // ─── Public API ───────────────────────────────────────────────────────────────
 
@@ -215,6 +217,15 @@ export function renderMapCal(tripId) {
         <button id="dur-toggle"
           style="position:absolute;bottom:24px;right:10px;z-index:1001;background:rgba(255,255,255,.92);border:1px solid rgba(0,0,0,.15);border-radius:8px;padding:5px 10px;font-size:11px;font-weight:600;cursor:pointer;box-shadow:0 1px 4px rgba(0,0,0,.15);white-space:nowrap;color:#1a1a1a"
           title="Afficher/masquer les durées de trajet">⏱ Durées</button>
+        <div id="gpx-toolbar" style="position:absolute;bottom:24px;left:10px;z-index:1001;display:flex;gap:5px">
+          <button id="gpx-export-btn"
+            style="background:rgba(255,255,255,.92);border:1px solid rgba(0,0,0,.15);border-radius:8px;padding:5px 10px;font-size:11px;font-weight:600;cursor:pointer;box-shadow:0 1px 4px rgba(0,0,0,.15);color:#1a1a1a"
+            title="Exporter le voyage en GPX">⬇ GPX</button>
+          <button id="gpx-import-btn"
+            style="background:rgba(255,255,255,.92);border:1px solid rgba(0,0,0,.15);border-radius:8px;padding:5px 10px;font-size:11px;font-weight:600;cursor:pointer;box-shadow:0 1px 4px rgba(0,0,0,.15);color:#1a1a1a"
+            title="Importer une trace GPX">↑ GPX</button>
+        </div>
+        <input type="file" id="gpx-file-input" accept=".gpx" style="display:none">
         <div id="map-srch" style="position:absolute;top:10px;left:50%;transform:translateX(-50%);z-index:1002;width:320px;max-width:calc(100% - 100px);pointer-events:all">
           <div style="display:flex;border-radius:10px;overflow:hidden;box-shadow:0 2px 14px rgba(0,0,0,.22)">
             <input id="ms-input" type="text" placeholder="🔍 Rechercher un lieu…" autocomplete="off"
@@ -300,6 +311,29 @@ export function renderMapCal(tripId) {
     });
   }
 
+  // Wire GPX buttons
+  panel.querySelector('#gpx-export-btn')?.addEventListener('click', () => _exportGpx(tripId));
+  const gpxInput = panel.querySelector('#gpx-file-input');
+  panel.querySelector('#gpx-import-btn')?.addEventListener('click', () => gpxInput?.click());
+  if (gpxInput) {
+    gpxInput.addEventListener('change', async () => {
+      const file = gpxInput.files?.[0];
+      if (!file) return;
+      gpxInput.value = '';
+      try {
+        const text  = await file.text();
+        const { tracks, waypoints } = parseGpx(text);
+        if (!tracks.length && !waypoints.length) { notify('Aucune trace dans ce fichier GPX.', '⚠️'); return; }
+        const colors = ['#e85d3e','#0284c7','#7c3aed','#16a34a','#d97706'];
+        const id     = 'gpx_' + Date.now();
+        const track  = { id, name: file.name.replace(/\.gpx$/i,''), color: colors[_gpxLayers.length % colors.length], points: tracks.flatMap(t => t.points), importedAt: new Date().toISOString() };
+        saveLocalGpxTrack(tripId, track);
+        _drawGpxOverlays(tripId);
+        notify(`Trace "${track.name}" importée (${track.points.length} pts)`, '🗺');
+      } catch (err) { notify('Erreur GPX : ' + err.message, '⚠️'); }
+    });
+  }
+
   // Wire duration labels toggle button
   const durToggleBtn = panel.querySelector('#dur-toggle');
   if (durToggleBtn) {
@@ -375,11 +409,55 @@ export function destroyMap() {
   }
   _markers      = {};
   _routeLayers  = [];
+  _gpxLayers    = [];
   _openDayIds   = new Set();
   _activeEvtKey = null;
   _pendingMapClick = null;
   _dragEvt      = null;
   _commentDayId = null;
+}
+
+// ─── GPX overlay rendering ────────────────────────────────────────────────────
+
+function _drawGpxOverlays(tripId) {
+  if (!_map) return;
+  for (const layer of _gpxLayers) { try { _map.removeLayer(layer); } catch (_) {} }
+  _gpxLayers = [];
+
+  for (const track of getLocalGpxTracks(tripId)) {
+    if (!track.points?.length) continue;
+    const latlngs = track.points.map(p => [p.lat, p.lng]);
+    const line    = L.polyline(latlngs, { color: track.color || '#e85d3e', weight: 3, opacity: 0.75, dashArray: '6 3' });
+    line.bindTooltip(track.name, { sticky: true });
+    // Right-click to delete the track
+    line.on('contextmenu', () => {
+      if (!confirm(`Supprimer la trace "${track.name}" ?`)) return;
+      removeLocalGpxTrack(tripId, track.id);
+      _drawGpxOverlays(tripId);
+    });
+    line.addTo(_map);
+    _gpxLayers.push(line);
+  }
+}
+
+function _exportGpx(tripId) {
+  const trip = getTrip(tripId);
+  if (!trip) return;
+  const waypoints = [];
+  for (const day of (trip.days || [])) {
+    for (const item of (day.items || [])) {
+      if (item.lat != null && item.lng != null) {
+        waypoints.push({ lat: item.lat, lng: item.lng, name: item.text || `Jour ${day.num}`, desc: day.date || '' });
+      }
+    }
+    if (!waypoints.length && day.lat != null && day.lng != null) {
+      waypoints.push({ lat: day.lat, lng: day.lng, name: `Jour ${day.num}`, desc: day.date || '' });
+    }
+  }
+  if (!waypoints.length) { notify('Aucun PIN à exporter.', '⚠️'); return; }
+  const gpx = generateGpx(trip.name, waypoints);
+  downloadFile(`${trip.name.replace(/[^a-z0-9]/gi, '-')}.gpx`, gpx);
+  notify(`${waypoints.length} waypoints exportés en GPX`, '✓');
 }
 
 // ─── Map initialization ───────────────────────────────────────────────────────
@@ -442,6 +520,7 @@ function _initMap(tripId) {
     _map.invalidateSize();
 
     _refreshMapPins(tripId);
+    _drawGpxOverlays(tripId);
   });
 }
 
