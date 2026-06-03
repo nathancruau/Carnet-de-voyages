@@ -30,7 +30,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,600;0,700;1,400;1,600;1,700&family=Nunito:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="style.css?v=60" />
+  <link rel="stylesheet" href="style.css?v=61" />
   <script>
     (function(){try{
       var d=JSON.parse(localStorage.getItem('carnet_voyages_v1')||'{}');
@@ -86,16 +86,25 @@
 
   <script src="vendor/leaflet.js"></script>
   <script>
+    function _showErr(msg, detail) {
+      // Don't replace body if already showing an error (prevents double-trigger)
+      if (document.getElementById('_err-box')) return;
+      var box = document.createElement('div');
+      box.id = '_err-box';
+      box.style.cssText = 'font-family:monospace;padding:24px;background:#fee;border:2px solid red;margin:20px;border-radius:8px;position:fixed;top:20px;left:20px;right:20px;z-index:9999999';
+      box.innerHTML = '<b>Erreur :</b> ' + msg
+        + (detail ? '<br><span style="font-size:11px;color:#888">' + detail + '</span>' : '')
+        + '<br><br><button onclick="location.reload()" style="padding:6px 14px;background:#0d9488;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:13px;font-weight:700">↺ Recharger</button>'
+        + ' <button onclick="caches.keys().then(ks=>Promise.all(ks.map(k=>caches.delete(k)))).then(()=>location.reload())" style="padding:6px 14px;background:#666;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:13px;margin-left:6px">Vider cache + recharger</button>';
+      document.body.appendChild(box);
+    }
     window.addEventListener('error', function(e) {
-      document.body.innerHTML = '<div style="font-family:monospace;padding:24px;background:#fee;border:2px solid red;margin:20px;border-radius:8px">'
-        + '<b>Erreur JavaScript :</b><br>' + (e.message || '') + '<br>'
-        + (e.filename ? e.filename.split('/').pop() + ':' + e.lineno : '')
-        + '</div>';
+      var detail = e.filename ? e.filename.split('/').pop() + ':' + e.lineno : '';
+      // "Script error." = module load failure or cross-origin — offer cache clear
+      _showErr(e.message || 'Erreur inconnue', detail);
     });
     window.addEventListener('unhandledrejection', function(e) {
-      document.body.innerHTML = '<div style="font-family:monospace;padding:24px;background:#fee;border:2px solid red;margin:20px;border-radius:8px">'
-        + '<b>Erreur Promise :</b><br>' + (e.reason?.message || String(e.reason))
-        + '</div>';
+      _showErr('Promise: ' + (e.reason?.message || String(e.reason)), '');
     });
   </script>
   <!-- PWA install prompt (Android) -->
@@ -150,6 +159,6 @@
       if (bar) bar.style.display = 'none';
     }
   </script>
-  <script type="module" src="js/app.js?v=60"></script>
+  <script type="module" src="js/app.js?v=61"></script>
 </body>
 </html>

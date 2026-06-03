@@ -6,7 +6,7 @@
    - Firebase   : network-only (handles its own offline via IndexedDB)
    ============================================================ */
 
-const SHELL_CACHE = 'cv-shell-60';
+const SHELL_CACHE = 'cv-shell-61';
 const TILE_CACHE  = 'cv-tiles-1';
 
 const SHELL_URLS = [
@@ -95,8 +95,9 @@ async function _cacheFirst(req) {
 
 async function _staleWhileRevalidate(req) {
   const cache  = await caches.open(SHELL_CACHE);
-  const cached = await cache.match(req);
-  // Always revalidate in background
+  // Match exact URL first, then fall back ignoring query string (handles ?v=XX cache-busting)
+  const cached = await cache.match(req) || await cache.match(req, { ignoreSearch: true });
+  // Always revalidate in background; cache under the exact versioned URL
   const update = fetch(req).then(fresh => {
     if (fresh.ok) cache.put(req, fresh.clone());
     return fresh;
