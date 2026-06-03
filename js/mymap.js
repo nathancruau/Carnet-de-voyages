@@ -31,6 +31,7 @@ let _footerExpanded  = false;      // tools/export footer collapsed by default
 let _infoPanelEl     = null;   // info panel DOM element
 let _mergedPinsCache = [];     // current merged pins, kept for dynamic world-copy expansion
 let _activeOffsets   = new Set(); // longitude offsets (multiples of 360) that have markers placed
+let _gpxTrackLayer   = null;   // active GPX polyline drawn when info panel is open
 
 // Transport mode metadata (mirrors mapcal.js / utils.trCol)
 const _TR_MODES = [
@@ -160,57 +161,128 @@ function _makeMultiIcon(count) {
   });
 }
 
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function _fmtDuration(secs) {
+  const h = Math.floor(secs / 3600);
+  const m = Math.floor((secs % 3600) / 60);
+  return h > 0 ? `${h}h${m > 0 ? m + 'min' : ''}` : `${m}min`;
+}
+
+function _mmClearGpxTrack() {
+  if (_gpxTrackLayer && _map) {
+    try { _map.removeLayer(_gpxTrackLayer); } catch (_) {}
+    _gpxTrackLayer = null;
+  }
+}
+
 // ── Info panel (rich display on pin/legend click) ──────────────────────────────
 
 function _mmShowInfo(trip, entry) {
   if (!_infoPanelEl) return;
 
-  const photosHtml = (entry.photos || []).length > 0
-    ? `<div style="display:flex;gap:5px;flex-wrap:nowrap;overflow-x:auto;padding:2px 0 6px;scrollbar-width:thin">
-        ${entry.photos.slice(0, 6).map(p =>
-          `<img src="${_esc(p.url)}" onclick="window.open(this.src,'_blank')"
-            style="height:80px;min-width:80px;border-radius:8px;object-fit:cover;cursor:pointer;flex-shrink:0;border:1px solid var(--c3)"
-            onerror="this.style.display='none'">`
-        ).join('')}
+  // Clear any GPX track drawn for a previous pin
+  _mmClearGpxTrack();
+
+  const _ptm      = _pinTypeMap();
+  const typeEmoji = (entry.pinType && _ptm[entry.pinType]) ? _ptm[entry.pinType] : '📍';
+  const color     = _colorForFlag(trip.flag);
+  const photos    = entry.photos || [];
+
+  // Hero photo — large banner at the top
+  const heroPhoto = photos[0];
+  const photoHeroHtml = heroPhoto
+    ? `<div style="width:100%;height:130px;overflow:hidden;flex-shrink:0;position:relative;cursor:pointer"
+            onclick="window.open('${_esc(heroPhoto.url)}','_blank')">
+         <img src="${_esc(heroPhoto.url)}"
+              style="width:100%;height:100%;object-fit:cover"
+              onerror="this.parentElement.style.display='none'">
+         ${photos.length > 1
+           ? `<span style="position:absolute;bottom:6px;right:8px;background:rgba(0,0,0,.6);color:#fff;
+                            border-radius:12px;padding:2px 8px;font-size:10px;font-weight:700">
+                +${photos.length - 1} photo${photos.length > 2 ? 's' : ''}
+              </span>`
+           : ''}
        </div>`
     : '';
 
-  const _ptm    = _pinTypeMap();
-  const typeEmoji = (entry.pinType && _ptm[entry.pinType]) ? _ptm[entry.pinType] : '';
-  const color   = _colorForFlag(trip.flag);
+  // Metadata pills row
+  const pills = [
+    entry.dayLabel  ? `<span class="mm-pill">📅 ${_esc(entry.dayLabel)}</span>` : '',
+    entry.date && !entry.dayLabel ? `<span class="mm-pill">📅 ${fmtDate(entry.date)}</span>` : '',
+    entry.weather   ? `<span class="mm-pill">${entry.weather}</span>` : '',
+    entry.amount    ? `<span class="mm-pill">💶 ${Number(entry.amount).toLocaleString('fr-FR',{minimumFractionDigits:2})} €</span>` : '',
+    entry._validated ? `<span class="mm-pill" style="background:#dcfce7;border-color:#bbf7d0;color:#16a34a">✓ Validé</span>` : '',
+  ].filter(Boolean).join('');
+
+  // GPX stats section + draw polyline on map
+  let gpxHtml = '';
+  if (entry.gpxStats) {
+    const gs   = entry.gpxStats;
+    const dist = gs.distanceM >= 1000
+      ? `${(gs.distanceM / 1000).toFixed(1)} km`
+      : `${gs.distanceM} m`;
+    const gpxPills = [
+      `<span class="mm-pill mm-pill-gpx">📏 ${dist}</span>`,
+      gs.elevGain   ? `<span class="mm-pill mm-pill-gpx">↑ ${gs.elevGain} m</span>`              : '',
+      gs.elevLoss   ? `<span class="mm-pill mm-pill-gpx">↓ ${gs.elevLoss} m</span>`              : '',
+      gs.durationSecs ? `<span class="mm-pill mm-pill-gpx">⏱ ${_fmtDuration(gs.durationSecs)}</span>` : '',
+      gs.speedAvgKph  ? `<span class="mm-pill mm-pill-gpx">⚡ ${gs.speedAvgKph.toFixed(1)} km/h</span>` : '',
+    ].filter(Boolean).join('');
+    gpxHtml = `
+      <div style="border-top:1px solid var(--c3);padding-top:10px;margin-top:4px">
+        <div style="font-size:10px;font-weight:700;color:var(--ink4);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">🛤 Trace GPX</div>
+        <div style="display:flex;flex-wrap:wrap;gap:5px">${gpxPills}</div>
+      </div>`;
+
+    // Draw the GPX polyline on the map
+    if (entry.gpxPoints && entry.gpxPoints.length > 1 && _map) {
+      const latlngs = entry.gpxPoints.map(p => [p.lat, p.lng]);
+      _gpxTrackLayer = L.polyline(latlngs, {
+        color: '#e85d3e', weight: 3.5, opacity: 0.85,
+      }).addTo(_map);
+    }
+  }
+
+  // Notes / content
+  const contentHtml = entry.content
+    ? `<div style="font-size:12px;color:var(--ink2);white-space:pre-wrap;line-height:1.55;background:var(--c2);border-radius:8px;padding:10px 12px;border:1px solid var(--c3)">${_esc(entry.content)}</div>`
+    : '';
+
+  const emptyHtml = !entry._validated && !entry.weather && !photos.length && !entry.content && !entry.gpxStats
+    ? `<div style="font-size:12px;color:var(--ink4);text-align:center;padding:8px 0">Aucune information enregistrée pour ce PIN.</div>`
+    : '';
 
   _infoPanelEl.innerHTML = `
+    ${photoHeroHtml}
     <div style="padding:12px 14px;border-bottom:1px solid var(--c3);display:flex;align-items:flex-start;gap:8px;flex-shrink:0">
       <div style="flex:1;min-width:0">
-        <div style="font-size:11px;font-weight:700;color:${color};margin-bottom:2px">${_esc(fmtFlag(trip.flag))} ${_esc(trip.name)}</div>
-        <div style="font-size:14px;font-weight:700;color:var(--ink)">${typeEmoji} ${_esc(entry.title)}</div>
-        ${entry.dayLabel ? `<div style="font-size:11px;color:var(--ink4);margin-top:1px">📅 ${_esc(entry.dayLabel)}</div>` : ''}
-        ${entry.date    ? `<div style="font-size:11px;color:var(--ink4)">${fmtDate(entry.date)}</div>` : ''}
+        <div style="font-size:10px;font-weight:700;color:${color};margin-bottom:3px">${_esc(fmtFlag(trip.flag))} ${_esc(trip.name)}</div>
+        <div style="font-size:15px;font-weight:700;color:var(--ink);line-height:1.25">${typeEmoji} ${_esc(entry.title)}</div>
+        ${pills ? `<div style="display:flex;flex-wrap:wrap;gap:5px;margin-top:7px">${pills}</div>` : ''}
       </div>
       <button onclick="_mmCloseInfo()"
-        style="background:none;border:none;cursor:pointer;color:var(--ink4);font-size:16px;padding:0;line-height:1;flex-shrink:0">✕</button>
+        style="background:none;border:none;cursor:pointer;color:var(--ink4);font-size:16px;padding:0;line-height:1;flex-shrink:0;margin-top:2px">✕</button>
     </div>
-    <div style="padding:12px 14px;flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:8px">
-      ${entry._validated ? `<div style="font-size:11px;font-weight:700;color:#16a34a">✓ Activité validée</div>` : ''}
-      ${entry.weather    ? `<div style="font-size:24px">${entry.weather}</div>` : ''}
-      ${photosHtml}
-      ${entry.content    ? `<div style="font-size:12px;color:var(--ink2);white-space:pre-wrap;line-height:1.5">${_esc(entry.content)}</div>` : ''}
-      ${entry.amount     ? `<div style="font-size:12px;color:var(--ink3)">💶 ${entry.amount} €</div>` : ''}
-      ${!entry._validated && !entry.weather && !photosHtml && !entry.content
-        ? `<div style="font-size:12px;color:var(--ink4)">Aucune information enregistrée pour ce PIN.</div>` : ''}
-      ${entry.lat != null && entry.lng != null ? `
-        <a href="https://maps.google.com/maps?layer=c&cbll=${entry.lat},${entry.lng}"
-           target="_blank" rel="noopener"
-           style="display:block;margin-top:6px;width:100%;background:var(--c2);border:1.5px solid var(--c3);
-                  border-radius:8px;padding:8px;font-size:12px;font-weight:700;cursor:pointer;
-                  font-family:var(--fn);text-align:center;color:var(--ink3);text-decoration:none">
-          🔭 Street View
-        </a>` : ''}
-      <button onclick="window.navigateToTrip && window.navigateToTrip('${trip.id}')"
-        style="margin-top:6px;width:100%;background:var(--teal);color:#fff;border:none;border-radius:8px;
-               padding:8px;font-size:12px;font-weight:700;cursor:pointer;font-family:var(--fn)">
-        Ouvrir le voyage →
-      </button>
+    <div style="padding:12px 14px;flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:10px;min-height:0">
+      ${contentHtml}
+      ${gpxHtml}
+      ${emptyHtml}
+      <div style="margin-top:auto;display:flex;flex-direction:column;gap:6px;padding-top:8px">
+        ${entry.lat != null && entry.lng != null ? `
+          <a href="https://maps.google.com/maps?layer=c&cbll=${entry.lat},${entry.lng}"
+             target="_blank" rel="noopener"
+             style="display:block;width:100%;background:var(--c2);border:1.5px solid var(--c3);
+                    border-radius:8px;padding:8px;font-size:12px;font-weight:700;cursor:pointer;
+                    font-family:var(--fn);text-align:center;color:var(--ink3);text-decoration:none">
+            🔭 Street View
+          </a>` : ''}
+        <button onclick="window.navigateToTrip && window.navigateToTrip('${trip.id}')"
+          style="width:100%;background:linear-gradient(135deg,var(--teal) 0%,var(--td) 100%);color:#fff;border:none;border-radius:8px;
+                 padding:9px;font-size:12px;font-weight:700;cursor:pointer;font-family:var(--fn)">
+          Ouvrir le voyage →
+        </button>
+      </div>
     </div>
   `;
 
@@ -287,6 +359,9 @@ function _buildAllPins() {
             photos:     (jd.photos || []).map(p => ({ url: p })),
             content:    jd.notes   || '',
             weather:    jd.weather || '',
+            gpxStats:   item.gpxStats  || null,
+            gpxPoints:  item.gpxPoints || null,
+            gpxTrackId: item.gpxTrackId || null,
             amount:     jd.amount  || 0,
             tags:       [],
             _validated: !!jd.validated,
@@ -760,6 +835,7 @@ window._mmFlyTo = function(lat, lng, tripId) {
 };
 
 window._mmCloseInfo = function() {
+  _mmClearGpxTrack();
   if (_infoPanelEl) _infoPanelEl.style.display = 'none';
 };
 
@@ -1034,6 +1110,7 @@ export function renderMyMap() {
 }
 
 export function destroyMyMap() {
+  _mmClearGpxTrack();
   if (_legendControl) { try { _legendControl.remove(); } catch (_) {} _legendControl = null; }
   if (_map) {
     try { _map.remove(); } catch (_) { /* already removed */ }
