@@ -398,7 +398,7 @@ function _buildSidebarTree(pins) {
             <span class="mm-trip-chevron" style="pointer-events:none;cursor:default">▶</span>
             <span style="font-size:15px">${typeInfo.icon}</span>
             <span class="mm-trip-name${isFocused ? ' mm-trip-focused' : ''}" style="cursor:pointer">
-              ${_flagEmojiOnly(trip.flag)} ${_esc(trip.name)}
+              ${_isoFromFlag(trip.flag)} ${_esc(trip.name)}
             </span>
             <span style="font-size:11px;flex-shrink:0">${pinEmoji}</span>
             ${dateStr ? `<span style="font-size:9px;color:var(--ink4);flex-shrink:0;margin-left:2px">${dateStr}</span>` : ''}
@@ -435,7 +435,7 @@ function _buildSidebarTree(pins) {
           <span class="mm-trip-name${isFocused ? ' mm-trip-focused' : ''}"
                 onclick="_mmFocusTrip('${trip.id}')"
                 title="${isFocused ? 'Voir tous les voyages' : 'Filtrer sur ce voyage'}"
-                style="cursor:pointer">${_flagEmojiOnly(trip.flag)} ${_esc(trip.name)}</span>
+                style="cursor:pointer">${_isoFromFlag(trip.flag)} ${_esc(trip.name)}</span>
           <span class="mm-pin-count">${tPins.length}</span>
         </div>
         <div class="mm-trip-body">${pinsHtml || '<div style="padding:4px 12px 4px 28px;font-size:10px;color:var(--ink4)">Aucun PIN visible</div>'}</div>
@@ -638,7 +638,7 @@ async function _redrawRoutes() {
       }
 
       if (!_map || !line) return;
-      line.bindTooltip(`${trip.flag || ''} ${trip.name}`, { sticky: true, className: 'mm-route-tooltip' });
+      line.bindTooltip(`${_isoFromFlag(trip.flag)} ${trip.name}`, { sticky: true, className: 'mm-route-tooltip' });
       line.addTo(_map);
       _routeLayers.push(line);
     }
