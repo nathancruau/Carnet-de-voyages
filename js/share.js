@@ -310,7 +310,14 @@ async function _loadAndListen(tripId) {
   if (!doc?.trip) return;
 
   markTripShared(tripId);
-  replaceTripFromNetwork(tripId, doc.trip);
+  // Only replace local data if cloud version is at least as recent (prevents overwriting unsaved edits)
+  const localTrip = getTrip(tripId);
+  if (!localTrip || (doc.trip.updatedAt || 0) >= (localTrip.updatedAt || 0)) {
+    replaceTripFromNetwork(tripId, doc.trip);
+  } else {
+    // Local version is newer — push it to Firestore instead of overwriting
+    saveSharedTrip(tripId, localTrip).catch(() => {});
+  }
   _sharedDocData.set(tripId, doc);
 
   // Mark current user as present

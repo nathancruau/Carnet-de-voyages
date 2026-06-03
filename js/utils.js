@@ -173,7 +173,13 @@ export function fmtFlag(flag) {
     const iso = String.fromCharCode(pts[0] - 0x1F1E6 + 65) + String.fromCharCode(pts[1] - 0x1F1E6 + 65);
     return String.fromCodePoint(pts[0]) + String.fromCodePoint(pts[1]) + ' ' + iso;
   }
-  return flag;
+  if (/^[A-Za-z]{2}$/.test(flag.trim())) {
+    const iso = flag.trim().toUpperCase();
+    const emoji = String.fromCodePoint(0x1F1E6 + iso.charCodeAt(0) - 65) +
+                  String.fromCodePoint(0x1F1E6 + iso.charCodeAt(1) - 65);
+    return emoji + ' ' + iso;
+  }
+  return flag.trim();
 }
 
 // ── Date picker ────────────────────────────────────────────────────────────────
