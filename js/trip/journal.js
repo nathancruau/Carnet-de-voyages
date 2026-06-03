@@ -97,11 +97,13 @@ const _handlers = new WeakMap();
 
 // ── Map state ─────────────────────────────────────────────────────────────────
 
-let _journalMap          = null;
-let _journalMarkers      = {};
-let _journalRouteLayers  = [];
-let _journalGpxLayers    = [];
-let _journalTripId       = null;
+let _journalMap              = null;
+let _journalMarkers          = {};
+let _journalRouteLayers      = [];
+let _journalGpxLayers        = [];
+let _journalTripId           = null;
+let _journalWorldCopyMarkers = [];   // non-interactive copies at ±360° offsets
+let _journalWorldCopyOffsets = new Set();
 
 // ── Day filter state ──────────────────────────────────────────────────────────
 
@@ -719,10 +721,12 @@ function _initJournalMap(tripId) {
 
     _journalMap = L.map('journal-map', {
       center, zoom, zoomControl: true,
-      worldCopyJump:      false,
+      minZoom:            2,
       maxBounds:          [[-85.051129, -1e10], [85.051129, 1e10]],
       maxBoundsViscosity: 1.0,
     });
+
+    _journalMap.on('moveend', _ensureJournalWorldCopies);
 
     const lang = getLanguage();
     const tileUrl = lang === 'en'
@@ -748,6 +752,9 @@ function _refreshJournalPins(tripId) {
   _journalMarkers = {};
   _journalGpxLayers.forEach(l => { try { _journalMap.removeLayer(l); } catch (_) {} });
   _journalGpxLayers = [];
+  _journalWorldCopyMarkers.forEach(m => { try { _journalMap.removeLayer(m); } catch (_) {} });
+  _journalWorldCopyMarkers = [];
+  _journalWorldCopyOffsets.clear();
 
   const etMap = _etMap();
   const allPinLatLngs = [];
@@ -791,6 +798,35 @@ function _refreshJournalPins(tripId) {
     _journalMap.setView(allPinLatLngs[0], 10, { animate: true });
   } else if (allPinLatLngs.length > 1) {
     _journalMap.fitBounds(allPinLatLngs, { padding: [40, 40], maxZoom: 12 });
+  }
+
+  // Seed ±1 and ±2 world-copy marker sets immediately
+  _placeJournalWorldCopies(1);
+  _placeJournalWorldCopies(-1);
+}
+
+function _placeJournalWorldCopies(offsetMultiple) {
+  if (!_journalMap) return;
+  if (_journalWorldCopyOffsets.has(offsetMultiple)) return;
+  _journalWorldCopyOffsets.add(offsetMultiple);
+  const lngOffset = offsetMultiple * 360;
+  Object.values(_journalMarkers).forEach(m => {
+    const ll   = m.getLatLng();
+    const copy = L.marker([ll.lat, ll.lng + lngOffset], {
+      icon: m.options.icon, interactive: false, keyboard: false,
+    });
+    copy.addTo(_journalMap);
+    _journalWorldCopyMarkers.push(copy);
+  });
+}
+
+function _ensureJournalWorldCopies() {
+  if (!_journalMap) return;
+  const b      = _journalMap.getBounds();
+  const minOff = Math.floor(b.getWest() / 360);
+  const maxOff = Math.ceil(b.getEast() / 360);
+  for (let o = minOff; o <= maxOff; o++) {
+    if (o !== 0) _placeJournalWorldCopies(o);
   }
 }
 
@@ -1211,9 +1247,16 @@ function _openValidateModal(tripId, dayId, itemIdx) {
     </div>
 
     <div class="ma">
+      ${jd.validated ? `<button class="bc" id="vld-devalidate" style="color:var(--coral);border-color:var(--coral)">✕ Dévalider</button>` : ''}
       <button class="bc" onclick="closeModal()">Annuler</button>
       <button class="bs" id="vld-save">Enregistrer</button>
     </div>`);
+
+  // Dévalider
+  document.getElementById('vld-devalidate')?.addEventListener('click', () => {
+    closeModal();
+    _devalidateItem(tripId, dayId, itemIdx);
+  });
 
   // Weather picker
   document.getElementById('vld-weather-row')?.addEventListener('click', ev => {

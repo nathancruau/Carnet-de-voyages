@@ -159,6 +159,8 @@ let _dragEvt          = null;      // { dayId, idx } being dragged
 let _pendingModeChange = null;     // callback for route-mode popup
 let _showDurLabels     = true;     // toggle duration labels on map routes
 let _gpxLayers         = [];       // Leaflet layers for GPX overlays
+let _worldCopyMarkers  = [];       // non-interactive copies at ±360° offsets
+let _worldCopyOffsets  = new Set();
 
 // ─── Public API ───────────────────────────────────────────────────────────────
 
@@ -733,10 +735,12 @@ function _initMap(tripId) {
 
     _map = L.map('map', {
       center, zoom, zoomControl: true,
-      worldCopyJump:      false,
+      minZoom:            2,
       maxBounds:          [[-85.051129, -1e10], [85.051129, 1e10]],
       maxBoundsViscosity: 1.0,
     });
+
+    _map.on('moveend', _ensureWorldCopiesForViewport);
     if (!_showDurLabels) _map.getContainer().classList.add('hide-dur-labels');
 
     const _lang = getLanguage();
@@ -774,9 +778,12 @@ function _refreshMapPins(tripId) {
   const trip = getTrip(tripId);
   if (!trip) return;
 
-  // Remove existing markers
+  // Remove existing markers and world-copy clones
   Object.values(_markers).forEach(m => { try { _map.removeLayer(m); } catch (_) {} });
   _markers = {};
+  _worldCopyMarkers.forEach(m => { try { _map.removeLayer(m); } catch (_) {} });
+  _worldCopyMarkers = [];
+  _worldCopyOffsets.clear();
 
   // Remove existing route layers
   _routeLayers.forEach(l => { try { _map.removeLayer(l); } catch (_) {} });
@@ -838,6 +845,10 @@ function _refreshMapPins(tripId) {
     _drawRoutes(trip, days, _drawRouteGen);
   }
 
+  // Seed ±1 world-copy marker sets so pins appear when scrolling left/right
+  _placeWorldCopies(1);
+  _placeWorldCopies(-1);
+
   // Fit bounds if we have pins
   if (days.length === 1) {
     const pos0 = _getDayMarkerPos(days[0]);
@@ -845,6 +856,31 @@ function _refreshMapPins(tripId) {
   } else if (days.length > 1) {
     const bounds = days.map(d => { const p = _getDayMarkerPos(d); return [p.lat, p.lng]; });
     _map.fitBounds(bounds, { padding: [40, 40], maxZoom: 12 });
+  }
+}
+
+function _placeWorldCopies(offsetMultiple) {
+  if (!_map) return;
+  if (_worldCopyOffsets.has(offsetMultiple)) return;
+  _worldCopyOffsets.add(offsetMultiple);
+  const lngOffset = offsetMultiple * 360;
+  Object.values(_markers).forEach(m => {
+    const ll   = m.getLatLng();
+    const copy = L.marker([ll.lat, ll.lng + lngOffset], {
+      icon: m.options.icon, interactive: false, keyboard: false,
+    });
+    copy.addTo(_map);
+    _worldCopyMarkers.push(copy);
+  });
+}
+
+function _ensureWorldCopiesForViewport() {
+  if (!_map) return;
+  const b      = _map.getBounds();
+  const minOff = Math.floor(b.getWest() / 360);
+  const maxOff = Math.ceil(b.getEast() / 360);
+  for (let o = minOff; o <= maxOff; o++) {
+    if (o !== 0) _placeWorldCopies(o);
   }
 }
 
