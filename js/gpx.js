@@ -58,22 +58,39 @@ export function computeGpxStats(points) {
   let elevGain     = 0;
   let elevLoss     = 0;
   let durationSecs = null;
+  let speedMaxKph  = null;
 
   for (let i = 1; i < points.length; i++) {
     const a = points[i - 1];
     const b = points[i];
-    distanceM += _haversineM(a, b);
+    const seg = _haversineM(a, b);
+    distanceM += seg;
     if (a.ele != null && b.ele != null) {
       const diff = b.ele - a.ele;
       if (diff > 0) elevGain += diff;
       else elevLoss += -diff;
     }
+    if (a.time && b.time) {
+      const dt = (new Date(b.time).getTime() - new Date(a.time).getTime()) / 1000;
+      if (dt > 0) {
+        const kph = (seg / dt) * 3.6;
+        if (speedMaxKph === null || kph > speedMaxKph) speedMaxKph = kph;
+      }
+    }
   }
 
+  const eles = points.map(p => p.ele).filter(e => e != null);
+  const altMin = eles.length ? Math.round(Math.min(...eles)) : null;
+  const altMax = eles.length ? Math.round(Math.max(...eles)) : null;
+
+  let speedAvgKph = null;
   if (points.length > 1 && points[0].time && points[points.length - 1].time) {
     const t0 = new Date(points[0].time).getTime();
     const t1 = new Date(points[points.length - 1].time).getTime();
-    if (!isNaN(t0) && !isNaN(t1) && t1 > t0) durationSecs = Math.round((t1 - t0) / 1000);
+    if (!isNaN(t0) && !isNaN(t1) && t1 > t0) {
+      durationSecs = Math.round((t1 - t0) / 1000);
+      speedAvgKph  = (distanceM / durationSecs) * 3.6;
+    }
   }
 
   return {
@@ -82,6 +99,10 @@ export function computeGpxStats(points) {
     elevLoss:    Math.round(elevLoss),
     durationSecs,
     pointCount:  points.length,
+    altMin,
+    altMax,
+    speedAvgKph: speedAvgKph !== null ? Math.round(speedAvgKph * 10) / 10 : null,
+    speedMaxKph: speedMaxKph !== null ? Math.round(speedMaxKph * 10) / 10 : null,
   };
 }
 

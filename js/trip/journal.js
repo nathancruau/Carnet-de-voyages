@@ -68,6 +68,29 @@ function _dayLabel(trip, dayId) {
   return `Jour ${day.num}${day.title ? ' · ' + day.title : ''}`;
 }
 
+function _gpxStatsHtml(item) {
+  const s = item.gpxStats;
+  if (!s) return '';
+  const distKm = s.distanceM >= 1000 ? (s.distanceM / 1000).toFixed(1) + ' km' : s.distanceM + ' m';
+  let durationLabel = '';
+  if (s.durationSecs) {
+    const h = Math.floor(s.durationSecs / 3600);
+    const m = Math.floor((s.durationSecs % 3600) / 60);
+    durationLabel = h > 0 ? `${h}h${m.toString().padStart(2, '0')}` : `${m} min`;
+  }
+  const parts = [
+    `<span class="tl-meta-pill" style="background:#e0f2fe;color:#0284c7;border-color:#7dd3fc">📏 ${distKm}</span>`,
+    s.elevGain ? `<span class="tl-meta-pill" style="background:#dcfce7;color:#16a34a;border-color:#86efac">↑ ${s.elevGain} m</span>` : '',
+    s.elevLoss ? `<span class="tl-meta-pill" style="background:#fff7ed;color:#ea580c;border-color:#fdba74">↓ ${s.elevLoss} m</span>` : '',
+    s.altMin != null ? `<span class="tl-meta-pill">⛰ ${s.altMin}–${s.altMax} m</span>` : '',
+    s.speedAvgKph != null ? `<span class="tl-meta-pill">⚡ ${s.speedAvgKph} km/h moy.</span>` : '',
+    s.speedMaxKph != null ? `<span class="tl-meta-pill">🏎 ${s.speedMaxKph} km/h max</span>` : '',
+    durationLabel ? `<span class="tl-meta-pill">⏱ ${durationLabel}</span>` : '',
+  ].filter(Boolean);
+  if (!parts.length) return '';
+  return `<div class="tl-meta" style="margin-top:4px">${parts.join('')}</div>`;
+}
+
 // ── Handler registry (avoids double-binding) ─────────────────────────────────
 
 const _handlers = new WeakMap();
@@ -77,6 +100,7 @@ const _handlers = new WeakMap();
 let _journalMap          = null;
 let _journalMarkers      = {};
 let _journalRouteLayers  = [];
+let _journalGpxLayers    = [];
 let _journalTripId       = null;
 
 // ── Day filter state ──────────────────────────────────────────────────────────
@@ -93,6 +117,7 @@ export function destroyJournalMap() {
   }
   _journalMarkers     = {};
   _journalRouteLayers = [];
+  _journalGpxLayers   = [];
   _journalTripId      = null;
 }
 
@@ -338,6 +363,7 @@ function _buildObserverFeedHtml(validatedItems, tripId) {
             ${isNew ? `<span class="obs-new-badge">Nouveau</span>` : `<span class="obs-validated-badge">✓</span>`}
           </div>
           ${jd.notes ? `<div class="obs-notes">${_esc(jd.notes).replace(/\n/g, '<br>')}</div>` : ''}
+          ${_gpxStatsHtml(item)}
           ${photos.length > 0 ? `<div class="obs-photos">${photos.map(src =>
             `<img src="${_esc(src)}" class="obs-photo" onclick="window.open(this.src,'_blank')">`
           ).join('')}</div>` : ''}
@@ -512,6 +538,7 @@ function _tlItemHtml(day, item, itemIdx, isObserver, tripId, sharedDoc, currentU
         </div>
         ${photosHtml}
         ${notesHtml}
+        ${_gpxStatsHtml(item)}
         ${metaHtml.length > 0 ? `<div class="tl-meta">${metaHtml.join('')}</div>` : ''}
         ${interactionsHtml}
       </div>
@@ -707,6 +734,8 @@ function _refreshJournalPins(tripId) {
 
   Object.values(_journalMarkers).forEach(m => { try { _journalMap.removeLayer(m); } catch (_) {} });
   _journalMarkers = {};
+  _journalGpxLayers.forEach(l => { try { _journalMap.removeLayer(l); } catch (_) {} });
+  _journalGpxLayers = [];
 
   const etMap = _etMap();
   const allPinLatLngs = [];
@@ -733,6 +762,16 @@ function _refreshJournalPins(tripId) {
       marker.addTo(_journalMap);
       _journalMarkers[item.id] = marker;
       allPinLatLngs.push([item.lat, item.lng]);
+
+      // Draw GPX trace from synced gpxPoints (available to observers too)
+      if (item.gpxPoints && item.gpxPoints.length >= 2) {
+        const latlngs = item.gpxPoints.map(p => [p.lat, p.lng]);
+        const line = L.polyline(latlngs, { color: item.color || '#0891b2', weight: 3, opacity: 0.75 });
+        line.on('click', () => _openJournalItemPanel(tripId, day.id, itemIdx));
+        line.addTo(_journalMap);
+        _journalGpxLayers.push(line);
+        for (const ll of latlngs) allPinLatLngs.push(ll);
+      }
     });
   }
 
@@ -925,7 +964,8 @@ function _openJournalItemPanel(tripId, dayId, itemIdx) {
       ${jd.notes     ? `<div style="font-size:12px;color:var(--ink2);white-space:pre-wrap;margin-bottom:8px">${_esc(jd.notes)}</div>` : ''}
       ${photosHtml}
       ${jd.amount    ? `<div style="font-size:12px;color:var(--ink3);margin-top:4px">💶 ${jd.amount} €</div>` : ''}
-      ${!jd.validated && !jd.notes && !jd.weather && !photosHtml
+      ${item.gpxStats ? `<div style="margin-top:10px;border-top:1px solid var(--c3);padding-top:10px">${_gpxStatsHtml(item)}</div>` : ''}
+      ${!jd.validated && !jd.notes && !jd.weather && !photosHtml && !item.gpxStats
         ? `<div style="font-size:12px;color:var(--ink4)">Aucune information enregistrée.<br>Cliquez sur "Valider" pour documenter cette activité.</div>`
         : ''}
     </div>
@@ -1004,6 +1044,7 @@ function _buildActivitiesHtml(trip) {
           <div style="flex:1;min-width:0">
             <div style="font-weight:600;color:var(--ink);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_esc(item.text || '—')}</div>
             ${metaParts.length ? `<div style="font-size:10px;color:var(--ink4);margin-top:1px">${_esc(metaParts.join(' · '))}</div>` : ''}
+            ${item.gpxStats ? `<div style="font-size:10px;color:#0284c7;margin-top:2px">📏 ${item.gpxStats.distanceM >= 1000 ? (item.gpxStats.distanceM/1000).toFixed(1)+' km' : item.gpxStats.distanceM+' m'}${item.gpxStats.elevGain ? ' · ↑'+item.gpxStats.elevGain+'m' : ''}</div>` : ''}
             ${validated ? `<div style="font-size:10px;color:var(--td);margin-top:2px;display:flex;gap:4px;flex-wrap:wrap;align-items:center">
               <span style="font-weight:700">✓ Validé</span>
               ${jd.weather ? `<span>${jd.weather}</span>` : ''}
