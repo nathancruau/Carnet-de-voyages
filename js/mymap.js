@@ -393,7 +393,7 @@ function _buildSidebarTree(pins) {
         <div class="mm-trip-group" id="${groupId}">
           <div class="mm-trip-header" style="cursor:pointer"
                onclick="_mmFlyTo(${pin.lat}, ${pin.lng}, '${trip.id}')">
-            <span class="mm-trip-chevron" style="opacity:0;pointer-events:none">▼</span>
+            <span class="mm-trip-chevron" style="pointer-events:none;cursor:default">▼</span>
             <span style="font-size:15px">${typeInfo.icon}</span>
             <span class="mm-trip-name${isFocused ? ' mm-trip-focused' : ''}" style="cursor:pointer">
               ${_flagEmojiOnly(trip.flag)} ${_esc(trip.name)}
@@ -514,10 +514,15 @@ function _redrawMarkers(pins) {
     const color   = _colorForFlag(primary.entry?.dayFlag || primary.trip.flag);
     const emoji   = isMulti ? null : (_pinTypeMap()[primary.entry?.pinType] || null);
     const icon    = isMulti ? _makeMultiIcon(mp.entries.length) : _makeIcon(color, 14, emoji);
-    const marker  = L.marker([mp.lat, mp.lng], { icon });
-    marker.on('click', () => _mmShowMergedInfo(mp));
-    marker.addTo(_map);
-    _markers.push({ marker, trip: primary.trip, entry: primary.entry });
+
+    // Place marker on the canonical copy + the two adjacent world copies so
+    // panning east or west shows pins on every repeated tile set (no jump).
+    for (const offset of [0, 360, -360]) {
+      const marker = L.marker([mp.lat, mp.lng + offset], { icon });
+      marker.on('click', () => _mmShowMergedInfo(mp));
+      marker.addTo(_map);
+      _markers.push({ marker, trip: primary.trip, entry: primary.entry });
+    }
     bounds.push([mp.lat, mp.lng]);
   }
 
@@ -842,11 +847,10 @@ export function renderMyMap() {
     _infoPanelEl = document.getElementById('mm-info-panel');
 
     _map = L.map('mymap', {
-      center:         [46.5, 2.5],
-      zoom:           5,
-      zoomControl:    true,
-      minZoom:        3,       // prevents zooming out enough to see the world twice
-      worldCopyJump:  true,    // jumping back to the original copy when panning past antimeridian keeps pins visible
+      center:      [46.5, 2.5],
+      zoom:        5,
+      zoomControl: true,
+      minZoom:     3,
     });
 
     L.tileLayer('https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png', {
