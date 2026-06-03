@@ -377,11 +377,35 @@ function _buildSidebarTree(pins) {
 
   let html = '';
   for (const { trip, pins: tPins } of allTripMap.values()) {
-    const typeInfo    = TRIP_TYPES[trip.type] || TRIP_TYPES.voyage;
-    const color       = _colorForFlag(trip.flag);
-    const groupId     = 'mm-grp-' + trip.id;
+    const typeInfo = TRIP_TYPES[trip.type] || TRIP_TYPES.voyage;
+    const color    = _colorForFlag(trip.flag);
+    const groupId  = 'mm-grp-' + trip.id;
+    const isFocused = _filters.tripId === trip.id;
+
+    // Sorties have a single PIN — render as a flat clickable row (no collapsible body)
+    if (trip.type === 'sortie') {
+      if (tPins.length === 0) continue;
+      const pin = tPins[0];
+      const _ptm = _pinTypeMap();
+      const pinEmoji = (pin.entry?.pinType && _ptm[pin.entry.pinType]) ? _ptm[pin.entry.pinType] : '📍';
+      const dateStr = pin.entry.date ? fmtDateShort(pin.entry.date) : '';
+      html += `
+        <div class="mm-trip-group" id="${groupId}">
+          <div class="mm-trip-header" style="cursor:pointer"
+               onclick="_mmFlyTo(${pin.lat}, ${pin.lng}, '${trip.id}')">
+            <span class="mm-trip-chevron" style="opacity:0;pointer-events:none">▼</span>
+            <span style="font-size:15px">${typeInfo.icon}</span>
+            <span class="mm-trip-name${isFocused ? ' mm-trip-focused' : ''}" style="cursor:pointer">
+              ${_flagEmojiOnly(trip.flag)} ${_esc(trip.name)}
+            </span>
+            <span style="font-size:11px;flex-shrink:0">${pinEmoji}</span>
+            ${dateStr ? `<span style="font-size:9px;color:var(--ink4);flex-shrink:0;margin-left:2px">${dateStr}</span>` : ''}
+          </div>
+        </div>`;
+      continue;
+    }
+
     const isCollapsed = _collapsedGroups.has(trip.id);
-    const isFocused   = _filters.tripId === trip.id;
 
     const pinsHtml = tPins.map(pin => {
       const _ptm = _pinTypeMap();
@@ -409,7 +433,7 @@ function _buildSidebarTree(pins) {
           <span class="mm-trip-name${isFocused ? ' mm-trip-focused' : ''}"
                 onclick="_mmFocusTrip('${trip.id}')"
                 title="${isFocused ? 'Voir tous les voyages' : 'Filtrer sur ce voyage'}"
-                style="cursor:pointer">${_flagEmojiOnly(trip.flag)} ${trip.name}</span>
+                style="cursor:pointer">${_flagEmojiOnly(trip.flag)} ${_esc(trip.name)}</span>
           <span class="mm-pin-count">${tPins.length}</span>
         </div>
         <div class="mm-trip-body">${pinsHtml || '<div style="padding:4px 12px 4px 28px;font-size:10px;color:var(--ink4)">Aucun PIN visible</div>'}</div>
@@ -818,18 +842,16 @@ export function renderMyMap() {
     _infoPanelEl = document.getElementById('mm-info-panel');
 
     _map = L.map('mymap', {
-      center:             [46.5, 2.5],
-      zoom:               5,
-      zoomControl:        true,
-      minZoom:            2,
-      maxBounds:          [[-90, -180], [90, 180]],
-      maxBoundsViscosity: 1.0,
+      center:         [46.5, 2.5],
+      zoom:           5,
+      zoomControl:    true,
+      minZoom:        3,       // prevents zooming out enough to see the world twice
+      worldCopyJump:  true,    // jumping back to the original copy when panning past antimeridian keeps pins visible
     });
 
     L.tileLayer('https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png', {
       attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
       maxZoom: 19,
-      noWrap:  true,
     }).addTo(_map);
 
     _redrawMarkers(pins);
