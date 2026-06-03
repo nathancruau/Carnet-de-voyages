@@ -1422,7 +1422,7 @@ function _openEDP(dayId, evtIdx, tripId) {
 
   // GPX stats block — shown only when this event is linked to a GPX track
   let gpxSectionHtml = '';
-  let _gpxElevSeries = [], _gpxSpeedSeries = [];
+  let _gpxElevSeries = [], _gpxSpeedSeries = [], _gpxTimeSeries = [];
   if (item.gpxTrackId) {
     const st    = item.gpxStats || {};
     const distM = st.distanceM || 0;
@@ -1441,16 +1441,18 @@ function _openEDP(dayId, evtIdx, tripId) {
     if (_gpxTrack?.points?.length >= 2) {
       let cumDist = 0;
       const pts = _gpxTrack.points;
+      const t0 = pts[0].time ? new Date(pts[0].time).getTime() : null;
       for (let i = 0; i < pts.length; i++) {
         if (i > 0) {
           const seg = _haversineMeters(pts[i - 1], pts[i]);
           cumDist += seg;
           if (pts[i - 1].time && pts[i].time) {
             const dt = (new Date(pts[i].time).getTime() - new Date(pts[i - 1].time).getTime()) / 1000;
-            if (dt > 0) _gpxSpeedSeries.push({ d: cumDist, v: (seg / dt) * 3.6 });
+            if (dt > 0) _gpxSpeedSeries.push({ d: cumDist - seg / 2, v: (seg / dt) * 3.6 });
           }
         }
         if (pts[i].ele != null) _gpxElevSeries.push({ d: cumDist, v: pts[i].ele });
+        if (t0 && pts[i].time) _gpxTimeSeries.push({ d: cumDist, t: (new Date(pts[i].time).getTime() - t0) / 1000 });
       }
     }
     const hasChart = _gpxElevSeries.length >= 2 || _gpxSpeedSeries.length >= 2;
@@ -1476,7 +1478,12 @@ function _openEDP(dayId, evtIdx, tripId) {
             <button id="edp-chart-elev" style="flex:1;font-size:10px;font-weight:700;padding:3px 0;border-radius:5px;cursor:pointer;border:1.5px solid var(--teal);background:var(--tl);color:var(--td)">⛰ Altitude</button>
             <button id="edp-chart-speed" style="flex:1;font-size:10px;font-weight:700;padding:3px 0;border-radius:5px;cursor:pointer;border:1.5px solid var(--c3);background:var(--c2);color:var(--ink3)">⚡ Vitesse</button>
           </div>
-          <canvas id="edp-gpx-canvas" style="width:100%;height:80px;display:block;border-radius:6px"></canvas>` : ''}
+          <div id="edp-chart-wrap" style="position:relative;width:100%;touch-action:none;cursor:crosshair">
+            <canvas id="edp-gpx-canvas" style="width:100%;height:130px;display:block;border-radius:6px"></canvas>
+            <div id="edp-chart-cursor" style="display:none;position:absolute;top:0;bottom:18px;width:1px;background:rgba(0,0,0,.45);pointer-events:none">
+              <div id="edp-chart-tip" style="position:absolute;top:4px;left:5px;background:rgba(15,15,15,.82);color:#fff;padding:3px 7px;border-radius:5px;font-size:10px;line-height:1.5;white-space:pre;pointer-events:none"></div>
+            </div>
+          </div>` : ''}
           <button id="edp-gpx-del" style="margin-top:8px;width:100%;background:none;border:1.5px solid #e85d3e;color:#e85d3e;border-radius:6px;padding:5px;font-size:11px;font-weight:700;cursor:pointer;font-family:var(--fn)">🗑 Supprimer la trace GPX</button>
         </div>
       </div>`;
@@ -1561,7 +1568,7 @@ function _openEDP(dayId, evtIdx, tripId) {
       const _drawChart = (mode) => {
         const series = mode === 'elevation' ? _gpxElevSeries : _gpxSpeedSeries;
         const W = canvas.offsetWidth || 260;
-        const H = 80;
+        const H = 130;
         canvas.width  = W;
         canvas.height = H;
         const ctx = canvas.getContext('2d');
@@ -1573,7 +1580,7 @@ function _openEDP(dayId, evtIdx, tripId) {
         const xMin = xs[0], xMax = xs[xs.length - 1];
         const yMin = Math.min(...ys), yMax = Math.max(...ys);
         const yRange = yMax - yMin || 1;
-        const pad = { t: 4, b: 18, l: 4, r: 4 };
+        const pad = { t: 6, b: 18, l: 4, r: 4 };
         const toX = d => pad.l + (d - xMin) / (xMax - xMin) * (W - pad.l - pad.r);
         const toY = v => H - pad.b - (v - yMin) / yRange * (H - pad.t - pad.b);
 
@@ -1589,10 +1596,10 @@ function _openEDP(dayId, evtIdx, tripId) {
         ctx.beginPath();
         ctx.moveTo(toX(xs[0]), toY(ys[0]));
         for (let i = 1; i < series.length; i++) ctx.lineTo(toX(xs[i]), toY(ys[i]));
-        ctx.strokeStyle = color; ctx.lineWidth = 1.5; ctx.stroke();
+        ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.stroke();
 
         // Y axis labels
-        ctx.fillStyle = 'rgba(100,100,100,.8)'; ctx.font = '9px sans-serif'; ctx.textAlign = 'left';
+        ctx.fillStyle = 'rgba(100,100,100,.85)'; ctx.font = '9px sans-serif'; ctx.textAlign = 'left';
         const unit = mode === 'elevation' ? 'm' : 'km/h';
         ctx.fillText(Math.round(yMax) + unit, pad.l + 2, pad.t + 9);
         ctx.fillText(Math.round(yMin) + unit, pad.l + 2, H - pad.b - 2);
@@ -1619,6 +1626,62 @@ function _openEDP(dayId, evtIdx, tripId) {
       // Disable unavailable modes
       if (_gpxElevSeries.length  < 2) edp.querySelector('#edp-chart-elev')?.setAttribute('disabled', '');
       if (_gpxSpeedSeries.length < 2) edp.querySelector('#edp-chart-speed')?.setAttribute('disabled', '');
+
+      // Scrubber — vertical cursor line + tooltip on hover/touch
+      const wrap    = edp.querySelector('#edp-chart-wrap');
+      const cursor  = edp.querySelector('#edp-chart-cursor');
+      const tip     = edp.querySelector('#edp-chart-tip');
+      if (wrap && cursor && tip) {
+        const _nearest = (series, targetD) => {
+          let lo = 0, hi = series.length - 1;
+          while (lo < hi - 1) {
+            const mid = (lo + hi) >> 1;
+            if (series[mid].d < targetD) lo = mid; else hi = mid;
+          }
+          return Math.abs(series[lo].d - targetD) <= Math.abs(series[hi].d - targetD) ? series[lo] : series[hi];
+        };
+
+        const _showAt = (clientX) => {
+          const rect = canvas.getBoundingClientRect();
+          const xPct = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+          const series = _chartMode === 'elevation' ? _gpxElevSeries : _gpxSpeedSeries;
+          if (series.length < 2) return;
+
+          const xMin = series[0].d, xMax = series[series.length - 1].d;
+          const targetD = xMin + xPct * (xMax - xMin);
+          const pt = _nearest(series, targetD);
+
+          cursor.style.display = 'block';
+          cursor.style.left    = (xPct * 100) + '%';
+
+          const distStr = pt.d >= 1000 ? (pt.d / 1000).toFixed(2) + ' km' : Math.round(pt.d) + ' m';
+          const valStr  = _chartMode === 'elevation'
+            ? Math.round(pt.v) + ' m alt.'
+            : pt.v.toFixed(1) + ' km/h';
+
+          let lines = [distStr, valStr];
+          if (_gpxTimeSeries.length >= 2) {
+            const tPt = _nearest(_gpxTimeSeries, pt.d);
+            const h = Math.floor(tPt.t / 3600);
+            const m = Math.floor((tPt.t % 3600) / 60);
+            const s = Math.floor(tPt.t % 60);
+            lines.push(h > 0 ? `${h}h${String(m).padStart(2,'0')}` : `${m}m${String(s).padStart(2,'0')}s`);
+          }
+          tip.textContent = lines.join('\n');
+
+          // Flip tooltip to left side when near right edge
+          if (xPct > 0.65) {
+            tip.style.left = 'auto'; tip.style.right = '5px';
+          } else {
+            tip.style.left = '5px'; tip.style.right = 'auto';
+          }
+        };
+
+        wrap.addEventListener('mousemove',  e => _showAt(e.clientX));
+        wrap.addEventListener('mouseleave', () => { cursor.style.display = 'none'; });
+        wrap.addEventListener('touchmove',  e => { e.preventDefault(); _showAt(e.touches[0].clientX); }, { passive: false });
+        wrap.addEventListener('touchend',   () => { cursor.style.display = 'none'; });
+      }
     }
 
     edp.querySelector('#edp-gpx-del')?.addEventListener('click', () => {
