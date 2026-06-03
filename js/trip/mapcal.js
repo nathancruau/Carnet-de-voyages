@@ -717,7 +717,12 @@ function _initMap(tripId) {
       if (geo) { center = [geo.lat, geo.lng]; zoom = 7; }
     }
 
-    _map = L.map('map', { center, zoom, zoomControl: true });
+    _map = L.map('map', {
+      center, zoom, zoomControl: true,
+      worldCopyJump:      false,
+      maxBounds:          [[-85.051129, -1e10], [85.051129, 1e10]],
+      maxBoundsViscosity: 1.0,
+    });
     if (!_showDurLabels) _map.getContainer().classList.add('hide-dur-labels');
 
     const _lang = getLanguage();

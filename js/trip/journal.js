@@ -674,7 +674,12 @@ function _initJournalMap(tripId) {
       }
     }
 
-    _journalMap = L.map('journal-map', { center, zoom, zoomControl: true });
+    _journalMap = L.map('journal-map', {
+      center, zoom, zoomControl: true,
+      worldCopyJump:      false,
+      maxBounds:          [[-85.051129, -1e10], [85.051129, 1e10]],
+      maxBoundsViscosity: 1.0,
+    });
 
     const lang = getLanguage();
     const tileUrl = lang === 'en'
@@ -934,6 +939,12 @@ function _openJournalItemPanel(tripId, dayId, itemIdx) {
         : ''}
     </div>
     <div class="edp-actions">
+      ${item.lat != null && item.lng != null ? `
+        <a class="edp-sv-btn"
+           href="https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${item.lat},${item.lng}"
+           target="_blank" rel="noopener" title="Ouvrir Street View">🔭</a>` : ''}
+      ${jd.validated ? `<button class="edp-save" id="jn-edp-devalidate"
+        style="background:var(--c2);color:var(--ink3);border:1.5px solid var(--c3);font-size:11px">✕ Dévalider</button>` : ''}
       <button class="edp-save" id="jn-edp-validate">${jd.validated ? '✎ Modifier' : '✓ Valider'}</button>
     </div>
   `;
@@ -946,6 +957,10 @@ function _openJournalItemPanel(tripId, dayId, itemIdx) {
     _closeJournalItemPanel();
     _openValidateModal(tripId, dayId, itemIdx);
   });
+  panel.querySelector('#jn-edp-devalidate')?.addEventListener('click', () => {
+    _devalidateItem(tripId, dayId, itemIdx);
+    _closeJournalItemPanel();
+  });
 }
 
 function _closeJournalItemPanel() {
@@ -954,6 +969,37 @@ function _closeJournalItemPanel() {
     existing.classList.remove('open');
     setTimeout(() => { try { existing.remove(); } catch (_) {} }, 280);
   }
+}
+
+function _devalidateItem(tripId, dayId, itemIdx) {
+  const freshTrip = getTrip(tripId);
+  if (!freshTrip) return;
+  const days   = [...(freshTrip.days || [])];
+  const dayIdx = days.findIndex(d => d.id === dayId);
+  if (dayIdx === -1) return;
+  const items = [...(days[dayIdx].items || [])];
+  if (!items[itemIdx]) return;
+
+  const itemId = items[itemIdx].id;
+  const prevJd = items[itemIdx].journalData || {};
+
+  // Strip validated state, preserve notes/photos/weather for reference
+  items[itemIdx] = {
+    ...items[itemIdx],
+    journalData: { ...prevJd, validated: false, validatedAt: null },
+  };
+  days[dayIdx] = { ...days[dayIdx], items };
+  updateTrip(tripId, { days });
+
+  // Remove the auto-created real expense that was linked to this item
+  const freshTrip2 = getTrip(tripId);
+  const expenses   = (freshTrip2.realExpenses || []).filter(ex => ex.journalItemId !== itemId);
+  if (expenses.length !== (freshTrip2.realExpenses || []).length) {
+    updateTrip(tripId, { realExpenses: expenses });
+    updateTopStats(tripId);
+  }
+
+  notify('Activité dévalidée', '↩');
 }
 
 // ── Activities sub-tab ────────────────────────────────────────────────────────
