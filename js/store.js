@@ -162,7 +162,10 @@ export function replaceTripFromNetwork(id, tripData) {
   const migrated = _migrateTrip({ ...tripData });
   const idx = state.trips.findIndex(t => t.id === id);
   if (idx !== -1) {
-    state.trips[idx] = migrated;
+    // Only overwrite if the network version is at least as recent as the local version
+    if ((migrated.updatedAt || 0) >= (state.trips[idx].updatedAt || 0)) {
+      state.trips[idx] = migrated;
+    }
   } else {
     state.trips.unshift(migrated);
   }

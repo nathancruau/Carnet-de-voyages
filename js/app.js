@@ -128,7 +128,8 @@ function _onAuthReady(user, cloudData) {
     setSyncCallback(syncToFirestore);
 
     if (cloudData) {
-      // Cloud data takes priority
+      // Read localStorage first so setState can merge local edits that didn't reach Firestore yet
+      loadData();
       setState(cloudData);
     } else {
       // First login on this device: upload existing local trips to cloud
