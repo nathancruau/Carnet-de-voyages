@@ -1490,12 +1490,14 @@ html,body{height:100%;font-family:var(--fn);background:var(--c);color:var(--ink)
     display:flex;flex-direction:column;gap:8px;
     opacity:0;pointer-events:none;
     transition:opacity .18s,transform .18s;
+    max-width:calc(100vw - 32px);
   }
   .panel-fab-menu.visible{opacity:1;pointer-events:all;transform:translateX(-50%) translateY(0)}
-  .pfm-btn{background:#fff;border:1.5px solid var(--c3);border-radius:10px;padding:10px 16px;font-size:13px;font-weight:600;cursor:pointer;color:var(--ink);text-align:left;box-shadow:var(--sh);white-space:nowrap}
+  .pfm-btn{background:#fff;border:1.5px solid var(--c3);border-radius:10px;padding:10px 16px;font-size:13px;font-weight:600;cursor:pointer;color:var(--ink);text-align:center;box-shadow:var(--sh);white-space:normal}
   /* ── Journal & Planning mobile tabs ── */
   #panel-journal.active,#panel-mapcal.active{display:flex!important;flex-direction:column;overflow:hidden}
-  #panel-journal .mapcal,#panel-mapcal .mapcal{flex:1;min-height:0;height:auto!important}
+  #panel-journal .mapcal,#panel-mapcal .mapcal{flex:1;min-height:0}
+  #panel-journal .jn-view-toggle{display:none!important}
   .jn-mob-tabs,.mc-mob-tabs{display:flex;gap:4px;padding:10px 12px;background:var(--c);border-bottom:1px solid var(--c3);flex-shrink:0}
   #panel-mapcal .lp-toggle-btn,#panel-journal .lp-toggle-btn{display:none!important}
   /* Journal activité mode: left panel overlays map full-width */

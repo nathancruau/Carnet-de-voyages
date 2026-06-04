@@ -262,7 +262,19 @@ export async function renderJournal(tripId, isObserver = false) {
   }
 
   if (_journalView === 'timeline') {
-    _renderTimelineView(panel, trip, tripId, isObserver);
+    const isMobTl = window.innerWidth <= 768 && !isObserver;
+    if (isMobTl) {
+      panel.innerHTML = `
+        <div class="jn-mob-tabs">
+          <button class="bm-tab" data-action="jn-tab" data-tab="carte">🗺 Carte</button>
+          <button class="bm-tab" data-action="jn-tab" data-tab="activite">📋 Activité</button>
+          <button class="bm-tab active" data-action="jn-tab" data-tab="timeline">📖 Timeline</button>
+        </div>
+        <div id="jn-tl-wrap" style="flex:1;min-height:0;overflow:hidden"></div>`;
+      _renderTimelineView(panel.querySelector('#jn-tl-wrap'), trip, tripId, isObserver);
+    } else {
+      _renderTimelineView(panel, trip, tripId, isObserver);
+    }
   } else if (isObserver) {
     _renderObserverView(panel, trip, tripId);
   } else {

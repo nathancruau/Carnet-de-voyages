@@ -313,11 +313,12 @@ function _renderMain(trip, participants, balances, settlements) {
 // ── Dépenses tab ──────────────────────────────────────────────────────────────
 
 function _renderDepenses(trip, participants) {
-  const expenses   = trip.realExpenses || [];
-  const cats       = trip.budgetCats   || [];
-  const days       = trip.days         || [];
-  const totalSpent = expenses.reduce((s, e) => s + (Number(e.amount) || 0), 0);
-  const isMobile   = window.innerWidth <= 768;
+  const expenses    = trip.realExpenses || [];
+  const realOnly    = expenses.filter(e => e.type !== 'transfer');
+  const cats        = trip.budgetCats   || [];
+  const days        = trip.days         || [];
+  const totalSpent  = realOnly.reduce((s, e) => s + (Number(e.amount) || 0), 0);
+  const isMobile    = window.innerWidth <= 768;
 
   if (expenses.length === 0) {
     return `
@@ -332,11 +333,11 @@ function _renderDepenses(trip, participants) {
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">
       <div>
         <span style="font-family:var(--sf);font-size:16px;font-weight:700">D&eacute;penses</span>
-        <span style="font-size:12px;color:var(--ink4);margin-left:8px">${expenses.length} entr&eacute;e${expenses.length !== 1 ? 's' : ''} &middot; ${_fmtEur(totalSpent)}</span>
+        <span style="font-size:12px;color:var(--ink4);margin-left:8px">${realOnly.length} d&eacute;pense${realOnly.length !== 1 ? 's' : ''} &middot; ${_fmtEur(totalSpent)}</span>
       </div>
     </div>`;
 
-  const donutHtml = _renderCatDonut(trip, expenses);
+  const donutHtml = _renderCatDonut(trip, realOnly);
 
   if (isMobile) {
     let cards = '';
