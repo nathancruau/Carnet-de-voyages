@@ -2951,8 +2951,8 @@ function _openAddDayModalWithCoords(tripId, lat, lng) {
 
 function _openAddEventModal(dayId, tripId, prefill = null) {
   const evtTypes   = getEventTypes();
-  let selType      = evtTypes.find(t => t.key === 'visit') ? 'visit' : (evtTypes[0]?.key || 'visit');
-  let selTransport = 'car';
+  let selType      = prefill?.type || (evtTypes.find(t => t.key === 'visit') ? 'visit' : (evtTypes[0]?.key || 'visit'));
+  let selTransport = prefill?.transport || 'car';
   let pickedLat    = prefill?.lat ?? null;
   let pickedLng    = prefill?.lng ?? null;
   const _aeTrip    = getTrip(tripId);
@@ -2980,7 +2980,7 @@ function _openAddEventModal(dayId, tripId, prefill = null) {
       </div>
     </div>
 
-    <div id="ae-transport-row" style="display:none" class="fg">
+    <div id="ae-transport-row" style="display:${selType === 'drive' ? '' : 'none'}" class="fg">
       <label>Mode de transport</label>
       <div style="display:flex;gap:6px;flex-wrap:wrap" id="ae-modes">
         <button class="tp sel" data-ae-mode="car"   style="background:${trCol('car')};border-color:${trCol('car')};color:#fff">🚗 Voiture</button>
@@ -3009,12 +3009,12 @@ function _openAddEventModal(dayId, tripId, prefill = null) {
       </div>
     </div>
 
-    <div id="ae-dest-row" style="display:none" class="fg">
+    <div id="ae-dest-row" style="display:${selType === 'drive' ? '' : 'none'}" class="fg">
       <label>Destination</label>
       <div id="ae-dest-widget"></div>
     </div>
 
-    <div id="ae-sleep-dates" style="display:none" class="fg">
+    <div id="ae-sleep-dates" style="display:${selType === 'sleep' ? '' : 'none'}" class="fg">
       <label>Nuits passées ici</label>
       <div style="display:flex;gap:10px">
         <div style="flex:1">
@@ -3062,10 +3062,9 @@ function _openAddEventModal(dayId, tripId, prefill = null) {
         document.querySelector('.map-col')?.appendChild(infoEl);
       }
       _pendingMapClick = (lat, lng) => {
-        pickedLat = lat; pickedLng = lng;
         if (_map) _map.getContainer().style.cursor = '';
         document.getElementById('map-pick-info')?.remove();
-        _openAddEventModal(dayId, tripId);
+        _openAddEventModal(dayId, tripId, { lat, lng, type: selType, transport: selTransport });
         notify(`📍 ${lat.toFixed(5)}, ${lng.toFixed(5)} sélectionné`, '✅');
       };
     }
@@ -3182,17 +3181,21 @@ function _openAddEventModal(dayId, tripId, prefill = null) {
     const day = (trip2.days || []).find(d => d.id === dayId);
     if (!day) return;
 
-    // Store location on the event; update day PIN only if day has none yet
+    // Store location on the event; update day PIN only for non-sleep events
     if (pickedLat != null && pickedLng != null) {
       event.lat = pickedLat;
       event.lng = pickedLng;
-      if (day.lat == null) {
+      if (selType !== 'sleep' && day.lat == null) {
         day.lat = pickedLat;
         day.lng = pickedLng;
       }
     }
 
-    day.items.push(event);
+    // Sleep items: anchor in the day matching dateFrom so they appear on the right day
+    const targetDay = selType === 'sleep' && event.dateFrom
+      ? ((trip2.days || []).find(d => d.date === event.dateFrom) || day)
+      : day;
+    (targetDay.items = targetDay.items || []).push(event);
     updateTrip(tripId, { days: trip2.days });
 
     // ── Cost → Budget sync ────────────────────────────────────────────────

@@ -1404,8 +1404,8 @@ html,body{height:100%;font-family:var(--fn);background:var(--c);color:var(--ink)
   .hero-btn-import,.hero-btn-export,.hero-btn-stats,.hero-btn-mymap{display:none}
   .hl-tab{padding:4px 10px;font-size:11px}
   /* Make the 3 home library tabs fit without horizontal scrolling */
-  .hl-tabs-inline{overflow:hidden!important;gap:3px}
-  .hl-tabs-inline .hl-tab{flex:1;min-width:0;justify-content:center;text-align:center;padding:5px 4px;font-size:11px}
+  .hl-tabs-inline{overflow:hidden!important;gap:2px}
+  .hl-tabs-inline .hl-tab{flex:1;min-width:0;justify-content:center;text-align:center;padding:4px 2px;font-size:10px;white-space:nowrap}
 
   /* ── Hero row 2: stack stats + search vertically ── */
   .hero-row2{flex-direction:column;align-items:stretch;gap:8px}
