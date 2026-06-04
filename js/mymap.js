@@ -823,26 +823,61 @@ function _escXml(s) {
 
 // ── Global callbacks used in inline onclick= ──────────────────────────────────
 
-window._mmFlyTo = function(lat, lng, tripId) {
-  // If currently showing destinations list, switch back to map first
-  const wrap = document.getElementById('mymap-wrap');
-  if (wrap && wrap.classList.contains('mm-destinations-mode')) {
-    wrap.classList.remove('mm-destinations-mode');
-    const tabs = document.getElementById('mm-mob-tabs');
-    if (tabs) {
-      tabs.querySelectorAll('.bm-tab[data-mm-tab]').forEach(b => {
-        b.classList.toggle('active', b.dataset.mmTab === 'carte');
-      });
-    }
-    setTimeout(() => { if (_map) _map.invalidateSize(); }, 50);
+/** Show pin detail as an overlay inside the sidebar (used in destinations mode). */
+function _mmShowInfoInSidebar(mp) {
+  if (!_infoPanelEl) return;
+  // Populate the (hidden) info panel to get its HTML
+  if (mp.entries.length === 1) {
+    _mmShowInfo(mp.entries[0].trip, mp.entries[0].entry);
+  } else {
+    _mmShowMergedInfo(mp);
   }
-  if (!_map) return;
-  _map.flyTo([parseFloat(lat), parseFloat(lng)], 13, { duration: 0.8 });
-  // Find the merged pin at this location and show its info panel
+  _infoPanelEl.style.display = 'none';
+
+  const sidebar = document.getElementById('mm-sidebar');
+  if (!sidebar) return;
+
+  document.getElementById('mm-dest-overlay')?.remove();
+
+  const overlay = document.createElement('div');
+  overlay.id = 'mm-dest-overlay';
+  overlay.style.cssText =
+    'position:absolute;inset:0;z-index:200;background:var(--c);display:flex;flex-direction:column;overflow:hidden';
+
+  const header = document.createElement('div');
+  header.style.cssText =
+    'padding:8px 14px;border-bottom:1px solid var(--c3);flex-shrink:0;background:var(--c)';
+  header.innerHTML =
+    '<button onclick="document.getElementById(\'mm-dest-overlay\')?.remove()" ' +
+    'style="background:none;border:none;cursor:pointer;font-size:13px;font-weight:600;' +
+    'color:var(--teal);padding:0;font-family:var(--fn)">← Retour à la liste</button>';
+
+  const body = document.createElement('div');
+  body.style.cssText = 'flex:1;overflow-y:auto';
+  body.innerHTML = _infoPanelEl.innerHTML;
+  // Replace the info-panel close button with the overlay dismiss
+  body.querySelectorAll('button[onclick="_mmCloseInfo()"]').forEach(b => b.remove());
+
+  overlay.appendChild(header);
+  overlay.appendChild(body);
+  sidebar.appendChild(overlay);
+}
+
+window._mmFlyTo = function(lat, lng, tripId) {
   const key = parseFloat(lat).toFixed(4) + ',' + parseFloat(lng).toFixed(4);
   const visible = _visiblePins();
   const merged  = _mergedPins(visible);
   const mp = merged.find(m => m.lat.toFixed(4) + ',' + m.lng.toFixed(4) === key);
+
+  // In destinations mode: show info inline in sidebar, don't switch to map
+  const wrap = document.getElementById('mymap-wrap');
+  if (wrap && wrap.classList.contains('mm-destinations-mode')) {
+    if (mp) _mmShowInfoInSidebar(mp);
+    return;
+  }
+
+  if (!_map) return;
+  _map.flyTo([parseFloat(lat), parseFloat(lng)], 13, { duration: 0.8 });
   if (mp) setTimeout(() => _mmShowMergedInfo(mp), 450);
 };
 

@@ -33,15 +33,14 @@
 html,body{height:100%;font-family:var(--fn);background:var(--c);color:var(--ink);overflow:hidden}
 
 /* ── Screens ── */
-/* 100dvh = viewport minus browser chrome (address bar on mobile) */
-.screen{display:none;width:100%;height:100vh;height:100dvh;flex-direction:column;background:var(--c)}
-.screen.active{display:flex;animation:screenFadeIn .18s ease both}
-
+/* position:fixed;inset:0 is more reliable than height:100dvh on iOS PWA */
+.screen{display:none;flex-direction:column;background:var(--c)}
+.screen.active{position:fixed;inset:0;display:flex;flex-direction:column;background:var(--c);animation:screenFadeIn .18s ease both}
 /* Safe-area: applied to the elements that touch notch / home bar, not to body */
 .hero{padding-top:max(28px, calc(14px + env(safe-area-inset-top)))!important}
 .topbar-row1{padding-top:max(6px, calc(2px + env(safe-area-inset-top)))}
 #screen-login{padding-top:env(safe-area-inset-top)}
-@keyframes screenFadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+@keyframes screenFadeIn{from{opacity:0}to{opacity:1}}
 
 /* ══════════════════════════════════════════
    HOME
@@ -1359,7 +1358,7 @@ html,body{height:100%;font-family:var(--fn);background:var(--c);color:var(--ink)
 /* ══════════════════════════════════════════
    LOGIN SCREEN
 ══════════════════════════════════════════ */
-#screen-login.active{align-items:center;justify-content:center;min-height:100vh;background:var(--c)}
+#screen-login.active{align-items:center;justify-content:center;background:var(--c)}
 .login-card{text-align:center;padding:48px 40px;max-width:380px;width:100%;background:var(--c);border-radius:20px;box-shadow:0 8px 40px rgba(0,0,0,.10);border:1px solid var(--c3)}
 .login-icon{font-size:52px;margin-bottom:14px}
 .login-logo{font-family:'Lora',serif;font-size:26px;font-weight:700;color:var(--ink);margin-bottom:8px}
