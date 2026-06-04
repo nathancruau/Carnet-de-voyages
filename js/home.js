@@ -27,8 +27,9 @@ import { openShareModal, leaveSharedTrip, removeSharedTripMember, isCurrentUserO
 let _currentFilter    = 'all';
 let _currentTab       = 'trips';   // 'trips' | 'stats'
 let _statsTypeFilter  = 'all';     // 'all' | 'voyage' | 'weekend' | 'sortie'
-let _homeLibTab       = 'mine';    // 'mine' | 'observing'
+let _homeLibTab       = 'mine';    // 'mine' | 'observing' | 'live'
 let _listenerAttached = false;
+let _statsLastFiltered = [];       // cache for world-map re-render on expand
 
 // Companion list being edited in the open modal
 let _modalComps  = [];
@@ -709,7 +710,10 @@ function _statsViewHtml(trips) {
       <!-- World map — full width, first -->
       <div id="world-map-wrap" class="stat-card" style="margin-bottom:14px">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px">
-          <h4 class="stat-card-title">🌍 Pays visités</h4>
+          <div style="display:flex;align-items:center;gap:8px">
+            <h4 class="stat-card-title" style="margin-bottom:0">🌍 Pays visités</h4>
+            <button id="wm-expand-btn" title="Plein écran">⛶ Plein écran</button>
+          </div>
           <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
             ${contPillsHtml}
             ${legendHtml}
@@ -783,22 +787,22 @@ function _heroHtml(trips) {
     : '';
   return `
     <div class="hero">
-      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;width:100%">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%">
         <div>
           <div class="hero-logo">Carnet de Voyages</div>
           <div class="hero-sub">Planifiez, organisez et vivez vos aventures</div>
         </div>
-        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <div class="hero-nav-group">
           ${userHtml}
-          <button class="btn-new hero-btn-import" data-action="open-import" title="Importer KML/CSV">⬆ Importer</button>
-          <button class="btn-new hero-btn-export" data-action="export-all" title="Exporter tous les voyages en CSV">⬇ Exporter</button>
-          ${installBtn}
-          <div style="display:flex;gap:4px">
-            <button class="btn-new" data-action="show-stats" title="Statistiques" style="padding:6px 10px;font-size:16px;line-height:1">📊</button>
-            <button class="btn-new" data-action="open-mymap" title="MyMap" style="padding:6px 10px;font-size:16px;line-height:1">🗺</button>
-            <button class="btn-new" data-action="open-settings" title="Paramètres" style="padding:6px 10px;font-size:16px;line-height:1">⚙️</button>
-          </div>
+          <button class="btn-new" data-action="show-stats" title="Statistiques" style="padding:6px 10px;font-size:16px;line-height:1">📊</button>
+          <button class="btn-new" data-action="open-mymap" title="MyMap" style="padding:6px 10px;font-size:16px;line-height:1">🗺</button>
+          <button class="btn-new" data-action="open-settings" title="Paramètres" style="padding:6px 10px;font-size:16px;line-height:1">⚙️</button>
         </div>
+      </div>
+      <div class="hero-secondary-actions">
+        <button class="btn-new hero-btn-import" data-action="open-import" title="Importer KML/CSV">⬆ Importer</button>
+        <button class="btn-new hero-btn-export" data-action="export-all" title="Exporter tous les voyages en CSV">⬇ Exporter</button>
+        ${installBtn}
       </div>
       <div class="hero-row2">
         <div class="hero-stats">
@@ -1007,6 +1011,54 @@ function _addCardHtml() {
   `;
 }
 
+// ── Live feed (En direct) ──────────────────────────────────────────────────────
+
+function _buildLiveFeedHtml(observingTrips) {
+  const posts = [];
+  for (const trip of observingTrips) {
+    for (const day of (trip.days || [])) {
+      for (const item of (day.items || [])) {
+        if (item.journalData?.validated) {
+          posts.push({ trip, day, item, ts: item.journalData.validatedAt || 0 });
+        }
+      }
+    }
+  }
+  posts.sort((a, b) => (b.ts || 0) - (a.ts || 0));
+
+  if (posts.length === 0) {
+    return `<div style="text-align:center;padding:50px 20px;color:var(--ink4)">
+      <div style="font-size:44px;margin-bottom:12px">📡</div>
+      <div style="font-size:15px;font-weight:600;color:var(--ink3)">Aucune publication pour l'instant</div>
+      <div style="font-size:12px;margin-top:6px">Les voyageurs publieront leurs aventures au fil du voyage</div>
+    </div>`;
+  }
+
+  return posts.map(({ trip, day, item }) => {
+    const jd      = item.journalData;
+    const photos  = jd.photos || [];
+    const ts      = jd.validatedAt;
+    const dateStr = ts
+      ? new Date(ts).toLocaleDateString('fr-FR', { day:'numeric', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' })
+      : '';
+    const dayInfo = `Jour ${day.num}${day.title ? ' · ' + _esc(day.title) : ''}`;
+
+    return `<div class="live-post">
+      <div class="live-post-hd">
+        <div class="live-post-badge" style="background:${trip.color||'#0d9488'}">${trip.flag||'🌍'} <span>${_esc(trip.name)}</span></div>
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px">
+          <div class="live-post-day">${dayInfo}${item.text ? ` · <strong style="color:var(--ink)">${_esc(item.text)}</strong>` : ''}</div>
+          ${dateStr ? `<div class="live-post-time">${dateStr}</div>` : ''}
+        </div>
+      </div>
+      ${photos.length > 0 ? `<div class="live-post-photos">${photos.map(src =>
+        `<img src="${_esc(src)}" class="live-photo" loading="lazy" onclick="window.open(this.src,'_blank')">`
+      ).join('')}</div>` : ''}
+      ${jd.notes ? `<div class="live-post-notes">${_esc(jd.notes).replace(/\n/g,'<br>')}</div>` : ''}
+    </div>`;
+  }).join('');
+}
+
 // ── Render home ────────────────────────────────────────────────────────────────
 
 export function renderHome(filter = _currentFilter) {
@@ -1036,19 +1088,45 @@ export function renderHome(filter = _currentFilter) {
     <div class="hl-tabs hl-tabs-inline">
       <button class="hl-tab${_homeLibTab === 'mine' ? ' active' : ''}" data-action="lib-tab" data-tab="mine">🧳 Mes voyages</button>
       <button class="hl-tab${_homeLibTab === 'observing' ? ' active' : ''}" data-action="lib-tab" data-tab="observing">
-        📡 En direct${observingTrips.length > 0 ? `<span class="hl-tab-badge">${observingTrips.length}</span>` : ''}
+        🔭 Mes observations${observingTrips.length > 0 ? `<span class="hl-tab-badge">${observingTrips.length}</span>` : ''}
       </button>
+      <button class="hl-tab${_homeLibTab === 'live' ? ' active' : ''}" data-action="lib-tab" data-tab="live">📡 En direct</button>
     </div>`;
 
+  const settings = getSettings();
+
+  // ── Grands-parents mode: ultra-simplified view ───────────────────────────────
+  if (settings.grandParentsMode) {
+    wrap.innerHTML = `
+      <div class="hero gp-hero">
+        <div style="display:flex;align-items:center;justify-content:space-between;width:100%">
+          <div class="hero-logo">Carnet de Voyages</div>
+          <button class="btn-new" data-action="open-settings" title="Paramètres" style="padding:8px 12px;font-size:20px;line-height:1">⚙️</button>
+        </div>
+      </div>
+      <div class="home-sec" style="padding-top:12px">
+        <h2 style="font-family:var(--sf);font-size:18px;font-weight:700;margin-bottom:14px">📡 En direct</h2>
+        ${_buildLiveFeedHtml(observingTrips)}
+      </div>`;
+    if (!_listenerAttached) { _attachListeners(wrap); _listenerAttached = true; }
+    return;
+  }
+
   let secContent;
-  if (_homeLibTab === 'observing') {
+  if (_homeLibTab === 'live') {
+    secContent = `
+      <div class="home-sec-hd">
+        ${tabSwitcher}
+      </div>
+      ${_buildLiveFeedHtml(observingTrips)}`;
+  } else if (_homeLibTab === 'observing') {
     secContent = `
       <div class="home-sec-hd">
         ${tabSwitcher}
       </div>
       ${observingTrips.length === 0 ? `
         <div style="text-align:center;padding:40px 16px;color:var(--ink4)">
-          <div style="font-size:36px;margin-bottom:10px">📡</div>
+          <div style="font-size:36px;margin-bottom:10px">🔭</div>
           <div style="font-size:14px;font-weight:600;margin-bottom:6px">Aucun voyage suivi</div>
           <div style="font-size:12px">Rejoignez un voyage en tant qu'observateur<br>avec le lien d'invitation du voyageur.</div>
         </div>` : `
@@ -1089,6 +1167,7 @@ function _renderStats() {
   const allTrips  = getTrips();
   const doneTrips = allTrips.filter(t => t.status === 'done');
   const filtered  = _statsTypeFilter === 'all' ? doneTrips : doneTrips.filter(t => t.type === _statsTypeFilter);
+  _statsLastFiltered = filtered;
 
   wrap.innerHTML = `
     ${_heroHtml(allTrips)}
@@ -1116,6 +1195,15 @@ function _renderStats() {
       _statsTypeFilter = btn.dataset.statsType;
       _renderStats();
     });
+  });
+
+  // Expand/collapse world map to fullscreen
+  document.getElementById('wm-expand-btn')?.addEventListener('click', () => {
+    const wmWrap = document.getElementById('world-map-wrap');
+    if (!wmWrap) return;
+    const isFs = wmWrap.classList.toggle('stat-fs');
+    document.getElementById('wm-expand-btn').textContent = isFs ? '✕ Fermer' : '⛶ Plein écran';
+    requestAnimationFrame(() => _initWorldMap(_statsLastFiltered));
   });
 
   requestAnimationFrame(() => _initWorldMap(filtered));
@@ -1277,6 +1365,17 @@ function _openSettingsModal() {
         <div style="font-size:10px;color:var(--ink4);margin-top:5px">Requiert l'autorisation du navigateur. Désactivé par défaut.</div>
       </div>
 
+      <hr style="border:none;border-top:1px solid var(--c3);margin:16px 0">
+
+      <div class="fg">
+        <label style="font-size:12px;font-weight:700;color:var(--ink2)">Mode Grands-parents 👴👵</label>
+        <label class="s-toggle-row">
+          <span>Affichage simplifié</span>
+          <input type="checkbox" id="gp-mode" ${settings.grandParentsMode ? 'checked' : ''}>
+        </label>
+        <div style="font-size:10px;color:var(--ink4);margin-top:4px">N'affiche que le titre, ⚙️ et le fil En direct des voyages observés.</div>
+      </div>
+
       <div class="ma">
         <button class="bc" onclick="closeModal()">Annuler</button>
         <button class="bs" id="settings-save">Enregistrer</button>
@@ -1351,12 +1450,14 @@ function _openSettingsModal() {
     const notifDep           = document.getElementById('notif-departure')?.checked ?? true;
     const notifCollab        = document.getElementById('notif-collaborative')?.checked ?? true;
     const notifObsPublish    = document.getElementById('notif-observer-publish')?.checked ?? true;
+    const grandParentsMode   = document.getElementById('gp-mode')?.checked ?? false;
 
     updateSettings({
       eventTypes: newEventTypes.length > 0 ? newEventTypes : DEFAULT_EVENT_TYPES,
       lang,
       theme,
       notifications: { enabled: notifEnabled, departure: notifDep, collaborative: notifCollab, observerPublish: notifObsPublish },
+      grandParentsMode,
     });
 
     // Apply theme immediately

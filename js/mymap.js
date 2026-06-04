@@ -1060,7 +1060,7 @@ export function renderMyMap() {
       const sidebar = document.getElementById('mm-sidebar');
       if (!sidebar) return;
       const collapsed = sidebar.classList.toggle('collapsed');
-      mmToggle.textContent = collapsed ? '▶' : '◀';
+      mmToggle.textContent = collapsed ? '📋 Liste' : '✕ Fermer';
       setTimeout(() => { if (_map) _map.invalidateSize(); }, 280);
     });
   }
@@ -1070,7 +1070,7 @@ export function renderMyMap() {
     const sidebar = document.getElementById('mm-sidebar');
     if (sidebar) {
       sidebar.classList.add('collapsed');
-      if (mmToggle) mmToggle.textContent = '▶';
+      if (mmToggle) mmToggle.textContent = '📋 Liste';
     }
   }
 
