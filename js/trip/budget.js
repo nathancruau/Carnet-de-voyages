@@ -70,9 +70,22 @@ export function renderBudget(tripId) {
         </div>
       </div>
       <div class="bud-main" id="bud-main-content">
-        ${_renderMain(trip, cats, lines)}
+        <div class="bud-mob-tabs">
+          <button class="bm-tab active" data-action="bud-tab" data-tab="budget">💰 Budget</button>
+          <button class="bm-tab" data-action="bud-tab" data-tab="stats">📊 Statistiques</button>
+        </div>
+        <div id="bud-main-body">
+          ${_renderMain(trip, cats, lines)}
+        </div>
       </div>
-    </div>`;
+    </div>
+    <button class="panel-fab" data-action="add-line" title="Ajouter une ligne budgétaire">＋</button>`;
+
+  // On mobile, default to Budget tab (hide stats section)
+  if (window.innerWidth <= 768) {
+    const stats = panel.querySelector('#bud-sect-stats');
+    if (stats) stats.style.display = 'none';
+  }
 
   const handler = e => _handleClick(e, tripId);
   _handlers.set(panel, handler);
@@ -131,12 +144,7 @@ function _renderMain(trip, cats, lines) {
 
   const totalPlannedCosts = filteredLines.reduce((s, l) => s + (Number(l.amount) || 0), 0);
 
-  let html = `
-    <div class="bud-section-hd">
-      <h3>${selCat ? _esc(selCat.icon + ' ' + selCat.name) : '💰 Budget prévisionnel'}</h3>
-      <button class="btn-new" data-action="add-line">＋ Ajouter une ligne</button>
-    </div>
-
+  let statsHtml = `
     <div class="bud-summary-cards">
       <div class="bud-sm-card">
         <div class="bud-sm-v" style="color:var(--teal)">${_fmtEur(totalPlannedCosts)}</div>
@@ -144,20 +152,24 @@ function _renderMain(trip, cats, lines) {
       </div>
     </div>`;
 
-  // Donut chart of planned budget by category (global view only)
   if (!selCat && cats.length > 0 && lines.length > 0) {
-    html += _renderBudgetDonut(cats, lines);
+    statsHtml += _renderBudgetDonut(cats, lines);
   }
 
-  // Planned costs from trip days (read-only)
   const daysCostHtml = _renderDaysCosts(trip, cats, selCat);
-  if (daysCostHtml) html += daysCostHtml;
+  if (daysCostHtml) statsHtml += daysCostHtml;
 
-  // Budget lines table
-  html += `<h4 style="margin:20px 0 6px;font-size:13px;font-weight:700;color:var(--ink)">📋 Lignes budgétaires manuelles</h4>`;
-  html += _renderLinesTable(trip, cats, filteredLines);
+  const linesHtml =
+    `<h4 style="margin:20px 0 6px;font-size:13px;font-weight:700;color:var(--ink)">📋 Lignes budgétaires manuelles</h4>` +
+    _renderLinesTable(trip, cats, filteredLines);
 
-  return html;
+  return `
+    <div class="bud-section-hd">
+      <h3>${selCat ? _esc(selCat.icon + ' ' + selCat.name) : '💰 Budget prévisionnel'}</h3>
+      <button class="btn-new bud-add-btn-desktop" data-action="add-line">＋ Ajouter une ligne</button>
+    </div>
+    <div id="bud-sect-stats">${statsHtml}</div>
+    <div id="bud-sect-lines">${linesHtml}</div>`;
 }
 
 // ── Budget donut chart by category ───────────────────────────────────────────
@@ -350,7 +362,23 @@ function _handleClick(e, tripId) {
 
   const action = btn.dataset.action;
 
-  if (action === 'select-cat') {
+  if (action === 'bud-tab') {
+    const tab  = btn.dataset.tab;
+    const pnl  = document.getElementById('panel-budget');
+    if (!pnl) return;
+    pnl.querySelectorAll('.bm-tab').forEach(t => t.classList.remove('active'));
+    btn.classList.add('active');
+    const statsEl = document.getElementById('bud-sect-stats');
+    const linesEl = document.getElementById('bud-sect-lines');
+    if (tab === 'stats') {
+      if (statsEl) statsEl.style.display = '';
+      if (linesEl) linesEl.style.display = 'none';
+    } else {
+      if (statsEl) statsEl.style.display = 'none';
+      if (linesEl) linesEl.style.display = '';
+    }
+
+  } else if (action === 'select-cat') {
     const catId = btn.dataset.catId || null;
     _selectedCatId = catId || null;
     _refresh(tripId);
@@ -403,9 +431,23 @@ function _refresh(tripId) {
   const lines = trip.budgetLines || [];
 
   const sideEl = document.getElementById('bud-side-content');
-  const mainEl = document.getElementById('bud-main-content');
+  const bodyEl = document.getElementById('bud-main-body');
   if (sideEl) sideEl.innerHTML = _renderSide(cats, lines);
-  if (mainEl) mainEl.innerHTML = _renderMain(trip, cats, lines);
+  if (bodyEl) {
+    bodyEl.innerHTML = _renderMain(trip, cats, lines);
+    // Re-apply mobile tab visibility state
+    if (window.innerWidth <= 768) {
+      const activeTab = document.querySelector('.bm-tab.active');
+      const tab = activeTab?.dataset?.tab || 'budget';
+      const statsEl = document.getElementById('bud-sect-stats');
+      const linesEl = document.getElementById('bud-sect-lines');
+      if (tab === 'stats') {
+        if (linesEl) linesEl.style.display = 'none';
+      } else {
+        if (statsEl) statsEl.style.display = 'none';
+      }
+    }
+  }
 }
 
 // ── Add/Edit Line Modal ───────────────────────────────────────────────────────

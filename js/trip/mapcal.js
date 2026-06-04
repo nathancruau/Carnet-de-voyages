@@ -319,17 +319,18 @@ export function renderMapCal(tripId) {
   // Wire left panel toggle button
   const lpToggle = panel.querySelector('#lp-toggle');
   if (lpToggle) {
-    // On mobile the left panel starts collapsed so the map uses the full screen.
     const lp = panel.querySelector('.left-panel');
-    if (lp && window.innerWidth <= 768) {
+    const isMobile = window.innerWidth <= 768;
+    if (lp && isMobile) {
       lp.classList.add('collapsed');
-      lpToggle.textContent = '▶';
+      lpToggle.innerHTML = '&#9776;&nbsp;Jours';
     }
 
     lpToggle.addEventListener('click', () => {
       if (!lp) return;
       const collapsed = lp.classList.toggle('collapsed');
-      lpToggle.textContent = collapsed ? '▶' : '◀';
+      const mob = window.innerWidth <= 768;
+      lpToggle.innerHTML = collapsed ? (mob ? '&#9776;&nbsp;Jours' : '▶') : '◀';
       setTimeout(() => { if (_map) _map.invalidateSize(); }, 280);
     });
   }
@@ -339,7 +340,7 @@ export function renderMapCal(tripId) {
     const lp = panel.querySelector('.left-panel');
     if (lp) {
       lp.classList.add('collapsed');
-      if (lpToggle) lpToggle.textContent = '▶';
+      if (lpToggle) lpToggle.innerHTML = '&#9776;&nbsp;Jours';
     }
   }
 

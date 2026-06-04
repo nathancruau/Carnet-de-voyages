@@ -213,7 +213,25 @@ export function renderTricount(tripId) {
       <div class="tri-main" id="tri-main-content">
         ${_renderMain(trip, participants, balances, settlements)}
       </div>
-    </div>`;
+    </div>
+    <div class="panel-fab-menu" id="tri-fab-menu">
+      <button class="pfm-btn" data-action="add-expense">💶 Dépense</button>
+      <button class="pfm-btn" data-action="add-transfer">💸 Virement / Remboursement</button>
+    </div>
+    <button class="panel-fab" data-action="tri-fab" title="Ajouter">＋</button>`;
+
+  // Close FAB menu on outside click
+  setTimeout(() => {
+    const fabMenu = panel.querySelector('#tri-fab-menu');
+    if (fabMenu) {
+      document.addEventListener('click', function _closeFab(ev) {
+        if (!ev.target.closest('#tri-fab-menu') && !ev.target.closest('[data-action="tri-fab"]')) {
+          fabMenu.classList.remove('visible');
+          document.removeEventListener('click', _closeFab);
+        }
+      });
+    }
+  }, 0);
 
   const handler = e => _handleClick(e, tripId);
   _handlers.set(panel, handler);
@@ -268,8 +286,15 @@ function _renderMain(trip, participants, balances, settlements) {
             box-shadow:${active ? 'var(--sh)' : 'none'};transition:all .15s`;
   }
 
-  const tabs = `
-    <div style="display:flex;gap:3px;background:var(--c2);border-radius:8px;padding:3px;border:1px solid var(--c3);margin-bottom:16px;width:fit-content">
+  const mobTabs = `
+    <div class="tri-mob-tabs">
+      <button class="tri-m-tab${isDepenses ? ' active' : ''}" data-action="switch-tab" data-tab="depenses">💶 Dépenses</button>
+      <button class="tri-m-tab${isBilans ? ' active' : ''}" data-action="switch-tab" data-tab="bilans">⚖️ Bilans</button>
+      <button class="tri-m-tab${isBudgetVsDep ? ' active' : ''}" data-action="switch-tab" data-tab="budgetvsdep">📊 Budget</button>
+    </div>`;
+
+  const tabs = mobTabs + `
+    <div class="tri-tab-row-inline" style="display:flex;gap:3px;background:var(--c2);border-radius:8px;padding:3px;border:1px solid var(--c3);margin-bottom:16px;width:fit-content">
       <div data-action="switch-tab" data-tab="depenses" style="${tabStyle(isDepenses)}">
         D&eacute;penses
       </div>
@@ -290,7 +315,7 @@ function _renderMain(trip, participants, balances, settlements) {
     content = _renderBudgetVsDep(trip);
   }
 
-  return tabs + content;
+  return tabs + `<div class="tri-main-pad">${content}</div>`;
 }
 
 // ── Dépenses tab ──────────────────────────────────────────────────────────────
@@ -721,10 +746,16 @@ function _handleClick(e, tripId) {
 
   const action = btn.dataset.action;
 
-  if (action === 'add-expense') {
+  if (action === 'tri-fab') {
+    const menu = document.getElementById('tri-fab-menu');
+    if (menu) menu.classList.toggle('visible');
+
+  } else if (action === 'add-expense') {
+    document.getElementById('tri-fab-menu')?.classList.remove('visible');
     _openExpenseModal(tripId, null);
 
   } else if (action === 'add-transfer') {
+    document.getElementById('tri-fab-menu')?.classList.remove('visible');
     _openTransferModal(tripId);
 
   } else if (action === 'edit-expense') {
