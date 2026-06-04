@@ -236,6 +236,13 @@ export function renderMapCal(tripId) {
           </div>
         </div>
         <div class="days-scroll" id="days-list" style="${_calTab === 'transport' ? 'display:none' : ''}"></div>
+        <div class="nights-section" id="nights-section" style="${_calTab === 'transport' ? 'display:none' : ''}">
+          <div class="nights-hdr">
+            <span class="nights-hdr-lbl">🌙 Hébergements</span>
+            <button class="bc" id="add-night-btn" title="Ajouter un hébergement" style="padding:2px 8px;font-size:13px;line-height:1.4;border-radius:8px;font-weight:700">＋</button>
+          </div>
+          <div id="nights-list"></div>
+        </div>
         <div class="days-scroll" id="transport-list" style="${_calTab === 'transport' ? '' : 'display:none'}"></div>
       </div>
       <div class="map-col">
@@ -326,17 +333,22 @@ export function renderMapCal(tripId) {
       hide(panel.querySelector('#mini-cal'));
       hide(panel.querySelector('#days-list-header'));
       hide(panel.querySelector('#days-list'));
+      hide(panel.querySelector('#nights-section'));
       hide(panel.querySelector('#transport-list'));
       if (isTransport) {
         show(panel.querySelector('#transport-list'));
         const freshTrip = getTrip(tripId);
-        if (freshTrip) _renderTransportContent(freshTrip, tripId);
+        if (freshTrip) {
+          _renderTransportContent(freshTrip, tripId);
+          _populateTransportDurations(freshTrip);
+        }
       } else {
         show(panel.querySelector('#lp-top-section'));
         show(panel.querySelector('#cal-hdr'));
         show(panel.querySelector('#mini-cal'));
         show(panel.querySelector('#days-list-header'), 'flex');
         show(panel.querySelector('#days-list'));
+        show(panel.querySelector('#nights-section'));
       }
     });
   });
@@ -395,6 +407,9 @@ export function renderMapCal(tripId) {
     });
   }
 
+  // Wire night stays buttons
+  panel.querySelector('#add-night-btn')?.addEventListener('click', () => _openNightModal(tripId));
+
   // Wire GPX buttons
   panel.querySelector('#gpx-export-btn')?.addEventListener('click', () => _exportGpx(tripId));
   const gpxInput = panel.querySelector('#gpx-file-input');
@@ -443,6 +458,11 @@ export function renderMapCal(tripId) {
     durToggleBtn.addEventListener('click', () => {
       _showDurLabels = !_showDurLabels;
       if (_map) _map.getContainer().classList.toggle('hide-dur-labels', !_showDurLabels);
+      // closeTooltip() removes the DOM element, so CSS alone can't re-show it.
+      // Must call openTooltip()/closeTooltip() on every route layer explicitly.
+      _routeLayers.forEach(l => {
+        try { _showDurLabels ? l.openTooltip() : l.closeTooltip(); } catch (_) {}
+      });
       durToggleBtn.style.opacity = _showDurLabels ? '1' : '0.45';
       durToggleBtn.style.textDecoration = _showDurLabels ? '' : 'line-through';
     });
@@ -1001,10 +1021,42 @@ function _dayPopupHtml(day) {
   `;
 }
 
-// Collect ALL georeferenced waypoints from items + fallback to day pins
+// Return the active night stay for a given ISO date (the night of that date)
+function _nightForDate(trip, isoDate) {
+  return (trip.nights || []).find(n =>
+    n.lat != null && n.lng != null && n.dateFrom && n.dateTo &&
+    n.dateFrom <= isoDate && isoDate <= n.dateTo
+  ) || null;
+}
+
+// Collect ALL georeferenced waypoints from items + fallback to day pins.
+// Night stays inject a "return home" waypoint at the end of each covered day,
+// and a "depart from" waypoint at the start of the following day.
 function _collectAllWaypoints(trip) {
-  const wps = [];
-  for (const day of (trip.days || [])) {
+  const wps  = [];
+  const days = (trip.days || []).slice().sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+
+  for (let di = 0; di < days.length; di++) {
+    const day = days[di];
+
+    // --- Departure from previous night ---
+    if (day.date && di > 0) {
+      const prev = days[di - 1];
+      if (prev.date) {
+        const depNight = _nightForDate(trip, prev.date);
+        if (depNight) {
+          const last = wps[wps.length - 1];
+          // Avoid duplicate if previous day already ended at this night
+          const already = last && last.nightId === depNight.id;
+          if (!already) {
+            wps.push({ dayId: day.id, itemId: null, lat: depNight.lat, lng: depNight.lng,
+              mode: 'car', label: depNight.name || '🌙 Nuit', isNight: true, nightId: depNight.id });
+          }
+        }
+      }
+    }
+
+    // --- Regular day pins ---
     const itemPins = (day.items || []).filter(it => it.lat != null && it.lng != null);
     if (itemPins.length > 0) {
       for (const item of itemPins) {
@@ -1014,6 +1066,19 @@ function _collectAllWaypoints(trip) {
       }
     } else if (day.lat != null && day.lng != null) {
       wps.push({ dayId: day.id, itemId: null, lat: day.lat, lng: day.lng, mode: day.routeMode || 'car', label: `Jour ${day.num}` });
+    }
+
+    // --- Return to night at end of day ---
+    if (day.date) {
+      const retNight = _nightForDate(trip, day.date);
+      if (retNight) {
+        const last = wps[wps.length - 1];
+        const already = last && last.nightId === retNight.id;
+        if (!already) {
+          wps.push({ dayId: day.id, itemId: null, lat: retNight.lat, lng: retNight.lng,
+            mode: 'car', label: retNight.name || '🌙 Nuit', isNight: true, nightId: retNight.id });
+        }
+      }
     }
   }
   return wps;
@@ -1057,10 +1122,28 @@ function _renderTransportContent(trip, tripId) {
           <span class="tp-seg-from">${_esc(fromWp.label || '—')}</span>
           <span class="tp-seg-arrow">→</span>
           <span class="tp-seg-to">${_esc(toWp.label || '—')}</span>
+          <span class="tp-seg-dur" id="tp-dur-${idx}"></span>
         </div>
         <div class="tp-seg-modes">${modeBtns}</div>
       </div>`;
   }).join('');
+}
+
+async function _populateTransportDurations(trip) {
+  const wps = _collectAllWaypoints(trip);
+  for (let i = 0; i < wps.length - 1; i++) {
+    const el = document.getElementById(`tp-dur-${i}`);
+    if (!el) continue;
+    try {
+      const from = wps[i];
+      const to   = wps[i + 1];
+      const mode = to.mode || 'car';
+      const dur  = await _fetchDuration(from, to, mode);
+      if (dur && el.isConnected) {
+        el.textContent = `${_fmtDuration(dur.seconds)} · ${_fmtDistance(dur.meters)}`;
+      }
+    } catch (_) {}
+  }
 }
 
 // Make a polyline segment clickable for transport mode selection
@@ -1098,11 +1181,12 @@ function _bindRouteModeClick(polyline, toWp) {
       }
       updateTrip(_tripId, { days: trip.days });
       _map?.closePopup();
-      // Redraw routes
+      // Redraw routes — must bump gen counter or the guard in _drawRoutes exits early
       _routeLayers.forEach(l => { try { _map.removeLayer(l); } catch (_) {} });
       _routeLayers = [];
       const freshTrip = getTrip(_tripId);
-      if (freshTrip) _drawRoutes(freshTrip, []);
+      _drawRouteGen++;
+      if (freshTrip) _drawRoutes(freshTrip, [], _drawRouteGen);
     };
 
     L.popup({ maxWidth: 260, closeButton: true })
@@ -1319,6 +1403,128 @@ function _getCalMonths(days) {
   return months;
 }
 
+// ─── Night stays ─────────────────────────────────────────────────────────────
+
+function _renderNightsSection(tripId) {
+  const container = document.getElementById('nights-list');
+  if (!container) return;
+  const trip = getTrip(tripId);
+  if (!trip) return;
+  const nights = trip.nights || [];
+  if (nights.length === 0) {
+    container.innerHTML = `<div style="font-size:11px;color:var(--ink4);padding:6px 14px 10px">Aucun hébergement enregistré</div>`;
+    return;
+  }
+  container.innerHTML = nights.map(n => `
+    <div class="night-item" data-night-id="${n.id}">
+      <div class="night-ic">🌙</div>
+      <div class="night-info">
+        <div class="night-name">${_esc(n.name || 'Hébergement')}</div>
+        <div class="night-dates">${_esc(n.dateFrom || '—')} → ${_esc(n.dateTo || '—')}</div>
+      </div>
+      <button class="night-edit bc" data-action="edit-night" data-night-id="${n.id}" title="Modifier">✎</button>
+      <button class="night-del bc" data-action="delete-night" data-night-id="${n.id}" title="Supprimer">✕</button>
+    </div>`).join('');
+}
+
+function _openNightModal(tripId, nightId = null) {
+  const trip  = getTrip(tripId);
+  if (!trip) return;
+  const existing = nightId ? (trip.nights || []).find(n => n.id === nightId) : null;
+  let pickedLat = existing?.lat ?? null;
+  let pickedLng = existing?.lng ?? null;
+
+  showModal(`
+    <h3>${existing ? '✎ Modifier' : '＋ Ajouter'} un hébergement</h3>
+    <div class="fg">
+      <label>Nom (hôtel, camping…)</label>
+      <input type="text" id="nh-name" placeholder="Ex : Hôtel du Lac" value="${_esc(existing?.name || '')}" autocomplete="off">
+    </div>
+    <div class="fg">
+      <label>Localisation</label>
+      <div id="nh-location-widget"></div>
+    </div>
+    <div style="display:flex;gap:10px">
+      <div class="fg" style="flex:1">
+        <label>Première nuit</label>
+        <input type="date" id="nh-from" value="${existing?.dateFrom || ''}">
+      </div>
+      <div class="fg" style="flex:1">
+        <label>Dernière nuit</label>
+        <input type="date" id="nh-to" value="${existing?.dateTo || ''}">
+      </div>
+    </div>
+    <div class="ma">
+      <button class="bc" id="nh-cancel">Annuler</button>
+      <button class="bs" id="nh-save">Enregistrer</button>
+    </div>
+  `);
+
+  const locWidget = document.getElementById('nh-location-widget');
+  _buildLocationSearch(
+    locWidget,
+    ({ lat, lng, label }) => {
+      pickedLat = lat; pickedLng = lng;
+      if (label && !document.getElementById('nh-name')?.value) {
+        const inp = document.getElementById('nh-name');
+        if (inp) inp.value = label;
+      }
+    },
+    () => {
+      closeModal();
+      if (_map) {
+        _map.getContainer().style.cursor = 'crosshair';
+        const info = document.createElement('div');
+        info.id = 'map-pick-info';
+        info.style.cssText = 'position:absolute;top:10px;left:50%;transform:translateX(-50%);z-index:1000;background:#fff;border:1.5px solid var(--teal);border-radius:20px;padding:6px 16px;font-size:12px;font-weight:700;color:var(--teal);box-shadow:0 2px 8px rgba(0,0,0,.12)';
+        info.textContent = '📍 Cliquez sur la carte pour choisir la localisation';
+        document.querySelector('.map-col')?.appendChild(info);
+      }
+      _pendingMapClick = (lat, lng) => {
+        pickedLat = lat; pickedLng = lng;
+        if (_map) _map.getContainer().style.cursor = '';
+        document.getElementById('map-pick-info')?.remove();
+        _openNightModal(tripId, nightId);
+        setTimeout(() => {
+          const widget = document.getElementById('nh-location-widget');
+          if (widget) widget.innerHTML = `<div style="font-size:11px;color:var(--teal);padding:4px 0">📍 ${lat.toFixed(5)}, ${lng.toFixed(5)}</div>`;
+        }, 50);
+      };
+    },
+    existing ? { lat: existing.lat, lng: existing.lng } : null
+  );
+
+  document.getElementById('nh-cancel')?.addEventListener('click', closeModal);
+  document.getElementById('nh-save')?.addEventListener('click', () => {
+    const name     = (document.getElementById('nh-name')?.value || '').trim();
+    const dateFrom = document.getElementById('nh-from')?.value || '';
+    const dateTo   = document.getElementById('nh-to')?.value || '';
+    if (!dateFrom || !dateTo) { notify('Veuillez renseigner les dates.', '⚠️'); return; }
+    if (dateFrom > dateTo)    { notify('La date de début doit être avant la date de fin.', '⚠️'); return; }
+    const freshTrip = getTrip(tripId);
+    if (!freshTrip) return;
+    const nights = (freshTrip.nights || []).filter(n => n.id !== nightId);
+    nights.push({
+      id:       nightId || ('nh_' + uid()),
+      name:     name || 'Hébergement',
+      lat:      pickedLat,
+      lng:      pickedLng,
+      dateFrom, dateTo,
+    });
+    nights.sort((a, b) => a.dateFrom.localeCompare(b.dateFrom));
+    updateTrip(tripId, { nights });
+    closeModal();
+    _renderNightsSection(tripId);
+    _renderDaysList(tripId);
+    // Refresh routes to include new night waypoints
+    _routeLayers.forEach(l => { try { _map?.removeLayer(l); } catch (_) {} });
+    _routeLayers = [];
+    _drawRouteGen++;
+    const updated = getTrip(tripId);
+    if (updated) _drawRoutes(updated, [], _drawRouteGen);
+  });
+}
+
 // ─── Days list ────────────────────────────────────────────────────────────────
 
 function _renderDaysList(tripId) {
@@ -1341,11 +1547,12 @@ function _renderDaysList(tripId) {
   }
 
   const sharedDocData = isTripShared(tripId) ? getSharedDocData(tripId) : null;
-  const html = days.map(day => _dayItemHtml(day, sharedDocData)).join('');
+  const html = days.map(day => _dayItemHtml(day, sharedDocData, trip)).join('');
   container.innerHTML = html;
 
   // Asynchronously populate weather (non-blocking); durations shown on map routes
   _populateWeather(days);
+  _renderNightsSection(tripId);
 }
 
 async function _populateWeather(days) {
@@ -1426,7 +1633,7 @@ function _getDayCoords(day) {
   return null;
 }
 
-function _dayItemHtml(day, sharedDocData = null) {
+function _dayItemHtml(day, sharedDocData = null, trip = null) {
   const isSelected = _openDayIds.has(day.id);
   const items = day.items || [];
 
@@ -1476,9 +1683,17 @@ function _dayItemHtml(day, sharedDocData = null) {
             title="Emoji drapeau du pays pour cette étape (utilisé dans MyMap)">
         </div>` : '';
 
+    const nightBadge = (() => {
+      if (!trip || !day.date) return '';
+      const n = _nightForDate(trip, day.date);
+      if (!n) return '';
+      return `<div class="night-badge">🌙 ${_esc(n.name || 'Nuit')}</div>`;
+    })();
+
     eventsHtml = `
       <div class="di-body">
         <div class="evt-list">${evtRows}</div>
+        ${nightBadge}
         <div class="add-evt" data-action="add-event" data-day-id="${day.id}">＋ Ajouter</div>
         ${flagRowHtml}
         ${commentsHtml}
@@ -2150,10 +2365,34 @@ function _attachLeftPanelListeners(panel) {
       }
       updateTrip(_tripId, { days });
       const updated = getTrip(_tripId);
-      if (updated) _renderTransportContent(updated, _tripId);
+      if (updated) {
+        _renderTransportContent(updated, _tripId);
+        _populateTransportDurations(updated);
+      }
       _routeLayers.forEach(l => { try { _map?.removeLayer(l); } catch (_) {} });
       _routeLayers = [];
-      if (updated) _drawRoutes(updated, []);
+      _drawRouteGen++;
+      if (updated) _drawRoutes(updated, [], _drawRouteGen);
+
+    } else if (action === 'edit-night') {
+      e.stopPropagation();
+      _openNightModal(_tripId, target.dataset.nightId);
+
+    } else if (action === 'delete-night') {
+      e.stopPropagation();
+      const nid = target.dataset.nightId;
+      if (!nid) return;
+      const trip2 = getTrip(_tripId);
+      if (!trip2) return;
+      const nights = (trip2.nights || []).filter(n => n.id !== nid);
+      updateTrip(_tripId, { nights });
+      _renderNightsSection(_tripId);
+      _renderDaysList(_tripId);
+      _routeLayers.forEach(l => { try { _map?.removeLayer(l); } catch (_) {} });
+      _routeLayers = [];
+      _drawRouteGen++;
+      const updated2 = getTrip(_tripId);
+      if (updated2) _drawRoutes(updated2, [], _drawRouteGen);
     }
   });
 
