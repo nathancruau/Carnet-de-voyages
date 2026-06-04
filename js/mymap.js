@@ -547,7 +547,7 @@ function _sidebarHtml(pins) {
 
   return `
     <div class="mm-sidebar-header">
-      <div style="font-family:'Lora',serif;font-size:17px;font-weight:700;color:var(--ink)">🗺 MyMap</div>
+      <div style="font-family:'Lora',serif;font-size:17px;font-weight:700;color:var(--ink)">🗺 Mes destinations</div>
       <button class="back-btn" style="margin-left:auto;font-size:11px;padding:4px 10px"
               onclick="goHome()">← Bibliothèque</button>
     </div>
@@ -1042,35 +1042,54 @@ export function renderMyMap() {
   wrap.className = 'mymap-wrap';
   wrap.style.cssText = '';
 
+  const isMobile = window.innerWidth <= 768;
+
   wrap.innerHTML = `
-    <div class="mm-sidebar" id="mm-sidebar">
-      ${_sidebarHtml(pins)}
-    </div>
-    <div class="map-col" id="mm-map-col">
-      <button class="lp-toggle-btn" id="mm-toggle" title="Masquer / afficher le panneau">◀</button>
-      <div id="mymap" style="width:100%;height:100%"></div>
-      <div id="mm-info-panel" class="mm-info-panel" style="display:none;flex-direction:column"></div>
+    ${isMobile ? `
+      <div class="mm-mob-tabs" id="mm-mob-tabs">
+        <button class="bm-tab active" data-mm-tab="carte">🗺 Carte</button>
+        <button class="bm-tab" data-mm-tab="destinations">📋 Mes destinations</button>
+      </div>` : ''}
+    <div class="mm-content" id="mm-content">
+      <div class="mm-sidebar" id="mm-sidebar">
+        ${_sidebarHtml(pins)}
+      </div>
+      <div class="map-col" id="mm-map-col">
+        ${!isMobile ? `<button class="lp-toggle-btn" id="mm-toggle" title="Masquer / afficher le panneau">◀</button>` : ''}
+        <div id="mymap" style="width:100%;height:100%"></div>
+        <div id="mm-info-panel" class="mm-info-panel" style="display:none;flex-direction:column"></div>
+      </div>
     </div>
   `;
 
-  // Wire sidebar toggle button
-  const mmToggle = document.getElementById('mm-toggle');
-  if (mmToggle) {
-    mmToggle.addEventListener('click', () => {
-      const sidebar = document.getElementById('mm-sidebar');
-      if (!sidebar) return;
-      const collapsed = sidebar.classList.toggle('collapsed');
-      mmToggle.textContent = collapsed ? '📋 Liste' : '✕ Fermer';
-      setTimeout(() => { if (_map) _map.invalidateSize(); }, 280);
-    });
-  }
-
-  // Auto-collapse on mobile so the map is immediately usable
-  if (window.innerWidth <= 768) {
-    const sidebar = document.getElementById('mm-sidebar');
-    if (sidebar) {
-      sidebar.classList.add('collapsed');
-      if (mmToggle) mmToggle.textContent = '📋 Liste';
+  if (isMobile) {
+    // Mobile tab switcher
+    const tabs = document.getElementById('mm-mob-tabs');
+    if (tabs) {
+      tabs.addEventListener('click', e => {
+        const btn = e.target.closest('[data-mm-tab]');
+        if (!btn) return;
+        const tab = btn.dataset.mmTab;
+        tabs.querySelectorAll('.bm-tab').forEach(b => b.classList.toggle('active', b === btn));
+        if (tab === 'destinations') {
+          wrap.classList.add('mm-destinations-mode');
+        } else {
+          wrap.classList.remove('mm-destinations-mode');
+          setTimeout(() => { if (_map) _map.invalidateSize(); }, 50);
+        }
+      });
+    }
+  } else {
+    // Desktop: wire sidebar toggle button
+    const mmToggle = document.getElementById('mm-toggle');
+    if (mmToggle) {
+      mmToggle.addEventListener('click', () => {
+        const sidebar = document.getElementById('mm-sidebar');
+        if (!sidebar) return;
+        const collapsed = sidebar.classList.toggle('collapsed');
+        mmToggle.textContent = collapsed ? '▶' : '◀';
+        setTimeout(() => { if (_map) _map.invalidateSize(); }, 280);
+      });
     }
   }
 

@@ -794,9 +794,9 @@ function _heroHtml(trips) {
         </div>
         <div class="hero-nav-group">
           ${userHtml}
-          <button class="btn-new" data-action="show-stats" title="Statistiques" style="padding:6px 10px;font-size:16px;line-height:1">📊</button>
-          <button class="btn-new" data-action="open-mymap" title="MyMap" style="padding:6px 10px;font-size:16px;line-height:1">🗺</button>
-          <button class="btn-new" data-action="open-settings" title="Paramètres" style="padding:6px 10px;font-size:16px;line-height:1">⚙️</button>
+          <button class="btn-new" data-action="show-stats" title="Statistiques" style="padding:6px 10px;font-size:14px;line-height:1.2">📊 <span class="btn-label">Statistiques</span></button>
+          <button class="btn-new" data-action="open-mymap" title="Mes destinations" style="padding:6px 10px;font-size:14px;line-height:1.2">🗺 <span class="btn-label">Mes destinations</span></button>
+          <button class="btn-new" data-action="open-settings" title="Paramètres" style="padding:6px 10px;font-size:14px;line-height:1.2">⚙️ <span class="btn-label"></span></button>
         </div>
       </div>
       <div class="hero-secondary-actions">
@@ -1137,7 +1137,7 @@ export function renderHome(filter = _currentFilter) {
     secContent = `
       <div class="home-sec-hd">
         ${tabSwitcher}
-        <button class="btn-new" data-action="new-trip">＋ Nouveau</button>
+        <button class="btn-new hero-new-btn" data-action="new-trip">＋ Nouveau</button>
       </div>
       ${_filterTabsHtml(filter, 'trips')}
       <div id="search-results-area" class="sr-area" style="display:none"></div>
@@ -1150,12 +1150,33 @@ export function renderHome(filter = _currentFilter) {
   wrap.innerHTML = `
     ${_heroHtml(allTrips)}
     <div class="home-sec">${secContent}</div>
+    <button class="home-fab" id="home-fab" title="Ajouter un voyage">＋</button>
+    <div class="home-fab-menu panel-fab-menu" id="home-fab-menu">
+      <button class="pfm-btn" data-action="new-trip" data-type="sortie">📍 Sortie</button>
+      <button class="pfm-btn" data-action="new-trip" data-type="weekend">🌿 Week-end</button>
+      <button class="pfm-btn" data-action="new-trip" data-type="voyage">✈️ Voyage</button>
+    </div>
   `;
 
   // Attach the click listener only once; subsequent renderHome calls reuse it
   if (!_listenerAttached) {
     _attachListeners(wrap);
     _listenerAttached = true;
+  }
+
+  // Home FAB toggle
+  const homeFab  = document.getElementById('home-fab');
+  const fabMenu  = document.getElementById('home-fab-menu');
+  if (homeFab && fabMenu) {
+    homeFab.addEventListener('click', e => {
+      e.stopPropagation();
+      const open = fabMenu.classList.toggle('visible');
+      homeFab.classList.toggle('open', open);
+    });
+    document.addEventListener('click', () => {
+      fabMenu.classList.remove('visible');
+      homeFab.classList.remove('open');
+    });
   }
 }
 
@@ -1174,7 +1195,7 @@ function _renderStats() {
     <div class="home-sec">
       <div class="home-sec-hd">
         <h2>Statistiques</h2>
-        <button class="btn-new" data-action="new-trip">＋ Nouveau</button>
+        <button class="btn-new hero-new-btn" data-action="new-trip">＋ Nouveau</button>
       </div>
       ${_filterTabsHtml(_statsTypeFilter, 'stats')}
       <div id="search-results-area" class="sr-area" style="display:none"></div>
@@ -1474,6 +1495,12 @@ function _openSettingsModal() {
 
     notify('Paramètres enregistrés', '✅');
     closeModal();
+    // Re-render home immediately so grands-parents mode applies without restart
+    if (_currentTab === 'trips' || _currentTab === 'stats') {
+      _currentTab === 'stats' ? _renderStats() : renderHome(_currentFilter);
+    } else {
+      renderHome(_currentFilter);
+    }
   });
 }
 
@@ -1529,7 +1556,7 @@ function _attachListeners(wrap) {
         break;
 
       case 'new-trip':
-        openEditTripModal(null);
+        openEditTripModal(null, target.dataset.type || null);
         break;
 
       case 'share-trip':
@@ -2169,9 +2196,12 @@ function _buildModalHtml(trip) {
 
 // ── Modal: open ────────────────────────────────────────────────────────────────
 
-export function openEditTripModal(id = null) {
+export function openEditTripModal(id = null, presetType = null) {
   _editingId = id;
   const trip = id ? getTrips().find(t => t.id === id) : null;
+
+  // Apply preset type when creating new (not editing existing)
+  if (!trip && presetType) _modalType = presetType;
 
   // Sortie gets its own dedicated form
   if (trip?.type === 'sortie' || (!trip && _modalType === 'sortie')) {
@@ -2190,7 +2220,7 @@ export function openEditTripModal(id = null) {
     ? (trip.companions || []).map(c => ({ ...c }))
     : [];
   _modalColor  = trip?.color  || '#0d9488';
-  _modalType   = trip?.type   || 'voyage';
+  _modalType   = trip?.type   || presetType || 'voyage';
   _modalStatus = trip?.status || 'planning';
 
   showModal(_buildModalHtml(trip));

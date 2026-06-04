@@ -50,7 +50,7 @@ html,body{height:100%;font-family:var(--fn);background:var(--c);color:var(--ink)
 #pwa-install-bar{padding-bottom:calc(12px + env(safe-area-inset-bottom))!important}
 
 .home-wrap{
-  flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:0;background:var(--c);
+  flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;padding:0;background:var(--c);
 }
 .home-wrap::-webkit-scrollbar{width:4px}
 .home-wrap::-webkit-scrollbar-track{background:transparent}
@@ -807,8 +807,10 @@ html,body{height:100%;font-family:var(--fn);background:var(--c);color:var(--ink)
 
 /* Outer wrapper — full-screen flex row */
 .mymap-wrap{
-  display:flex;flex-direction:row;width:100%;height:100%;overflow:hidden;
+  display:flex;flex-direction:column;width:100%;height:100%;overflow:hidden;
 }
+.mm-mob-tabs{display:none}
+.mm-content{display:flex;flex-direction:row;flex:1;overflow:hidden;position:relative;min-height:0}
 
 /* ── Left sidebar ── */
 .mm-sidebar{
@@ -1577,7 +1579,60 @@ html,body{height:100%;font-family:var(--fn);background:var(--c);color:var(--ink)
 
   /* ── Grands-parents mode ── */
   .gp-hero{padding:max(28px,calc(14px + env(safe-area-inset-top))) 20px 16px!important}
+
+  /* ── Hero nav: hide text labels, show emoji only ── */
+  .hero-nav-group .btn-label{display:none}
+  .hero-new-btn{display:none!important}
+
+  /* ── Hero stats: spread evenly ── */
+  .hero-stats{justify-content:space-between;width:100%}
+
+  /* ── Home FAB (shown on mobile) ── */
+  .home-fab{display:flex!important}
+
+  /* ── MyMap mobile tabs ── */
+  .mm-mob-tabs{display:flex;gap:4px;padding:10px 12px;background:var(--c);border-bottom:1px solid var(--c3);flex-shrink:0}
+  .mymap-wrap.mm-destinations-mode .mm-sidebar{
+    position:relative!important;transform:none!important;
+    width:100%!important;min-width:100%!important;height:100%;border-right:none;
+  }
+  .mymap-wrap.mm-destinations-mode #mm-map-col{display:none!important}
+  #mm-map-col .lp-toggle-btn{display:none!important}
+
+  /* ── Settings radio/checkbox alignment ── */
+  .mbox input[type="radio"],.mbox input[type="checkbox"]{
+    flex-shrink:0;width:18px;height:18px;cursor:pointer;accent-color:var(--teal);margin:0;
+  }
 }
+
+/* ── Home FAB (mobile only, hidden on desktop) ── */
+.home-fab{
+  display:none;align-items:center;justify-content:center;
+  position:fixed;bottom:calc(20px + env(safe-area-inset-bottom));left:50%;
+  transform:translateX(-50%);z-index:9000;
+  width:54px;height:54px;border-radius:50%;
+  background:var(--teal);color:#fff;border:none;
+  font-size:28px;cursor:pointer;
+  box-shadow:0 4px 16px rgba(13,148,136,.4);
+  transition:transform .2s,box-shadow .15s;
+}
+.home-fab.open{transform:translateX(-50%) rotate(45deg)}
+.home-fab-menu{
+  position:fixed;bottom:calc(82px + env(safe-area-inset-bottom));left:50%;
+  transform:translateX(-50%) translateY(8px);z-index:9001;
+  display:flex;flex-direction:column;gap:8px;
+  opacity:0;pointer-events:none;
+  transition:opacity .18s,transform .18s;
+  max-width:calc(100vw - 32px);
+}
+.home-fab-menu.visible{opacity:1;pointer-events:all;transform:translateX(-50%) translateY(0)}
+
+/* ── btn-label: visible on desktop ── */
+.btn-label{display:inline}
+
+/* Stronger background fill to prevent white-band on all screens */
+html,body{background:var(--c)!important}
+.panels,.panel{background:var(--c)}
 
 /* ── Fullscreen stat card ── */
 .stat-card.stat-fs{
