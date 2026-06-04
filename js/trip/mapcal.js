@@ -116,7 +116,21 @@ async function _fetchDuration(from, to, mode) {
     _durCache[key] = result;
     return result;
   }
-  const osrmProfile = { car:'driving', bus:'driving', foot:'foot', bike:'cycling', ferry:'driving', plane:null }[mode] || 'driving';
+  // Foot: haversine + 5 km/h walking speed
+  if (mode === 'foot') {
+    const key = `${from.lat},${from.lng}→${to.lat},${to.lng}:foot`;
+    if (key in _durCache) return _durCache[key];
+    const meters = _haversineMeters(from, to);
+    return (_durCache[key] = { seconds: Math.round(meters / (5000 / 3600)), meters });
+  }
+  // Bike: haversine + 15 km/h cycling speed
+  if (mode === 'bike') {
+    const key = `${from.lat},${from.lng}→${to.lat},${to.lng}:bike`;
+    if (key in _durCache) return _durCache[key];
+    const meters = _haversineMeters(from, to);
+    return (_durCache[key] = { seconds: Math.round(meters / (15000 / 3600)), meters });
+  }
+  const osrmProfile = { car:'driving', bus:'driving', ferry:'driving', plane:null }[mode] || 'driving';
   // Plane: estimate via haversine + 800 km/h
   if (mode === 'plane' || osrmProfile === null) {
     const key = `${from.lat},${from.lng}→${to.lat},${to.lng}:plane`;
@@ -236,13 +250,6 @@ export function renderMapCal(tripId) {
           </div>
         </div>
         <div class="days-scroll" id="days-list" style="${_calTab === 'transport' ? 'display:none' : ''}"></div>
-        <div class="nights-section" id="nights-section" style="${_calTab === 'transport' ? 'display:none' : ''}">
-          <div class="nights-hdr">
-            <span class="nights-hdr-lbl">🌙 Hébergements</span>
-            <button class="bc" id="add-night-btn" title="Ajouter un hébergement" style="padding:2px 8px;font-size:13px;line-height:1.4;border-radius:8px;font-weight:700">＋</button>
-          </div>
-          <div id="nights-list"></div>
-        </div>
         <div class="days-scroll" id="transport-list" style="${_calTab === 'transport' ? '' : 'display:none'}"></div>
       </div>
       <div class="map-col">
@@ -333,7 +340,6 @@ export function renderMapCal(tripId) {
       hide(panel.querySelector('#mini-cal'));
       hide(panel.querySelector('#days-list-header'));
       hide(panel.querySelector('#days-list'));
-      hide(panel.querySelector('#nights-section'));
       hide(panel.querySelector('#transport-list'));
       if (isTransport) {
         show(panel.querySelector('#transport-list'));
@@ -348,7 +354,6 @@ export function renderMapCal(tripId) {
         show(panel.querySelector('#mini-cal'));
         show(panel.querySelector('#days-list-header'), 'flex');
         show(panel.querySelector('#days-list'));
-        show(panel.querySelector('#nights-section'));
       }
     });
   });
@@ -406,9 +411,6 @@ export function renderMapCal(tripId) {
       _renderMiniCal(tripId);
     });
   }
-
-  // Wire night stays buttons
-  panel.querySelector('#add-night-btn')?.addEventListener('click', () => _openNightModal(tripId));
 
   // Wire GPX buttons
   panel.querySelector('#gpx-export-btn')?.addEventListener('click', () => _exportGpx(tripId));
@@ -1023,10 +1025,17 @@ function _dayPopupHtml(day) {
 
 // Return the active night stay for a given ISO date (the night of that date)
 function _nightForDate(trip, isoDate) {
-  return (trip.nights || []).find(n =>
-    n.lat != null && n.lng != null && n.dateFrom && n.dateTo &&
-    n.dateFrom <= isoDate && isoDate <= n.dateTo
-  ) || null;
+  for (const day of (trip.days || [])) {
+    for (const item of (day.items || [])) {
+      if (item.type === 'sleep' && item.lat != null && item.lng != null &&
+          item.dateFrom && item.dateTo &&
+          item.dateFrom <= isoDate && isoDate <= item.dateTo) {
+        return { id: item.id, lat: item.lat, lng: item.lng,
+                 name: item.text, dateFrom: item.dateFrom, dateTo: item.dateTo };
+      }
+    }
+  }
+  return null;
 }
 
 // Collect ALL georeferenced waypoints from items + fallback to day pins.
@@ -1057,7 +1066,7 @@ function _collectAllWaypoints(trip) {
     }
 
     // --- Regular day pins ---
-    const itemPins = (day.items || []).filter(it => it.lat != null && it.lng != null);
+    const itemPins = (day.items || []).filter(it => it.lat != null && it.lng != null && it.type !== 'sleep');
     if (itemPins.length > 0) {
       for (const item of itemPins) {
         let mode = item.routeMode || 'car';
@@ -1403,128 +1412,6 @@ function _getCalMonths(days) {
   return months;
 }
 
-// ─── Night stays ─────────────────────────────────────────────────────────────
-
-function _renderNightsSection(tripId) {
-  const container = document.getElementById('nights-list');
-  if (!container) return;
-  const trip = getTrip(tripId);
-  if (!trip) return;
-  const nights = trip.nights || [];
-  if (nights.length === 0) {
-    container.innerHTML = `<div style="font-size:11px;color:var(--ink4);padding:6px 14px 10px">Aucun hébergement enregistré</div>`;
-    return;
-  }
-  container.innerHTML = nights.map(n => `
-    <div class="night-item" data-night-id="${n.id}">
-      <div class="night-ic">🌙</div>
-      <div class="night-info">
-        <div class="night-name">${_esc(n.name || 'Hébergement')}</div>
-        <div class="night-dates">${_esc(n.dateFrom || '—')} → ${_esc(n.dateTo || '—')}</div>
-      </div>
-      <button class="night-edit bc" data-action="edit-night" data-night-id="${n.id}" title="Modifier">✎</button>
-      <button class="night-del bc" data-action="delete-night" data-night-id="${n.id}" title="Supprimer">✕</button>
-    </div>`).join('');
-}
-
-function _openNightModal(tripId, nightId = null) {
-  const trip  = getTrip(tripId);
-  if (!trip) return;
-  const existing = nightId ? (trip.nights || []).find(n => n.id === nightId) : null;
-  let pickedLat = existing?.lat ?? null;
-  let pickedLng = existing?.lng ?? null;
-
-  showModal(`
-    <h3>${existing ? '✎ Modifier' : '＋ Ajouter'} un hébergement</h3>
-    <div class="fg">
-      <label>Nom (hôtel, camping…)</label>
-      <input type="text" id="nh-name" placeholder="Ex : Hôtel du Lac" value="${_esc(existing?.name || '')}" autocomplete="off">
-    </div>
-    <div class="fg">
-      <label>Localisation</label>
-      <div id="nh-location-widget"></div>
-    </div>
-    <div style="display:flex;gap:10px">
-      <div class="fg" style="flex:1">
-        <label>Première nuit</label>
-        <input type="date" id="nh-from" value="${existing?.dateFrom || ''}">
-      </div>
-      <div class="fg" style="flex:1">
-        <label>Dernière nuit</label>
-        <input type="date" id="nh-to" value="${existing?.dateTo || ''}">
-      </div>
-    </div>
-    <div class="ma">
-      <button class="bc" id="nh-cancel">Annuler</button>
-      <button class="bs" id="nh-save">Enregistrer</button>
-    </div>
-  `);
-
-  const locWidget = document.getElementById('nh-location-widget');
-  _buildLocationSearch(
-    locWidget,
-    ({ lat, lng, label }) => {
-      pickedLat = lat; pickedLng = lng;
-      if (label && !document.getElementById('nh-name')?.value) {
-        const inp = document.getElementById('nh-name');
-        if (inp) inp.value = label;
-      }
-    },
-    () => {
-      closeModal();
-      if (_map) {
-        _map.getContainer().style.cursor = 'crosshair';
-        const info = document.createElement('div');
-        info.id = 'map-pick-info';
-        info.style.cssText = 'position:absolute;top:10px;left:50%;transform:translateX(-50%);z-index:1000;background:#fff;border:1.5px solid var(--teal);border-radius:20px;padding:6px 16px;font-size:12px;font-weight:700;color:var(--teal);box-shadow:0 2px 8px rgba(0,0,0,.12)';
-        info.textContent = '📍 Cliquez sur la carte pour choisir la localisation';
-        document.querySelector('.map-col')?.appendChild(info);
-      }
-      _pendingMapClick = (lat, lng) => {
-        pickedLat = lat; pickedLng = lng;
-        if (_map) _map.getContainer().style.cursor = '';
-        document.getElementById('map-pick-info')?.remove();
-        _openNightModal(tripId, nightId);
-        setTimeout(() => {
-          const widget = document.getElementById('nh-location-widget');
-          if (widget) widget.innerHTML = `<div style="font-size:11px;color:var(--teal);padding:4px 0">📍 ${lat.toFixed(5)}, ${lng.toFixed(5)}</div>`;
-        }, 50);
-      };
-    },
-    existing ? { lat: existing.lat, lng: existing.lng } : null
-  );
-
-  document.getElementById('nh-cancel')?.addEventListener('click', closeModal);
-  document.getElementById('nh-save')?.addEventListener('click', () => {
-    const name     = (document.getElementById('nh-name')?.value || '').trim();
-    const dateFrom = document.getElementById('nh-from')?.value || '';
-    const dateTo   = document.getElementById('nh-to')?.value || '';
-    if (!dateFrom || !dateTo) { notify('Veuillez renseigner les dates.', '⚠️'); return; }
-    if (dateFrom > dateTo)    { notify('La date de début doit être avant la date de fin.', '⚠️'); return; }
-    const freshTrip = getTrip(tripId);
-    if (!freshTrip) return;
-    const nights = (freshTrip.nights || []).filter(n => n.id !== nightId);
-    nights.push({
-      id:       nightId || ('nh_' + uid()),
-      name:     name || 'Hébergement',
-      lat:      pickedLat,
-      lng:      pickedLng,
-      dateFrom, dateTo,
-    });
-    nights.sort((a, b) => a.dateFrom.localeCompare(b.dateFrom));
-    updateTrip(tripId, { nights });
-    closeModal();
-    _renderNightsSection(tripId);
-    _renderDaysList(tripId);
-    // Refresh routes to include new night waypoints
-    _routeLayers.forEach(l => { try { _map?.removeLayer(l); } catch (_) {} });
-    _routeLayers = [];
-    _drawRouteGen++;
-    const updated = getTrip(tripId);
-    if (updated) _drawRoutes(updated, [], _drawRouteGen);
-  });
-}
-
 // ─── Days list ────────────────────────────────────────────────────────────────
 
 function _renderDaysList(tripId) {
@@ -1552,7 +1439,6 @@ function _renderDaysList(tripId) {
 
   // Asynchronously populate weather (non-blocking); durations shown on map routes
   _populateWeather(days);
-  _renderNightsSection(tripId);
 }
 
 async function _populateWeather(days) {
@@ -1803,6 +1689,10 @@ function _openEDP(dayId, evtIdx, tripId) {
   const item = day.items[evtIdx];
   if (!item) return;
 
+  const _edpSorted = (trip.days || []).filter(d => d.date).sort((a, b) => a.date.localeCompare(b.date));
+  const _edpStart  = _edpSorted[0]?.date || '';
+  const _edpEnd    = _edpSorted[_edpSorted.length - 1]?.date || '';
+
   // Synchronously remove any existing EDP — prevents stacking when clicking fast
   document.getElementById('edp')?.remove();
 
@@ -1920,6 +1810,19 @@ function _openEDP(dayId, evtIdx, tripId) {
       <div class="edp-sect" id="edp-mode-sect" style="display:${edpType === 'drive' ? '' : 'none'}">
         <div class="edp-sect-lbl">Mode de transport</div>
         <div style="display:flex;gap:4px;flex-wrap:wrap" id="edp-modes">${_modeButtons()}</div>
+      </div>
+      <div class="edp-sect" id="edp-sleep-dates" style="display:${edpType === 'sleep' ? '' : 'none'}">
+        <div class="edp-sect-lbl">Nuits passées ici</div>
+        <div style="display:flex;gap:10px">
+          <div style="flex:1">
+            <div style="font-size:11px;color:var(--ink3);margin-bottom:3px">Première nuit</div>
+            <input type="date" id="edp-sleep-from" value="${_esc(item.dateFrom || day.date || '')}" min="${_edpStart}" max="${_edpEnd}" style="${inputStyle}">
+          </div>
+          <div style="flex:1">
+            <div style="font-size:11px;color:var(--ink3);margin-bottom:3px">Dernière nuit</div>
+            <input type="date" id="edp-sleep-to" value="${_esc(item.dateTo || _edpEnd || '')}" min="${_edpStart}" max="${_edpEnd}" style="${inputStyle}">
+          </div>
+        </div>
       </div>
       <div class="edp-sect">
         <div class="edp-sect-lbl">Description</div>
@@ -2110,6 +2013,8 @@ function _openEDP(dayId, evtIdx, tripId) {
     });
     const modeSect = edp.querySelector('#edp-mode-sect');
     if (modeSect) modeSect.style.display = edpType === 'drive' ? '' : 'none';
+    const sleepSect = edp.querySelector('#edp-sleep-dates');
+    if (sleepSect) sleepSect.style.display = edpType === 'sleep' ? '' : 'none';
     const ic = edp.querySelector('#edp-ic');
     if (ic) ic.textContent = edpType === 'drive' ? trIc(edpTransport) : tIc(edpType);
   });
@@ -2155,6 +2060,10 @@ function _openEDP(dayId, evtIdx, tripId) {
       time:  time || null,
       cost,
       notes,
+      ...(edpType === 'sleep' ? {
+        dateFrom: document.getElementById('edp-sleep-from')?.value || null,
+        dateTo:   document.getElementById('edp-sleep-to')?.value   || null,
+      } : {}),
     };
 
     updateTrip(tripId, { days: t2.days });
@@ -2374,25 +2283,6 @@ function _attachLeftPanelListeners(panel) {
       _drawRouteGen++;
       if (updated) _drawRoutes(updated, [], _drawRouteGen);
 
-    } else if (action === 'edit-night') {
-      e.stopPropagation();
-      _openNightModal(_tripId, target.dataset.nightId);
-
-    } else if (action === 'delete-night') {
-      e.stopPropagation();
-      const nid = target.dataset.nightId;
-      if (!nid) return;
-      const trip2 = getTrip(_tripId);
-      if (!trip2) return;
-      const nights = (trip2.nights || []).filter(n => n.id !== nid);
-      updateTrip(_tripId, { nights });
-      _renderNightsSection(_tripId);
-      _renderDaysList(_tripId);
-      _routeLayers.forEach(l => { try { _map?.removeLayer(l); } catch (_) {} });
-      _routeLayers = [];
-      _drawRouteGen++;
-      const updated2 = getTrip(_tripId);
-      if (updated2) _drawRoutes(updated2, [], _drawRouteGen);
     }
   });
 
@@ -3065,6 +2955,12 @@ function _openAddEventModal(dayId, tripId, prefill = null) {
   let selTransport = 'car';
   let pickedLat    = prefill?.lat ?? null;
   let pickedLng    = prefill?.lng ?? null;
+  const _aeTrip    = getTrip(tripId);
+  const _aeSorted  = (_aeTrip?.days || []).filter(d => d.date).sort((a, b) => a.date.localeCompare(b.date));
+  const _aeStart   = _aeSorted[0]?.date || '';
+  const _aeEnd     = _aeSorted[_aeSorted.length - 1]?.date || '';
+  const _aeDay     = (_aeTrip?.days || []).find(d => d.id === dayId);
+  const _aeDate    = _aeDay?.date || '';
 
   function _aeTypeBtnsHtml() {
     return evtTypes.map(et => {
@@ -3116,6 +3012,22 @@ function _openAddEventModal(dayId, tripId, prefill = null) {
     <div id="ae-dest-row" style="display:none" class="fg">
       <label>Destination</label>
       <div id="ae-dest-widget"></div>
+    </div>
+
+    <div id="ae-sleep-dates" style="display:none" class="fg">
+      <label>Nuits passées ici</label>
+      <div style="display:flex;gap:10px">
+        <div style="flex:1">
+          <div style="font-size:11px;color:var(--ink3);margin-bottom:3px">Première nuit</div>
+          <input type="date" id="ae-sleep-from" value="${_aeDate}" min="${_aeStart}" max="${_aeEnd}"
+            style="width:100%;padding:5px 8px;border:1.5px solid var(--c3);border-radius:6px;font-size:12px;background:var(--c);color:var(--ink)">
+        </div>
+        <div style="flex:1">
+          <div style="font-size:11px;color:var(--ink3);margin-bottom:3px">Dernière nuit</div>
+          <input type="date" id="ae-sleep-to" value="${_aeEnd}" min="${_aeStart}" max="${_aeEnd}"
+            style="width:100%;padding:5px 8px;border:1.5px solid var(--c3);border-radius:6px;font-size:12px;background:var(--c);color:var(--ink)">
+        </div>
+      </div>
     </div>
 
     <div class="fg">
@@ -3215,6 +3127,8 @@ function _openAddEventModal(dayId, tripId, prefill = null) {
 
     if (transportRow) transportRow.style.display = selType === 'drive' ? '' : 'none';
     if (destRow)      destRow.style.display       = selType === 'drive' ? '' : 'none';
+    const sleepRow = document.getElementById('ae-sleep-dates');
+    if (sleepRow) sleepRow.style.display = selType === 'sleep' ? '' : 'none';
   });
 
   // Mode pill selection
@@ -3256,6 +3170,10 @@ function _openAddEventModal(dayId, tripId, prefill = null) {
         transport: selTransport,
         destLat,
         destLng,
+      } : {}),
+      ...(selType === 'sleep' ? {
+        dateFrom: document.getElementById('ae-sleep-from')?.value || null,
+        dateTo:   document.getElementById('ae-sleep-to')?.value   || null,
       } : {}),
     };
 
