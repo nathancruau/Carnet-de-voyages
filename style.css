@@ -1391,14 +1391,17 @@ html,body{height:100%;font-family:var(--fn);background:var(--c);color:var(--ink)
 
   /* ── Topbar: compact on mobile ── */
   .topbar-row1{padding:6px 10px 4px;gap:4px}
-  .topbar-row2{padding:3px 8px 5px}
+  .topbar-row2{padding:2px 6px 4px}
   .trip-tag{font-size:13px}
   .dates-tag,.ts-pill{display:none}
-  .nav-tabs{overflow-x:auto;-webkit-overflow-scrolling:touch;flex-wrap:nowrap;justify-content:flex-start;scrollbar-width:none}
+  /* Nav tabs: full-width emoji-only on mobile */
+  .nav-tabs{overflow-x:visible;flex-wrap:nowrap;justify-content:space-evenly;width:100%;scrollbar-width:none}
   .nav-tabs::-webkit-scrollbar{display:none}
   .nav-tabs-group-lbl{display:none}
   .nav-tabs-sep{display:none}
-  .nav-tab{padding:6px 12px;font-size:12px;flex-shrink:0;min-height:34px;display:flex;align-items:center}
+  .nav-tab{flex:1;padding:4px 2px;font-size:10px;flex-shrink:1;min-height:44px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px}
+  .nav-tab-em{font-size:20px;line-height:1}
+  .nav-tab-lbl{display:none}
 
   /* ── Trip map panel: slide-over (absolute) ── */
   .left-panel{
@@ -1433,7 +1436,8 @@ html,body{height:100%;font-family:var(--fn);background:var(--c);color:var(--ink)
   .share-qr-wrap{padding:6px}
 
   /* ── Touch-friendly tap targets ── */
-  .btn-new,.filter-tab,.back-btn{min-height:40px}
+  .btn-new,.filter-tab{min-height:40px}
+  .back-btn{min-height:44px;padding:8px 14px;font-size:13px;font-weight:700}
   .mm-type-btn{padding:5px 10px;font-size:11px}
 
   /* ── Login screen: teal gradient on mobile ── */

@@ -157,7 +157,7 @@ function _fmtDistance(meters) {
 }
 let _dragEvt          = null;      // { dayId, idx } being dragged
 let _pendingModeChange = null;     // callback for route-mode popup
-let _showDurLabels     = true;     // toggle duration labels on map routes
+let _showDurLabels     = false;    // toggle duration labels on map routes
 let _gpxLayers         = [];       // Leaflet layers for GPX overlays
 let _worldCopyMarkers  = [];       // non-interactive copies at ±360° offsets
 let _worldCopyOffsets  = new Set();
