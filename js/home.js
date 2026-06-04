@@ -792,10 +792,12 @@ function _heroHtml(trips) {
           ${userHtml}
           <button class="btn-new hero-btn-import" data-action="open-import" title="Importer KML/CSV">⬆ Importer</button>
           <button class="btn-new hero-btn-export" data-action="export-all" title="Exporter tous les voyages en CSV">⬇ Exporter</button>
-          <button class="btn-new hero-btn-stats" data-action="show-stats">📊 Statistiques</button>
-          <button class="btn-new hero-btn-mymap" data-action="open-mymap">🗺 MyMap</button>
           ${installBtn}
-          <button class="btn-new" data-action="open-settings" title="Paramètres" style="padding:6px 10px;font-size:16px;line-height:1">⚙️</button>
+          <div style="display:flex;gap:4px">
+            <button class="btn-new" data-action="show-stats" title="Statistiques" style="padding:6px 10px;font-size:16px;line-height:1">📊</button>
+            <button class="btn-new" data-action="open-mymap" title="MyMap" style="padding:6px 10px;font-size:16px;line-height:1">🗺</button>
+            <button class="btn-new" data-action="open-settings" title="Paramètres" style="padding:6px 10px;font-size:16px;line-height:1">⚙️</button>
+          </div>
         </div>
       </div>
       <div class="hero-row2">
@@ -1266,6 +1268,10 @@ function _openSettingsModal() {
               <span style="font-size:12px">Modifications des voyages partagés</span>
               <input type="checkbox" id="notif-collaborative" ${curNotif.collaborative !== false ? 'checked' : ''}>
             </label>
+            <label class="s-toggle-row">
+              <span style="font-size:12px">Publications des voyages observés 📡</span>
+              <input type="checkbox" id="notif-observer-publish" ${curNotif.observerPublish !== false ? 'checked' : ''}>
+            </label>
           </div>
         </div>
         <div style="font-size:10px;color:var(--ink4);margin-top:5px">Requiert l'autorisation du navigateur. Désactivé par défaut.</div>
@@ -1341,15 +1347,16 @@ function _openSettingsModal() {
     const newEventTypes = collectEventTypes();
     const lang    = document.querySelector('input[name="lang-sel"]:checked')?.value || 'fr';
     const theme   = document.querySelector('input[name="theme-sel"]:checked')?.value || 'light';
-    const notifEnabled  = document.getElementById('notif-enabled')?.checked ?? false;
-    const notifDep      = document.getElementById('notif-departure')?.checked ?? true;
-    const notifCollab   = document.getElementById('notif-collaborative')?.checked ?? true;
+    const notifEnabled       = document.getElementById('notif-enabled')?.checked ?? false;
+    const notifDep           = document.getElementById('notif-departure')?.checked ?? true;
+    const notifCollab        = document.getElementById('notif-collaborative')?.checked ?? true;
+    const notifObsPublish    = document.getElementById('notif-observer-publish')?.checked ?? true;
 
     updateSettings({
       eventTypes: newEventTypes.length > 0 ? newEventTypes : DEFAULT_EVENT_TYPES,
       lang,
       theme,
-      notifications: { enabled: notifEnabled, departure: notifDep, collaborative: notifCollab },
+      notifications: { enabled: notifEnabled, departure: notifDep, collaborative: notifCollab, observerPublish: notifObsPublish },
     });
 
     // Apply theme immediately

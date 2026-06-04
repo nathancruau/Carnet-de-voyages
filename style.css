@@ -38,7 +38,7 @@ html,body{height:100%;font-family:var(--fn);background:var(--c);color:var(--ink)
 .screen.active{display:flex;animation:screenFadeIn .18s ease both}
 
 /* Safe-area: applied to the elements that touch notch / home bar, not to body */
-.hero{padding-top:max(28px, calc(14px + env(safe-area-inset-top)))}
+.hero{padding-top:max(28px, calc(14px + env(safe-area-inset-top)))!important}
 .topbar-row1{padding-top:max(6px, calc(2px + env(safe-area-inset-top)))}
 #screen-login{padding-top:env(safe-area-inset-top)}
 @keyframes screenFadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
@@ -135,7 +135,8 @@ html,body{height:100%;font-family:var(--fn);background:var(--c);color:var(--ink)
 [data-theme="dark"] .hero .btn-new:hover{background:rgba(255,255,255,.18);border-color:rgba(255,255,255,.35)}
 
 /* Filter tabs */
-.filter-tabs{display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap}
+.filter-tabs{display:flex;gap:8px;margin-bottom:16px;flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:touch;padding-bottom:4px;scrollbar-width:none}
+.filter-tabs::-webkit-scrollbar{display:none}
 .filter-tab{
   padding:6px 14px;border-radius:999px;font-size:11px;font-weight:700;
   cursor:pointer;border:1.5px solid var(--c3);background:var(--c);
@@ -1541,7 +1542,7 @@ html,body{height:100%;font-family:var(--fn);background:var(--c);color:var(--ink)
   #mm-map-col .lp-toggle-btn{position:absolute;bottom:auto;top:10px;left:10px;z-index:1002}
 
   /* ── Modals: sheet from bottom ── */
-  .mbox{max-width:98vw;margin:0;border-radius:14px 14px 0 0;max-height:92vh;position:fixed;bottom:0;left:0;right:0;overflow-y:auto}
+  .mbox{max-width:98vw;margin:0;border-radius:14px 14px 0 0;max-height:92dvh;position:fixed;bottom:0;left:0;right:0;overflow-y:auto;overflow-x:hidden;padding-bottom:calc(20px + env(safe-area-inset-bottom))}
 
   /* ── Share modal: compact on mobile ── */
   .share-qr{width:140px;height:140px}

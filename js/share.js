@@ -427,7 +427,8 @@ function _showPublishNotification(pub) {
   const { actorName, tripName, dayLabel } = pub || {};
   const msg = `${actorName || 'Un voyageur'} a publié ${dayLabel || 'un jour'} de "${tripName || 'son voyage'}"`;
   notify(msg, '📖');
-  if (Notification?.permission === 'granted') {
+  const s = getSettings();
+  if (s?.notifications?.enabled && s.notifications.observerPublish !== false && Notification?.permission === 'granted') {
     try { new Notification('Carnet de Voyages', { body: msg, icon: '/favicon.ico' }); } catch (_) {}
   }
 }
