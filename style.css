@@ -1494,7 +1494,7 @@ html,body{height:100%;font-family:var(--fn);background:var(--c);color:var(--ink)
   .panel-fab-menu.visible{opacity:1;pointer-events:all;transform:translateX(-50%) translateY(0)}
   .pfm-btn{background:#fff;border:1.5px solid var(--c3);border-radius:10px;padding:10px 16px;font-size:13px;font-weight:600;cursor:pointer;color:var(--ink);text-align:left;box-shadow:var(--sh);white-space:nowrap}
   /* ── Journal & Planning mobile tabs ── */
-  #panel-journal,#panel-mapcal{display:flex!important;flex-direction:column}
+  #panel-journal.active,#panel-mapcal.active{display:flex!important;flex-direction:column;overflow:hidden}
   #panel-journal .mapcal,#panel-mapcal .mapcal{flex:1;min-height:0;height:auto!important}
   .jn-mob-tabs,.mc-mob-tabs{display:flex;gap:4px;padding:10px 12px;background:var(--c);border-bottom:1px solid var(--c3);flex-shrink:0}
   #panel-mapcal .lp-toggle-btn,#panel-journal .lp-toggle-btn{display:none!important}

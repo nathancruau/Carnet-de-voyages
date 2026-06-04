@@ -6,7 +6,7 @@
    - Firebase   : network-only (handles its own offline via IndexedDB)
    ============================================================ */
 
-const SHELL_CACHE = 'cv-shell-66';
+const SHELL_CACHE = 'cv-shell-67';
 const TILE_CACHE  = 'cv-tiles-1';
 
 const SHELL_URLS = [
