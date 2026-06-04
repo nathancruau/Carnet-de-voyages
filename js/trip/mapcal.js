@@ -162,6 +162,7 @@ let _gpxLayers         = [];       // Leaflet layers for GPX overlays
 let _worldCopyMarkers  = [];       // non-interactive copies at ±360° offsets
 let _worldCopyOffsets  = new Set();
 let _calTab            = 'planning'; // 'planning' | 'transport'
+let _mapcalMobTab      = 'carte';    // 'carte' | 'jours' (mobile only)
 
 // ─── Public API ───────────────────────────────────────────────────────────────
 
@@ -204,7 +205,11 @@ export function renderMapCal(tripId) {
 
   // Inject panel structure (no bottom add-day button; + button is in the days-list header)
   panel.innerHTML = `
-    <div class="mapcal">
+    <div class="mc-mob-tabs">
+      <button class="bm-tab${_mapcalMobTab==='carte'?' active':''}" data-action="mc-tab" data-tab="carte">🗺 Carte</button>
+      <button class="bm-tab${_mapcalMobTab==='jours'?' active':''}" data-action="mc-tab" data-tab="jours">📅 Jours</button>
+    </div>
+    <div class="mapcal${_mapcalMobTab==='jours'?' mc-jours-mode':''}">
       <div class="left-panel">
         <div class="lp-tabs">
           <button class="lp-tab-btn${_calTab === 'planning' ? ' active' : ''}" data-cal-tab="planning">📅 Planning</button>
@@ -277,6 +282,33 @@ export function renderMapCal(tripId) {
       </div>
     </div>
   `;
+
+  // Wire mobile Carte/Jours tab switcher
+  const isMobileMc = window.innerWidth <= 768;
+  if (isMobileMc) {
+    const lp = panel.querySelector('.left-panel');
+    if (lp && _mapcalMobTab !== 'jours') lp.classList.add('collapsed');
+    panel.querySelectorAll('[data-action="mc-tab"]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const tab = btn.dataset.tab;
+        if (tab === _mapcalMobTab) return;
+        _mapcalMobTab = tab;
+        panel.querySelectorAll('[data-action="mc-tab"]').forEach(b => {
+          b.classList.toggle('active', b.dataset.tab === tab);
+        });
+        const mapcal = panel.querySelector('.mapcal');
+        const lpEl   = panel.querySelector('.left-panel');
+        if (tab === 'jours') {
+          if (mapcal) mapcal.classList.add('mc-jours-mode');
+          if (lpEl)   lpEl.classList.remove('collapsed');
+        } else {
+          if (mapcal) mapcal.classList.remove('mc-jours-mode');
+          if (lpEl)   lpEl.classList.add('collapsed');
+          setTimeout(() => { if (_map) _map.invalidateSize(); }, 60);
+        }
+      });
+    });
+  }
 
   // Attach event delegation for left panel (including drag-and-drop)
   _attachLeftPanelListeners(panel);

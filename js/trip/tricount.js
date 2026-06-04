@@ -744,6 +744,59 @@ function _renderBudgetVsDep(trip) {
   const totalDiffSign  = isOverTotal ? '+' : '';
   const totalBarColor  = isOverTotal ? 'var(--coral)' : 'var(--grn)';
 
+  const isMobile = window.innerWidth <= 768;
+
+  if (isMobile) {
+    let cards = '';
+    for (const cat of cats) {
+      const planned = budgetByCat[cat.id] || 0;
+      const spent   = spentByCat[cat.id]  || 0;
+      const diff    = planned - spent;
+      const isOver  = diff < -0.01;
+      const diffColor = isOver ? 'var(--coral)' : diff > 0.01 ? 'var(--grn)' : 'var(--ink4)';
+      const diffSign  = isOver ? '+' : '';
+      const pct       = planned > 0 ? Math.min(100, Math.round((spent / planned) * 100)) : (spent > 0 ? 100 : 0);
+      const barColor  = isOver ? 'var(--coral)' : (cat.color || '#0d9488');
+
+      cards += `
+        <div style="background:var(--c);border:1px solid var(--c3);border-radius:10px;padding:11px 13px;margin-bottom:8px">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+            <div style="display:flex;align-items:center;gap:7px">
+              <span style="font-size:18px">${_esc(cat.icon||'📦')}</span>
+              <span style="font-size:13px;font-weight:700;color:var(--ink)">${_esc(cat.name)}</span>
+            </div>
+            <span style="font-size:12px;font-weight:700;color:${diffColor}">${diffSign}${_fmtEur(Math.abs(diff))}${isOver?' ⚠️':''}</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--ink3);margin-bottom:7px">
+            <span>Budget : <b style="color:var(--ink2)">${_fmtEur(planned)}</b></span>
+            <span>Dépensé : <b style="color:var(--ink)">${_fmtEur(spent)}</b></span>
+          </div>
+          <div style="display:flex;align-items:center;gap:7px">
+            <div style="flex:1;background:var(--c3);border-radius:4px;height:8px;overflow:hidden">
+              <div style="width:${pct}%;height:100%;background:${barColor};border-radius:4px;transition:width .3s"></div>
+            </div>
+            <span style="font-size:10px;color:var(--ink4);white-space:nowrap;min-width:28px;text-align:right">${pct}%</span>
+          </div>
+        </div>`;
+    }
+
+    const totalDiff2   = totalPlanned - totalSpent;
+    const isOverTotal2 = totalDiff2 < -0.01;
+    const totalDiffColor2 = isOverTotal2 ? 'var(--coral)' : 'var(--grn)';
+    const totalDiffSign2  = isOverTotal2 ? '+' : '';
+
+    return `
+      <div style="font-family:var(--sf);font-size:16px;font-weight:700;margin-bottom:12px">Budget vs D&eacute;penses</div>
+      ${cards}
+      <div style="background:var(--c2);border:1.5px solid var(--c3);border-radius:10px;padding:11px 13px;display:flex;justify-content:space-between;align-items:center">
+        <span style="font-size:13px;font-weight:800;color:var(--ink)">TOTAL</span>
+        <div style="text-align:right">
+          <div style="font-size:12px;color:var(--ink3)">Budget : ${_fmtEur(totalPlanned)} · Dépensé : ${_fmtEur(totalSpent)}</div>
+          <div style="font-size:13px;font-weight:800;color:${totalDiffColor2}">${totalDiffSign2}${_fmtEur(Math.abs(totalDiff2))}${isOverTotal2?' ⚠️':''}</div>
+        </div>
+      </div>`;
+  }
+
   return `
     <div style="font-family:var(--sf);font-size:16px;font-weight:700;margin-bottom:14px">Budget vs D&eacute;penses</div>
     <div style="overflow-x:auto">

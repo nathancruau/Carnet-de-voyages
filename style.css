@@ -287,6 +287,7 @@ html,body{height:100%;font-family:var(--fn);background:var(--c);color:var(--ink)
 .bm-tab{flex:1;padding:9px 0;border-radius:9px;border:1px solid var(--c3);font-size:13px;font-weight:700;cursor:pointer;background:transparent;color:var(--ink3);transition:all .15s}
 .bm-tab.active{background:var(--teal);color:#fff;border-color:var(--teal)}
 .bud-add-btn-desktop{}
+.jn-mob-tabs,.mc-mob-tabs{display:none}
 
 /* ── Tricount mobile tabs (hidden on desktop) ── */
 .tri-mob-tabs{display:none}
@@ -1476,22 +1477,31 @@ html,body{height:100%;font-family:var(--fn);background:var(--c);color:var(--ink)
   #bud-sect-stats,#bud-sect-lines{padding:0 14px 10px}
   .panel-fab{
     display:flex;align-items:center;justify-content:center;
-    position:fixed;bottom:20px;right:16px;z-index:9000;
+    position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:9000;
     width:54px;height:54px;border-radius:50%;
     background:var(--teal);color:#fff;border:none;
     font-size:28px;cursor:pointer;
     box-shadow:0 4px 16px rgba(13,148,136,.4);
     transition:transform .15s,box-shadow .15s;
   }
-  .panel-fab:hover{transform:scale(1.08);box-shadow:0 6px 20px rgba(13,148,136,.5)}
+  .panel-fab:hover{transform:translateX(-50%) scale(1.08);box-shadow:0 6px 20px rgba(13,148,136,.5)}
   .panel-fab-menu{
-    position:fixed;bottom:82px;right:16px;z-index:9001;
+    position:fixed;bottom:82px;left:50%;transform:translateX(-50%) translateY(8px);z-index:9001;
     display:flex;flex-direction:column;gap:8px;
-    opacity:0;pointer-events:none;transform:translateY(8px);
+    opacity:0;pointer-events:none;
     transition:opacity .18s,transform .18s;
   }
-  .panel-fab-menu.visible{opacity:1;pointer-events:all;transform:translateY(0)}
+  .panel-fab-menu.visible{opacity:1;pointer-events:all;transform:translateX(-50%) translateY(0)}
   .pfm-btn{background:#fff;border:1.5px solid var(--c3);border-radius:10px;padding:10px 16px;font-size:13px;font-weight:600;cursor:pointer;color:var(--ink);text-align:left;box-shadow:var(--sh);white-space:nowrap}
+  /* ── Journal & Planning mobile tabs ── */
+  #panel-journal,#panel-mapcal{display:flex!important;flex-direction:column}
+  #panel-journal .mapcal,#panel-mapcal .mapcal{flex:1;min-height:0;height:auto!important}
+  .jn-mob-tabs,.mc-mob-tabs{display:flex;gap:4px;padding:10px 12px;background:var(--c);border-bottom:1px solid var(--c3);flex-shrink:0}
+  #panel-mapcal .lp-toggle-btn,#panel-journal .lp-toggle-btn{display:none!important}
+  /* Journal activité mode: left panel overlays map full-width */
+  .mapcal.jn-activite-mode .left-panel{position:absolute;transform:translateX(0)!important;width:100%!important;max-width:100%!important;height:100%;z-index:200;background:var(--c)}
+  /* Mapcal jours mode: left panel overlays map full-width */
+  .mapcal.mc-jours-mode .left-panel{position:absolute;transform:translateX(0)!important;width:100%!important;max-width:100%!important;height:100%;z-index:200;background:var(--c)}
 
   /* ── Tricount mobile redesign ── */
   .tri-side{display:none}

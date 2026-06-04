@@ -110,6 +110,7 @@ let _journalWorldCopyOffsets = new Set();
 let _activeDayFilter  = null;
 let _observerMode     = false;
 let _journalView      = 'map'; // 'map' | 'timeline'
+let _journalMobTab    = 'carte';   // 'carte' | 'activite' | 'timeline' (mobile only)
 let _shareMod         = null;  // cached dynamic import of share.js
 
 export function destroyJournalMap() {
@@ -240,6 +241,7 @@ export async function renderJournal(tripId, isObserver = false) {
   if (tripId !== _journalTripId) {
     _activeDayFilter = null;
     _journalView     = 'map';
+    _journalMobTab   = 'carte';
   }
 
   if (_journalMap) destroyJournalMap();
@@ -265,10 +267,19 @@ export async function renderJournal(tripId, isObserver = false) {
     _renderObserverView(panel, trip, tripId);
   } else {
     const isMobile = window.innerWidth <= 768;
+    const isActivite = isMobile && _journalMobTab === 'activite';
+
     panel.innerHTML = `
-      <div class="mapcal">
-        <div class="left-panel${isMobile ? ' collapsed' : ''}" style="width:290px;min-width:240px;max-width:290px;display:flex;flex-direction:column">
-          ${_viewToggleHtml('map')}
+      ${isMobile ? `
+        <div class="jn-mob-tabs">
+          <button class="bm-tab${_journalMobTab==='carte'?' active':''}" data-action="jn-tab" data-tab="carte">🗺 Carte</button>
+          <button class="bm-tab${_journalMobTab==='activite'?' active':''}" data-action="jn-tab" data-tab="activite">📋 Activité</button>
+          <button class="bm-tab${_journalMobTab==='timeline'?' active':''}" data-action="jn-tab" data-tab="timeline">📖 Timeline</button>
+        </div>
+      ` : ''}
+      <div class="mapcal${isActivite ? ' jn-activite-mode' : ''}">
+        <div class="left-panel${isMobile && !isActivite ? ' collapsed' : ''}" style="width:290px;min-width:240px;max-width:290px;display:flex;flex-direction:column">
+          ${!isMobile ? _viewToggleHtml('map') : ''}
           <div style="padding:8px 14px 4px;flex-shrink:0">
             <h3 style="font-family:var(--sf);font-size:15px;font-weight:700;color:var(--ink);margin:0">📔 Carnet</h3>
             <p style="font-size:11px;color:var(--ink4);margin-top:2px">Validez vos activités · les PIN apparaissent sur la carte</p>
@@ -278,21 +289,22 @@ export async function renderJournal(tripId, isObserver = false) {
           </div>
         </div>
         <div class="map-col" style="flex:1;position:relative">
-          <button class="lp-toggle-btn" id="jn-lp-toggle" title="Activités">${isMobile ? '&#9776;&nbsp;Activités' : '◀'}</button>
+          ${!isMobile ? `<button class="lp-toggle-btn" id="jn-lp-toggle" title="Activités">◀</button>` : ''}
           <div id="journal-map" style="width:100%;height:100%"></div>
         </div>
       </div>`;
 
-    // Wire journal left-panel toggle
-    const jnLp     = panel.querySelector('.left-panel');
-    const jnToggle = panel.querySelector('#jn-lp-toggle');
-    if (jnToggle && jnLp) {
-      jnToggle.addEventListener('click', () => {
-        const collapsed = jnLp.classList.toggle('collapsed');
-        const mob = window.innerWidth <= 768;
-        jnToggle.innerHTML = collapsed ? (mob ? '&#9776;&nbsp;Activités' : '▶') : '◀';
-        setTimeout(() => { if (_journalMap) _journalMap.invalidateSize(); }, 280);
-      });
+    // Wire left-panel toggle (desktop only)
+    if (!isMobile) {
+      const jnLp     = panel.querySelector('.left-panel');
+      const jnToggle = panel.querySelector('#jn-lp-toggle');
+      if (jnToggle && jnLp) {
+        jnToggle.addEventListener('click', () => {
+          const collapsed = jnLp.classList.toggle('collapsed');
+          jnToggle.innerHTML = collapsed ? '▶' : '◀';
+          setTimeout(() => { if (_journalMap) _journalMap.invalidateSize(); }, 280);
+        });
+      }
     }
 
     _initJournalMap(tripId);
@@ -864,6 +876,40 @@ function _handleClick(e, tripId) {
   if (!btn) return;
 
   const action = btn.dataset.action;
+
+  if (action === 'jn-tab') {
+    const tab = btn.dataset.tab;
+    if (tab === _journalMobTab) return;
+
+    // Timeline requires a full re-render; switching back from timeline also does
+    if (tab === 'timeline' || _journalMobTab === 'timeline') {
+      _journalView   = tab === 'timeline' ? 'timeline' : 'map';
+      _journalMobTab = tab;
+      renderJournal(tripId, _observerMode);
+      return;
+    }
+
+    _journalMobTab = tab;
+    const pnl = document.getElementById('panel-journal');
+    if (!pnl) return;
+
+    pnl.querySelectorAll('.jn-mob-tabs .bm-tab').forEach(b => {
+      b.classList.toggle('active', b.dataset.tab === tab);
+    });
+
+    const mapcal   = pnl.querySelector('.mapcal');
+    const leftPanel = pnl.querySelector('.left-panel');
+
+    if (tab === 'activite') {
+      if (mapcal) mapcal.classList.add('jn-activite-mode');
+      if (leftPanel) leftPanel.classList.remove('collapsed');
+    } else {
+      if (mapcal) mapcal.classList.remove('jn-activite-mode');
+      if (leftPanel) leftPanel.classList.add('collapsed');
+      setTimeout(() => { if (_journalMap) _journalMap.invalidateSize(); }, 60);
+    }
+    return;
+  }
 
   if (action === 'switch-view') {
     const newView = btn.dataset.view;
