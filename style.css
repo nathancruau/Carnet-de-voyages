@@ -1403,8 +1403,8 @@ html,body{height:100%;font-family:var(--fn);background:var(--c);color:var(--ink)
   /* Hide low-priority hero actions on small screens */
   .hero-btn-import,.hero-btn-export,.hero-btn-stats,.hero-btn-mymap{display:none}
   .hl-tab{padding:4px 10px;font-size:11px}
-  /* Make the 3 home library tabs fit without horizontal scrolling */
-  .hl-tabs-inline{overflow:hidden!important;gap:2px}
+  /* Make the 3 home library tabs fill the screen horizontally */
+  .hl-tabs-inline{overflow:hidden!important;gap:2px;flex:1;width:0}
   .hl-tabs-inline .hl-tab{flex:1;min-width:0;justify-content:center;text-align:center;padding:4px 2px;font-size:10px;white-space:normal;line-height:1.2;min-height:36px;display:flex;align-items:center;flex-direction:column;gap:1px}
 
   /* ── Hero row 2: stack stats + search vertically ── */
@@ -2175,7 +2175,7 @@ a.tl-sv-pill:hover{background:var(--c3);color:var(--ink)}
 /* ── Night badge (shown on covered days in the day list) ─────────────────── */
 .night-badge{
   display:inline-flex;align-items:center;gap:4px;
-  font-size:11px;font-weight:600;color:var(--teal);
-  background:var(--tl);border-radius:6px;
+  font-size:11px;font-weight:600;color:#7c3aed;
+  background:rgba(124,58,237,.1);border-radius:6px;
   padding:2px 7px;margin-top:4px;
 }
