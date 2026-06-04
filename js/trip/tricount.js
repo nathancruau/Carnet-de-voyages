@@ -213,11 +213,27 @@ export function renderTricount(tripId) {
       <div class="tri-main" id="tri-main-content">
         ${_renderMain(trip, participants, balances, settlements)}
       </div>
-    </div>`;
+    </div>
+    <div class="panel-fab-menu" id="tri-fab-menu">
+      <button class="pfm-btn" data-action="add-expense">💶 Dépense</button>
+      <button class="pfm-btn" data-action="add-transfer">💸 Virement / Remboursement</button>
+    </div>
+    <button class="panel-fab" data-action="tri-fab" title="Ajouter">＋</button>`;
 
   const handler = e => _handleClick(e, tripId);
   _handlers.set(panel, handler);
   panel.addEventListener('click', handler);
+
+  // Close FAB menu on outside click
+  setTimeout(() => {
+    document.addEventListener('click', function _fabClose(ev) {
+      const fab = document.getElementById('tri-fab-menu');
+      if (!fab) { document.removeEventListener('click', _fabClose); return; }
+      if (!fab.contains(ev.target) && !ev.target.closest('[data-action="tri-fab"]')) {
+        fab.classList.remove('visible');
+      }
+    });
+  }, 0);
 }
 
 // ── Side panel ────────────────────────────────────────────────────────────────
@@ -257,8 +273,8 @@ function _renderSide(trip, participants, balances) {
 // ── Main panel ────────────────────────────────────────────────────────────────
 
 function _renderMain(trip, participants, balances, settlements) {
-  const isDepenses   = _activeTab === 'depenses';
-  const isBilans     = _activeTab === 'bilans';
+  const isDepenses    = _activeTab === 'depenses';
+  const isBilans      = _activeTab === 'bilans';
   const isBudgetVsDep = _activeTab === 'budgetvsdep';
 
   function tabStyle(active) {
@@ -268,17 +284,18 @@ function _renderMain(trip, participants, balances, settlements) {
             box-shadow:${active ? 'var(--sh)' : 'none'};transition:all .15s`;
   }
 
-  const tabs = `
-    <div style="display:flex;gap:3px;background:var(--c2);border-radius:8px;padding:3px;border:1px solid var(--c3);margin-bottom:16px;width:fit-content">
-      <div data-action="switch-tab" data-tab="depenses" style="${tabStyle(isDepenses)}">
-        D&eacute;penses
-      </div>
-      <div data-action="switch-tab" data-tab="bilans" style="${tabStyle(isBilans)}">
-        Bilans
-      </div>
-      <div data-action="switch-tab" data-tab="budgetvsdep" style="${tabStyle(isBudgetVsDep)}">
-        Budget vs D&eacute;p.
-      </div>
+  const desktopTabs = `
+    <div class="tri-tab-row-inline" style="display:flex;gap:3px;background:var(--c2);border-radius:8px;padding:3px;border:1px solid var(--c3);margin-bottom:16px;width:fit-content">
+      <div data-action="switch-tab" data-tab="depenses" style="${tabStyle(isDepenses)}">D&eacute;penses</div>
+      <div data-action="switch-tab" data-tab="bilans" style="${tabStyle(isBilans)}">Bilans</div>
+      <div data-action="switch-tab" data-tab="budgetvsdep" style="${tabStyle(isBudgetVsDep)}">Budget vs D&eacute;p.</div>
+    </div>`;
+
+  const mobTabs = `
+    <div class="tri-mob-tabs">
+      <button class="bm-tab${isDepenses ? ' active' : ''}" data-action="switch-tab" data-tab="depenses">💶 D&eacute;penses</button>
+      <button class="bm-tab${isBilans ? ' active' : ''}" data-action="switch-tab" data-tab="bilans">⚖️ Bilans</button>
+      <button class="bm-tab${isBudgetVsDep ? ' active' : ''}" data-action="switch-tab" data-tab="budgetvsdep">📊 Budget</button>
     </div>`;
 
   let content;
@@ -290,7 +307,7 @@ function _renderMain(trip, participants, balances, settlements) {
     content = _renderBudgetVsDep(trip);
   }
 
-  return tabs + content;
+  return mobTabs + desktopTabs + `<div class="tri-main-pad">${content}</div>`;
 }
 
 // ── Dépenses tab ──────────────────────────────────────────────────────────────
@@ -300,24 +317,81 @@ function _renderDepenses(trip, participants) {
   const cats       = trip.budgetCats   || [];
   const days       = trip.days         || [];
   const totalSpent = expenses.reduce((s, e) => s + (Number(e.amount) || 0), 0);
+  const isMobile   = window.innerWidth <= 768;
 
   if (expenses.length === 0) {
     return `
       <div style="text-align:center;padding:40px 20px;color:var(--ink4)">
         <div style="font-size:32px;margin-bottom:10px">&#x1F4B8;</div>
         <div style="font-size:13px">Aucune d&eacute;pense enregistr&eacute;e</div>
-        <div style="font-size:11px;margin-top:4px">Cliquez sur &laquo;&nbsp;Ajouter une d&eacute;pense&nbsp;&raquo; pour commencer</div>
+        <div style="font-size:11px;margin-top:4px">Appuyez sur ＋ pour ajouter une d&eacute;pense</div>
       </div>`;
   }
 
+  const header = `
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">
+      <div>
+        <span style="font-family:var(--sf);font-size:16px;font-weight:700">D&eacute;penses</span>
+        <span style="font-size:12px;color:var(--ink4);margin-left:8px">${expenses.length} entr&eacute;e${expenses.length !== 1 ? 's' : ''} &middot; ${_fmtEur(totalSpent)}</span>
+      </div>
+    </div>`;
+
+  const donutHtml = _renderCatDonut(trip, expenses);
+
+  if (isMobile) {
+    let cards = '';
+    for (const exp of [...expenses].reverse()) {
+      if (exp.type === 'transfer') {
+        const fromP = participants.find(p => p.id === exp.fromId);
+        const toP   = participants.find(p => p.id === exp.toId);
+        cards += `
+          <div class="tec tec-transfer" data-action="edit-transfer" data-exp-id="${_esc(exp.id)}">
+            <div class="tec-icon">💸</div>
+            <div class="tec-info">
+              <div class="tec-desc">Virement${exp.note ? ' · ' + _esc(exp.note) : ''}</div>
+              <div class="tec-sub">${_esc(fromP?.name || exp.fromId)} → ${_esc(toP?.name || exp.toId)}${exp.date ? ' · ' + fmtDateShort(exp.date) : ''}</div>
+            </div>
+            <div class="tec-right">
+              <div class="tec-amount">${_fmtEur(exp.amount)}</div>
+            </div>
+          </div>`;
+        continue;
+      }
+
+      const payer = participants.find(p => p.id === exp.paidById);
+      const cat   = cats.find(c => c.id === exp.catId);
+      const day   = days.find(d => d.id === exp.dayId);
+      const refHtml = [exp.date ? fmtDateShort(exp.date) : '', day ? 'Jour ' + day.num : ''].filter(Boolean).join(' · ');
+      const payerName = payer?.name || exp.paidById || '?';
+      const amountHtml = exp.currency && exp.currency !== 'EUR'
+        ? `${Number(exp.amount).toLocaleString('fr-FR', {minimumFractionDigits:2,maximumFractionDigits:2})} ${exp.currency}`
+        : _fmtEur(exp.amount);
+
+      cards += `
+        <div class="tec" data-action="edit-expense" data-exp-id="${_esc(exp.id)}">
+          <div class="tec-icon">${cat?.icon || '💶'}</div>
+          <div class="tec-info">
+            <div class="tec-desc">${_esc(exp.desc || '—')}</div>
+            <div class="tec-sub">${_esc(payerName)}${refHtml ? ' · ' + refHtml : ''}</div>
+          </div>
+          <div class="tec-right">
+            <div class="tec-amount">${amountHtml}</div>
+            ${exp.currency && exp.currency !== 'EUR' ? `<div style="font-size:10px;color:var(--ink4)">${_fmtEur(exp.amountEur || exp.amount)}</div>` : ''}
+          </div>
+        </div>`;
+    }
+
+    return header + `<div class="tri-exp-cards">${cards}</div>` + donutHtml;
+  }
+
+  // Desktop: table view
   let rows = '';
   for (const exp of [...expenses].reverse()) {
-    // Transfer row
     if (exp.type === 'transfer') {
       const fromP = participants.find(p => p.id === exp.fromId);
       const toP   = participants.find(p => p.id === exp.toId);
       rows += `
-        <tr style="background:var(--c2)">
+        <tr style="background:var(--c2)" class="bud-line-row" data-action="edit-transfer" data-exp-id="${_esc(exp.id)}">
           <td>
             <div style="display:flex;align-items:center;gap:5px">
               <span style="font-size:14px">💸</span>
@@ -400,16 +474,7 @@ function _renderDepenses(trip, participants) {
       </tr>`;
   }
 
-  // Category donut chart
-  const donutHtml = _renderCatDonut(trip, expenses);
-
-  return `
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">
-      <div>
-        <span style="font-family:var(--sf);font-size:16px;font-weight:700">D&eacute;penses</span>
-        <span style="font-size:12px;color:var(--ink4);margin-left:8px">${expenses.length} entr&eacute;e${expenses.length !== 1 ? 's' : ''} &middot; ${_fmtEur(totalSpent)}</span>
-      </div>
-    </div>
+  return header + `
     <table class="tri-exp-table">
       <thead>
         <tr>
@@ -721,11 +786,20 @@ function _handleClick(e, tripId) {
 
   const action = btn.dataset.action;
 
-  if (action === 'add-expense') {
+  if (action === 'tri-fab') {
+    const menu = document.getElementById('tri-fab-menu');
+    if (menu) menu.classList.toggle('visible');
+
+  } else if (action === 'add-expense') {
+    document.getElementById('tri-fab-menu')?.classList.remove('visible');
     _openExpenseModal(tripId, null);
 
   } else if (action === 'add-transfer') {
+    document.getElementById('tri-fab-menu')?.classList.remove('visible');
     _openTransferModal(tripId);
+
+  } else if (action === 'edit-transfer') {
+    _openTransferModal(tripId, btn.dataset.expId);
 
   } else if (action === 'edit-expense') {
     _openExpenseModal(tripId, btn.dataset.expId);
@@ -1215,7 +1289,7 @@ function _openExpenseModal(tripId, expId) {
 
 // ── Transfer Modal ────────────────────────────────────────────────────────────
 
-function _openTransferModal(tripId) {
+function _openTransferModal(tripId, expId = null) {
   const trip = getTrip(tripId);
   if (!trip) return;
 
@@ -1225,19 +1299,21 @@ function _openTransferModal(tripId) {
     return;
   }
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today    = new Date().toISOString().slice(0, 10);
+  const existing = expId ? (trip.realExpenses || []).find(e => e.id === expId) : null;
+  const isEdit   = !!existing;
 
   const fromOpts = participants.map(p =>
-    `<option value="${_esc(p.id)}">${_esc(p.name)}</option>`
+    `<option value="${_esc(p.id)}"${existing?.fromId === p.id ? ' selected' : ''}>${_esc(p.name)}</option>`
   ).join('');
 
   const toOpts = participants.map(p =>
-    `<option value="${_esc(p.id)}">${_esc(p.name)}</option>`
+    `<option value="${_esc(p.id)}"${existing?.toId === p.id ? ' selected' : ''}>${_esc(p.name)}</option>`
   ).join('');
 
   showModal(`
     <button class="mc" onclick="closeModal()">✕</button>
-    <h3>💸 Virement / remboursement</h3>
+    <h3>💸 ${isEdit ? 'Modifier le virement' : 'Virement / remboursement'}</h3>
     <p style="font-size:12px;color:var(--ink4);margin-bottom:14px">
       Enregistrez un remboursement direct entre participants. Cela ajuste les soldes.
     </p>
@@ -1254,28 +1330,44 @@ function _openTransferModal(tripId) {
 
     <div class="fg">
       <label>Montant (€)</label>
-      <input type="number" id="tr-amount" min="0.01" step="0.01" placeholder="0">
+      <input type="number" id="tr-amount" min="0.01" step="0.01" placeholder="0" value="${existing ? existing.amount : ''}">
     </div>
 
     <div class="fg">
       <label>Date</label>
-      <input type="date" id="tr-date" value="${today}">
+      <input type="date" id="tr-date" value="${existing ? existing.date : today}">
     </div>
 
     <div class="fg">
       <label>Note (optionnel)</label>
-      <input type="text" id="tr-note" placeholder="Ex : remboursement dîner…">
+      <input type="text" id="tr-note" placeholder="Ex : remboursement dîner…" value="${_esc(existing?.note || '')}">
     </div>
 
     <div class="ma">
       <button class="bc" onclick="closeModal()">Annuler</button>
+      ${isEdit ? `<button class="bc" id="tr-delete" style="color:var(--coral)">🗑 Supprimer</button>` : ''}
       <button class="bs" id="tr-save">Enregistrer</button>
     </div>`);
 
-  // Default to/from to be different
-  const toSel = document.getElementById('tr-to');
-  if (toSel && participants.length >= 2) {
-    toSel.selectedIndex = 1;
+  // Default to/from to be different when creating
+  if (!isEdit) {
+    const toSel = document.getElementById('tr-to');
+    if (toSel && participants.length >= 2) toSel.selectedIndex = 1;
+  }
+
+  if (isEdit) {
+    document.getElementById('tr-delete')?.addEventListener('click', () => {
+      if (confirm('Supprimer ce virement ?')) {
+        const freshTrip = getTrip(tripId);
+        updateTrip(tripId, {
+          realExpenses: (freshTrip.realExpenses || []).filter(e => e.id !== expId)
+        });
+        updateTopStats(tripId);
+        notify('Virement supprimé', '🗑');
+        closeModal();
+        renderTricount(tripId);
+      }
+    });
   }
 
   document.getElementById('tr-save')?.addEventListener('click', () => {
@@ -1290,20 +1382,18 @@ function _openTransferModal(tripId) {
     if (amount <= 0)       { notify('Montant invalide', '⚠️'); return; }
 
     const freshTrip = getTrip(tripId);
-    const newExp    = [...(freshTrip.realExpenses || [])];
-    newExp.push({
-      id:     'ex_' + uid(),
-      type:   'transfer',
-      fromId,
-      toId,
-      amount,
-      date,
-      note,
-    });
+    let newExps = [...(freshTrip.realExpenses || [])];
 
-    updateTrip(tripId, { realExpenses: newExp });
+    if (isEdit) {
+      const idx = newExps.findIndex(e => e.id === expId);
+      if (idx !== -1) newExps[idx] = { ...newExps[idx], fromId, toId, amount, date, note };
+    } else {
+      newExps.push({ id: 'ex_' + uid(), type: 'transfer', fromId, toId, amount, date, note });
+    }
+
+    updateTrip(tripId, { realExpenses: newExps });
     updateTopStats(tripId);
-    notify('Virement enregistré', '💸');
+    notify(isEdit ? 'Virement modifié' : 'Virement enregistré', '💸');
     closeModal();
     renderTricount(tripId);
   });
