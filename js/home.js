@@ -3,7 +3,7 @@
    ============================================================ */
 
 import {
-  getTrips, addTrip, updateTrip, deleteTrip,
+  getTrips, getState, addTrip, updateTrip, deleteTrip,
   TRIP_TYPES, COMP_COLORS, uid,
   getSettings, updateSettings,
   getEventTypes, DEFAULT_EVENT_TYPES,
@@ -18,7 +18,7 @@ import {
 } from './utils.js';
 // navigateToTrip / goMyMap accessed via window globals (set by app.js) to avoid circular import
 import { importFile } from './import.js';
-import { getCurrentUser, logout, isFirebaseConfigured } from './auth.js';
+import { getCurrentUser, logout, syncToFirestore, isFirebaseConfigured } from './auth.js';
 import { requestNotificationPermission, notificationPermissionGranted } from './notifications.js';
 import { openShareModal, leaveSharedTrip, removeSharedTripMember, isCurrentUserObserver } from './share.js';
 
@@ -770,6 +770,7 @@ function _statsViewHtml(trips) {
 function _heroHtml(trips) {
   const s = _calcStats(trips);
   const user = getCurrentUser();
+  const isStandalone = window.matchMedia('(display-mode:standalone)').matches || !!navigator.standalone;
   const userHtml = user ? `
     <div class="user-pill">
       ${user.photoURL ? `<img src="${_esc(user.photoURL)}" class="user-av" referrerpolicy="no-referrer">` : ''}
@@ -777,6 +778,9 @@ function _heroHtml(trips) {
       <button data-action="logout" class="logout-btn">Déconnexion</button>
     </div>
   ` : '';
+  const installBtn = !isStandalone
+    ? `<button class="btn-new hero-btn-install" data-action="pwa-install" title="Installer l'application">📲 Installer</button>`
+    : '';
   return `
     <div class="hero">
       <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;width:100%">
@@ -788,12 +792,13 @@ function _heroHtml(trips) {
           ${userHtml}
           <button class="btn-new hero-btn-import" data-action="open-import" title="Importer KML/CSV">⬆ Importer</button>
           <button class="btn-new hero-btn-export" data-action="export-all" title="Exporter tous les voyages en CSV">⬇ Exporter</button>
-          <button class="btn-new" data-action="show-stats">📊 Statistiques</button>
-          <button class="btn-new" data-action="open-mymap">🗺 MyMap</button>
+          <button class="btn-new hero-btn-stats" data-action="show-stats">📊 Statistiques</button>
+          <button class="btn-new hero-btn-mymap" data-action="open-mymap">🗺 MyMap</button>
+          ${installBtn}
           <button class="btn-new" data-action="open-settings" title="Paramètres" style="padding:6px 10px;font-size:16px;line-height:1">⚙️</button>
         </div>
       </div>
-      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;width:100%">
+      <div class="hero-row2">
         <div class="hero-stats">
           <div class="hs-card">
             <div class="hs-v">${s.voyageCount}</div>
@@ -816,7 +821,7 @@ function _heroHtml(trips) {
             <div class="hs-l">Destinations</div>
           </div>
         </div>
-        <input id="global-search" type="search" placeholder="🔍 Rechercher…" class="hero-search-input" autocomplete="off" style="width:220px;flex-shrink:0">
+        <input id="global-search" type="search" placeholder="🔍 Rechercher…" class="hero-search-input" autocomplete="off">
       </div>
     </div>
   `;
@@ -1375,15 +1380,37 @@ function _attachListeners(wrap) {
     switch (action) {
       case 'logout':
         e.stopPropagation();
-        logout().then(() => {
-          localStorage.removeItem('carnet_voyages_v1');
-          window.location.reload();
-        });
+        // Flush any pending local changes to Firestore before wiping localStorage
+        syncToFirestore(getState())
+          .catch(() => {})
+          .finally(() => {
+            logout().then(() => {
+              localStorage.removeItem('carnet_voyages_v1');
+              window.location.reload();
+            });
+          });
         break;
 
       case 'open-mymap':
         window.goMyMap();
         break;
+
+      case 'pwa-install': {
+        const prompt = window._pwaPrompt;
+        if (prompt) {
+          prompt.prompt();
+          prompt.userChoice.then(() => { window._pwaPrompt = null; renderHome(); });
+        } else {
+          const ua = navigator.userAgent;
+          const isIos = /iPad|iPhone|iPod/.test(ua);
+          const isSafariBased = !ua.includes('Chrome') && !ua.includes('CriOS') && (ua.includes('Safari') || isIos);
+          const msg = (isIos && isSafariBased)
+            ? 'Safari : appuyez sur Partager ⬆ → "Sur l\'écran d\'accueil"'
+            : 'Chrome : icône ⊕ dans la barre d\'adresse, ou ⋮ → "Installer l\'application"';
+          notify(msg, '📲');
+        }
+        break;
+      }
 
       case 'open-import':
         _openImportModal();
