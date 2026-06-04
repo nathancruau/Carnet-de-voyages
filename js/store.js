@@ -92,10 +92,10 @@ export const DEFAULT_PIN_TYPES = [
 ];
 
 export const DEFAULT_EVENT_TYPES = [
+  { key: 'sleep',    emoji: '🌙', label: 'Nuit',      color: '#7c3aed' },
   { key: 'drive',    emoji: '🚐', label: 'Transport', color: '#0284c7' },
   { key: 'visit',    emoji: '📍', label: 'Visite',    color: '#16a34a' },
   { key: 'activity', emoji: '⚡', label: 'Activité',  color: '#d97706' },
-  { key: 'sleep',    emoji: '🌙', label: 'Nuit',      color: '#7c3aed' },
 ];
 
 export function getSettings() {
@@ -115,7 +115,13 @@ export function getPinTypes() {
 
 export function getEventTypes() {
   const s = state.settings || {};
-  return Array.isArray(s.eventTypes) && s.eventTypes.length > 0 ? s.eventTypes : DEFAULT_EVENT_TYPES;
+  if (!Array.isArray(s.eventTypes) || s.eventTypes.length === 0) return DEFAULT_EVENT_TYPES;
+  // Ensure sleep is always first
+  const types = s.eventTypes;
+  const sleepIdx = types.findIndex(t => t.key === 'sleep');
+  if (sleepIdx <= 0) return types;
+  const reordered = [types[sleepIdx], ...types.slice(0, sleepIdx), ...types.slice(sleepIdx + 1)];
+  return reordered;
 }
 
 export function getLanguage() {

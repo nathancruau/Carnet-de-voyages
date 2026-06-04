@@ -1573,7 +1573,9 @@ function _dayItemHtml(day, sharedDocData = null, trip = null) {
       if (!trip || !day.date) return '';
       const n = _nightForDate(trip, day.date);
       if (!n) return '';
-      return `<div class="night-badge">🌙 ${_esc(n.name || 'Nuit')}</div>`;
+      // Don't show badge on the day that already contains the sleep item in its list
+      if ((day.items || []).some(it => it.id === n.id)) return '';
+      return `<div class="night-badge" style="cursor:pointer" data-action="open-sleep-evt" data-sleep-id="${n.id}">🌙 ${_esc(n.name || 'Nuit')}</div>`;
     })();
 
     eventsHtml = `
@@ -2050,6 +2052,16 @@ function _openEDP(dayId, evtIdx, tripId) {
 
     const oldItem  = d2.items[evtIdx];
     const newEt    = getEventTypes().find(et => et.key === edpType);
+
+    const sleepFrom = edpType === 'sleep' ? (document.getElementById('edp-sleep-from')?.value || null) : null;
+    const sleepTo   = edpType === 'sleep' ? (document.getElementById('edp-sleep-to')?.value   || null) : null;
+    if (edpType === 'sleep') {
+      if (!sleepFrom || !sleepTo) { notify('Les dates de début et de fin sont requises', '⚠️'); return; }
+      if (sleepFrom > sleepTo) { notify('La date de fin doit être après la date de début', '⚠️'); return; }
+      if (_edpStart && sleepFrom < _edpStart) { notify('La date de début est avant le voyage', '⚠️'); return; }
+      if (_edpEnd   && sleepTo   > _edpEnd)   { notify('La date de fin est après le voyage',   '⚠️'); return; }
+    }
+
     d2.items[evtIdx] = {
       ...oldItem,
       type:      edpType,
@@ -2060,10 +2072,7 @@ function _openEDP(dayId, evtIdx, tripId) {
       time:  time || null,
       cost,
       notes,
-      ...(edpType === 'sleep' ? {
-        dateFrom: document.getElementById('edp-sleep-from')?.value || null,
-        dateTo:   document.getElementById('edp-sleep-to')?.value   || null,
-      } : {}),
+      ...(edpType === 'sleep' ? { dateFrom: sleepFrom, dateTo: sleepTo } : {}),
     };
 
     updateTrip(tripId, { days: t2.days });
@@ -2242,6 +2251,21 @@ function _attachLeftPanelListeners(panel) {
       const dayId = target.dataset.dayId;
       const idx   = parseInt(target.dataset.eventIdx, 10);
       if (dayId && !isNaN(idx)) _deleteEvent(dayId, idx, _tripId);
+
+    } else if (action === 'open-sleep-evt') {
+      e.stopPropagation();
+      const sleepId = target.dataset.sleepId;
+      if (!sleepId) return;
+      const t = getTrip(_tripId);
+      if (!t) return;
+      for (const d of (t.days || [])) {
+        const idx = (d.items || []).findIndex(it => it.id === sleepId);
+        if (idx >= 0) {
+          _openDayIds.add(d.id);
+          _openEDP(d.id, idx, _tripId);
+          return;
+        }
+      }
 
     } else if (action === 'open-comments') {
       e.stopPropagation();
@@ -3189,6 +3213,15 @@ function _openAddEventModal(dayId, tripId, prefill = null) {
         day.lat = pickedLat;
         day.lng = pickedLng;
       }
+    }
+
+    // Date validation for sleep events
+    if (selType === 'sleep') {
+      const df = event.dateFrom, dt = event.dateTo;
+      if (!df || !dt) { notify('Les dates de début et de fin sont requises', '⚠️'); return; }
+      if (df > dt) { notify('La date de fin doit être après la date de début', '⚠️'); return; }
+      if (_aeStart && df < _aeStart) { notify('La date de début est avant le voyage', '⚠️'); return; }
+      if (_aeEnd   && dt > _aeEnd)   { notify('La date de fin est après le voyage',   '⚠️'); return; }
     }
 
     // Sleep items: anchor in the day matching dateFrom so they appear on the right day
