@@ -1532,6 +1532,15 @@ function _dayItemHtml(day, sharedDocData = null, trip = null) {
   if (isSelected) {
     const evtRows = items.map((it, idx) => {
       const isSelEvt = _activeEvtKey && _activeEvtKey.dayId === day.id && _activeEvtKey.idx === idx;
+      // Sleep items render as a badge identical to the night badge on covered days
+      if (it.type === 'sleep') {
+        const slpCol = tCol('sleep', it);
+        return `<div class="night-badge${isSelEvt ? ' sel-evt' : ''}"
+                     style="cursor:pointer;color:${slpCol};background:${slpCol}1a;display:flex"
+                     data-action="open-event" data-day-id="${day.id}" data-event-idx="${idx}">
+          🌙 ${_esc(it.text || 'Nuit')}
+        </div>`;
+      }
       return `
         <div class="evt-row${isSelEvt ? ' sel-evt' : ''}"
              draggable="true"

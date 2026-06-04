@@ -35,10 +35,13 @@ export function showScreen(id) {
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
   const el = document.getElementById('screen-' + id);
   if (el) el.classList.add('active');
-  // Sync html background with active screen so iOS WebView gap below CSS viewport
-  // shows the right color instead of default white
-  document.documentElement.style.background = id === 'login' ? '#0d9488' : '';
-  document.body.style.background = id === 'login' ? '#0d9488' : '';
+  // Sync html/body background with the screen's visual content so any viewport gap
+  // (iOS safe area / Android nav bar) blends in rather than showing white
+  const _screenBg = id === 'login' ? '#0d9488'
+    : (id === 'app' || id === 'mymap') ? '#aad3df'
+    : getComputedStyle(document.documentElement).getPropertyValue('--c').trim() || '#faf7f2';
+  document.documentElement.style.background = _screenBg;
+  document.body.style.background = _screenBg;
 
   if (id === 'app' || id === 'mymap') {
     setTimeout(() => window.dispatchEvent(new Event('resize')), 50);

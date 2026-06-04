@@ -30,12 +30,15 @@
 
 /* ── Reset ── */
 *{box-sizing:border-box;margin:0;padding:0}
-html,body{height:100%;font-family:var(--fn);background:var(--c);color:var(--ink);overflow:hidden;overscroll-behavior:none}
+html{height:100%;min-height:-webkit-fill-available;font-family:var(--fn);background:var(--c);color:var(--ink);overflow:hidden;overscroll-behavior:none}
+body{height:100%;min-height:-webkit-fill-available;font-family:var(--fn);background:var(--c);color:var(--ink);overflow:hidden;overscroll-behavior:none}
 
 /* ── Screens ── */
-/* position:fixed;inset:0 is more reliable than height:100dvh on iOS PWA */
+/* position:fixed;top/right/bottom/left:0 fills the full viewport on iOS PWA */
 .screen{display:none;flex-direction:column;background:var(--c)}
-.screen.active{position:fixed;inset:0;display:flex;flex-direction:column;background:var(--c);animation:screenFadeIn .18s ease both}
+.screen.active{position:fixed;top:0;left:0;right:0;bottom:0;display:flex;flex-direction:column;background:var(--c);animation:screenFadeIn .18s ease both}
+/* Pseudo-element extends the background behind the home indicator / nav bar gap */
+.screen.active::after{content:'';position:fixed;left:0;right:0;bottom:calc(-1 * max(env(safe-area-inset-bottom,0px),20px));height:max(env(safe-area-inset-bottom,0px),20px);background:inherit;pointer-events:none;z-index:-1}
 /* Safe-area: applied to the elements that touch notch / home bar, not to body */
 .hero{padding-top:max(28px, calc(14px + env(safe-area-inset-top)))!important}
 .topbar-row1{padding-top:max(6px, calc(2px + env(safe-area-inset-top)))}
