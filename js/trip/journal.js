@@ -264,9 +264,10 @@ export async function renderJournal(tripId, isObserver = false) {
   } else if (isObserver) {
     _renderObserverView(panel, trip, tripId);
   } else {
+    const isMobile = window.innerWidth <= 768;
     panel.innerHTML = `
       <div class="mapcal">
-        <div class="left-panel" style="width:290px;min-width:240px;max-width:290px;display:flex;flex-direction:column">
+        <div class="left-panel${isMobile ? ' collapsed' : ''}" style="width:290px;min-width:240px;max-width:290px;display:flex;flex-direction:column">
           ${_viewToggleHtml('map')}
           <div style="padding:8px 14px 4px;flex-shrink:0">
             <h3 style="font-family:var(--sf);font-size:15px;font-weight:700;color:var(--ink);margin:0">📔 Carnet</h3>
@@ -277,9 +278,23 @@ export async function renderJournal(tripId, isObserver = false) {
           </div>
         </div>
         <div class="map-col" style="flex:1;position:relative">
+          <button class="lp-toggle-btn" id="jn-lp-toggle" title="Activités">${isMobile ? '&#9776;&nbsp;Activités' : '◀'}</button>
           <div id="journal-map" style="width:100%;height:100%"></div>
         </div>
       </div>`;
+
+    // Wire journal left-panel toggle
+    const jnLp     = panel.querySelector('.left-panel');
+    const jnToggle = panel.querySelector('#jn-lp-toggle');
+    if (jnToggle && jnLp) {
+      jnToggle.addEventListener('click', () => {
+        const collapsed = jnLp.classList.toggle('collapsed');
+        const mob = window.innerWidth <= 768;
+        jnToggle.innerHTML = collapsed ? (mob ? '&#9776;&nbsp;Activités' : '▶') : '◀';
+        setTimeout(() => { if (_journalMap) _journalMap.invalidateSize(); }, 280);
+      });
+    }
+
     _initJournalMap(tripId);
   }
 
