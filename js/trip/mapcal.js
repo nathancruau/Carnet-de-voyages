@@ -1031,7 +1031,8 @@ function _nightForDate(trip, isoDate) {
           item.dateFrom && item.dateTo &&
           item.dateFrom <= isoDate && isoDate <= item.dateTo) {
         return { id: item.id, lat: item.lat, lng: item.lng,
-                 name: item.text, dateFrom: item.dateFrom, dateTo: item.dateTo };
+                 name: item.text, dateFrom: item.dateFrom, dateTo: item.dateTo,
+                 color: item.color || '#7c3aed' };
       }
     }
   }
@@ -1575,7 +1576,8 @@ function _dayItemHtml(day, sharedDocData = null, trip = null) {
       if (!n) return '';
       // Don't show badge on the day that already contains the sleep item in its list
       if ((day.items || []).some(it => it.id === n.id)) return '';
-      return `<div class="night-badge" style="cursor:pointer" data-action="open-sleep-evt" data-sleep-id="${n.id}">🌙 ${_esc(n.name || 'Nuit')}</div>`;
+      const nbg = n.color + '1a'; // 10% opacity background
+      return `<div class="night-badge" style="cursor:pointer;color:${n.color};background:${nbg}" data-action="open-sleep-evt" data-sleep-id="${n.id}">🌙 ${_esc(n.name || 'Nuit')}</div>`;
     })();
 
     eventsHtml = `

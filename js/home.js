@@ -1288,7 +1288,7 @@ function _openSettingsModal() {
           style="width:34px;height:30px;padding:2px;border:1.5px solid var(--c3);border-radius:7px;cursor:pointer;background:var(--c)">
         ${isProtected
           ? `<span style="display:inline-flex;align-items:center;justify-content:center;width:28px;height:30px;font-size:14px;color:var(--ink4);flex-shrink:0" title="Ce type est protégé et ne peut pas être supprimé">🔒</span>`
-          : `<button type="button" data-et-del="${i}" style="background:var(--crl,#fee2e2);color:var(--coral,#e85d3e);border:none;border-radius:6px;padding:4px 8px;font-size:12px;cursor:pointer;flex-shrink:0">✕</button>`
+          : `<button type="button" data-et-del="${i}" style="background:var(--crl,#fee2e2);color:var(--coral,#e85d3e);border:none;border-radius:6px;padding:4px 8px;font-size:12px;cursor:pointer;flex-shrink:0;height:30px;line-height:1">✕</button>`
         }
       </div>`;
   }
