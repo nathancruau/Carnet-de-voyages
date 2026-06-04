@@ -824,6 +824,18 @@ function _escXml(s) {
 // ── Global callbacks used in inline onclick= ──────────────────────────────────
 
 window._mmFlyTo = function(lat, lng, tripId) {
+  // If currently showing destinations list, switch back to map first
+  const wrap = document.getElementById('mymap-wrap');
+  if (wrap && wrap.classList.contains('mm-destinations-mode')) {
+    wrap.classList.remove('mm-destinations-mode');
+    const tabs = document.getElementById('mm-mob-tabs');
+    if (tabs) {
+      tabs.querySelectorAll('.bm-tab[data-mm-tab]').forEach(b => {
+        b.classList.toggle('active', b.dataset.mmTab === 'carte');
+      });
+    }
+    setTimeout(() => { if (_map) _map.invalidateSize(); }, 50);
+  }
   if (!_map) return;
   _map.flyTo([parseFloat(lat), parseFloat(lng)], 13, { duration: 0.8 });
   // Find the merged pin at this location and show its info panel
@@ -1047,7 +1059,7 @@ export function renderMyMap() {
   wrap.innerHTML = `
     ${isMobile ? `
       <div class="mm-mob-tabs" id="mm-mob-tabs">
-        <button class="mm-back-btn" onclick="goHome()">← Bibliothèque</button>
+        <button class="bm-tab" onclick="goHome()">← Bibliothèque</button>
         <button class="bm-tab active" data-mm-tab="carte">🗺 Carte</button>
         <button class="bm-tab" data-mm-tab="destinations">📋 Destinations</button>
       </div>` : ''}
