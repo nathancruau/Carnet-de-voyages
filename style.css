@@ -30,7 +30,7 @@
 
 /* ── Reset ── */
 *{box-sizing:border-box;margin:0;padding:0}
-html,body{height:100%;font-family:var(--fn);background:var(--c);color:var(--ink);overflow:hidden}
+html,body{height:100%;font-family:var(--fn);background:var(--c);color:var(--ink);overflow:hidden;overscroll-behavior:none}
 
 /* ── Screens ── */
 /* position:fixed;inset:0 is more reliable than height:100dvh on iOS PWA */
