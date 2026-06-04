@@ -796,7 +796,7 @@ function _heroHtml(trips) {
           ${userHtml}
           <button class="btn-new" data-action="show-stats" title="Statistiques" style="padding:6px 10px;font-size:14px;line-height:1.2">📊 <span class="btn-label">Statistiques</span></button>
           <button class="btn-new" data-action="open-mymap" title="Mes destinations" style="padding:6px 10px;font-size:14px;line-height:1.2">🗺 <span class="btn-label">Mes destinations</span></button>
-          <button class="btn-new" data-action="open-settings" title="Paramètres" style="padding:6px 10px;font-size:14px;line-height:1.2">⚙️ <span class="btn-label"></span></button>
+          <button class="btn-new" data-action="open-settings" title="Paramètres" style="padding:6px 10px;font-size:14px;line-height:1.2">⚙️ <span class="btn-label">Paramètres</span></button>
         </div>
       </div>
       <div class="hero-secondary-actions">
@@ -1087,9 +1087,7 @@ export function renderHome(filter = _currentFilter) {
   const tabSwitcher = `
     <div class="hl-tabs hl-tabs-inline">
       <button class="hl-tab${_homeLibTab === 'mine' ? ' active' : ''}" data-action="lib-tab" data-tab="mine">🧳 Mes voyages</button>
-      <button class="hl-tab${_homeLibTab === 'observing' ? ' active' : ''}" data-action="lib-tab" data-tab="observing">
-        🔭 Mes observations${observingTrips.length > 0 ? `<span class="hl-tab-badge">${observingTrips.length}</span>` : ''}
-      </button>
+      <button class="hl-tab${_homeLibTab === 'observing' ? ' active' : ''}" data-action="lib-tab" data-tab="observing">🔭 Mes observations${observingTrips.length > 0 ? `<span class="hl-tab-badge">${observingTrips.length}</span>` : ''}</button>
       <button class="hl-tab${_homeLibTab === 'live' ? ' active' : ''}" data-action="lib-tab" data-tab="live">📡 En direct</button>
     </div>`;
 
@@ -1278,6 +1276,7 @@ function _openSettingsModal() {
   // ── Event type rows ────────────────────────────────────────────────────────
 
   function _etRowHtml(et, i) {
+    const isProtected = et.key === 'sleep';
     return `
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px" data-et-row="${i}">
         <input type="hidden" data-et-key="${i}" value="${_esc(et.key)}">
@@ -1287,7 +1286,10 @@ function _openSettingsModal() {
           style="flex:1;padding:5px 8px;border:1.5px solid var(--c3);border-radius:7px;font-size:12px;background:var(--c)">
         <input type="color" data-et-color="${i}" value="${_esc(et.color || '#0d9488')}"
           style="width:34px;height:30px;padding:2px;border:1.5px solid var(--c3);border-radius:7px;cursor:pointer;background:var(--c)">
-        <button type="button" data-et-del="${i}" style="background:var(--crl,#fee2e2);color:var(--coral,#e85d3e);border:none;border-radius:6px;padding:4px 8px;font-size:12px;cursor:pointer">✕</button>
+        ${isProtected
+          ? `<span style="display:inline-flex;align-items:center;justify-content:center;width:28px;height:30px;font-size:14px;color:var(--ink4);flex-shrink:0" title="Ce type est protégé et ne peut pas être supprimé">🔒</span>`
+          : `<button type="button" data-et-del="${i}" style="background:var(--crl,#fee2e2);color:var(--coral,#e85d3e);border:none;border-radius:6px;padding:4px 8px;font-size:12px;cursor:pointer;flex-shrink:0">✕</button>`
+        }
       </div>`;
   }
 
@@ -1434,7 +1436,9 @@ function _openSettingsModal() {
       const btn = e.target.closest('[data-et-del]');
       if (!btn) return;
       const types = collectEventTypes();
-      types.splice(parseInt(btn.dataset.etDel, 10), 1);
+      const idx = parseInt(btn.dataset.etDel, 10);
+      if (types[idx]?.key === 'sleep') return;
+      types.splice(idx, 1);
       reRenderEtRows(types);
     });
   }

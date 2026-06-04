@@ -1404,8 +1404,8 @@ html,body{height:100%;font-family:var(--fn);background:var(--c);color:var(--ink)
   .hero-btn-import,.hero-btn-export,.hero-btn-stats,.hero-btn-mymap{display:none}
   .hl-tab{padding:4px 10px;font-size:11px}
   /* Make the 3 home library tabs fit without horizontal scrolling */
-  .hl-tabs-inline{overflow:hidden!important;gap:3px}
-  .hl-tabs-inline .hl-tab{flex:1;min-width:0;justify-content:center;text-align:center;padding:5px 4px;font-size:11px}
+  .hl-tabs-inline{overflow:hidden!important;gap:2px}
+  .hl-tabs-inline .hl-tab{flex:1;min-width:0;justify-content:center;text-align:center;padding:4px 2px;font-size:10px;white-space:normal;line-height:1.2;min-height:36px;display:flex;align-items:center;flex-direction:column;gap:1px}
 
   /* ── Hero row 2: stack stats + search vertically ── */
   .hero-row2{flex-direction:column;align-items:stretch;gap:8px}
@@ -2172,26 +2172,7 @@ a.tl-sv-pill:hover{background:var(--c3);color:var(--ink)}
 [data-theme="dark"] .tp-mode-btn{background:var(--c2);border-color:var(--c4)}
 [data-theme="dark"] .tp-mode-btn.active{background:var(--teal);border-color:var(--teal)}
 
-/* ── Night stays (hébergements) ─────────────────────────────────────────── */
-.nights-section{padding:8px 0 4px}
-.nights-hdr{display:flex;align-items:center;gap:8px;padding:0 14px 6px}
-.nights-hdr-lbl{font-size:12px;font-weight:700;color:var(--ink2);flex:1}
-.night-item{
-  display:flex;align-items:center;gap:8px;
-  padding:8px 14px;border-bottom:1px solid var(--c3);
-}
-.night-ic{font-size:16px;flex-shrink:0;line-height:1}
-.night-info{flex:1;min-width:0}
-.night-name{font-size:13px;font-weight:600;color:var(--ink);
-  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.night-dates{font-size:11px;color:var(--ink3);margin-top:2px}
-.night-edit,.night-del{
-  flex-shrink:0;background:none;border:none;cursor:pointer;
-  padding:4px 6px;border-radius:6px;font-size:14px;line-height:1;
-  color:var(--ink3);transition:background .12s,color .12s;
-}
-.night-edit:hover{background:var(--c3);color:var(--teal)}
-.night-del:hover{background:var(--crl);color:var(--coral)}
+/* ── Night badge (shown on covered days in the day list) ─────────────────── */
 .night-badge{
   display:inline-flex;align-items:center;gap:4px;
   font-size:11px;font-weight:600;color:var(--teal);
