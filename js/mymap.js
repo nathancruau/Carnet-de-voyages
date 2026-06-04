@@ -1047,8 +1047,9 @@ export function renderMyMap() {
   wrap.innerHTML = `
     ${isMobile ? `
       <div class="mm-mob-tabs" id="mm-mob-tabs">
+        <button class="mm-back-btn" onclick="goHome()">← Bibliothèque</button>
         <button class="bm-tab active" data-mm-tab="carte">🗺 Carte</button>
-        <button class="bm-tab" data-mm-tab="destinations">📋 Mes destinations</button>
+        <button class="bm-tab" data-mm-tab="destinations">📋 Destinations</button>
       </div>` : ''}
     <div class="mm-content" id="mm-content">
       <div class="mm-sidebar" id="mm-sidebar">
