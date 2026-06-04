@@ -1577,12 +1577,10 @@ body{height:100%;min-height:-webkit-fill-available;font-family:var(--fn);backgro
   .hero-logo{font-size:22px}
   .hero-secondary-actions{display:none}
 
-  /* ── Safe-area bottom: scroll areas must clear FAB (54px) + gap (20px) + home-indicator ── */
-  .home-wrap{padding-bottom:calc(66px + env(safe-area-inset-bottom))!important}
-  .journal-wrap,.days-scroll,.bud-main,.bud-side-sc,.pk-grid,.tri-main,.tri-side-sc{
-    padding-bottom:calc(66px + env(safe-area-inset-bottom))!important;
-  }
-  .mm-tree{padding-bottom:calc(20px + env(safe-area-inset-bottom))!important}
+  /* ── Safe-area bottom: home-indicator clearance only; FAB overlays without dead-zone ── */
+  .home-wrap,.journal-wrap,.days-scroll,.pk-grid,.mm-tree{padding-bottom:env(safe-area-inset-bottom)!important}
+  /* Budget & tricount have a panel FAB — keep clearance */
+  .bud-main,.bud-side-sc,.tri-main,.tri-side-sc{padding-bottom:calc(66px + env(safe-area-inset-bottom))!important}
 
   /* ── Grands-parents mode ── */
   .gp-hero{padding:max(28px,calc(14px + env(safe-area-inset-top))) 20px 16px!important}
@@ -1644,8 +1642,8 @@ body{height:100%;min-height:-webkit-fill-available;font-family:var(--fn);backgro
 /* ── btn-label: visible on desktop ── */
 .btn-label{display:inline}
 
-/* Stronger background fill to prevent white-band on all screens */
-html,body{background:var(--c)!important}
+/* Default background — JS showScreen() overrides via inline !important for each screen */
+html,body{background:var(--c)}
 .panels,.panel{background:var(--c)}
 
 /* ── Fullscreen stat card ── */

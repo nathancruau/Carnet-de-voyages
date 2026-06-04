@@ -40,8 +40,8 @@ export function showScreen(id) {
   const _screenBg = id === 'login' ? '#0d9488'
     : (id === 'app' || id === 'mymap') ? '#aad3df'
     : getComputedStyle(document.documentElement).getPropertyValue('--c').trim() || '#faf7f2';
-  document.documentElement.style.background = _screenBg;
-  document.body.style.background = _screenBg;
+  document.documentElement.style.setProperty('background', _screenBg, 'important');
+  document.body.style.setProperty('background', _screenBg, 'important');
 
   if (id === 'app' || id === 'mymap') {
     setTimeout(() => window.dispatchEvent(new Event('resize')), 50);

@@ -30,7 +30,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,600;0,700;1,400;1,600;1,700&family=Nunito:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="style.css?v=85" />
+<link rel="stylesheet" href="style.css?v=86" />
   <script>
     (function(){try{
       var d=JSON.parse(localStorage.getItem('carnet_voyages_v1')||'{}');
@@ -41,8 +41,8 @@
     }catch(_){}}());
     // Login screen is green — pre-fill the WebView canvas so the gap below
     // position:fixed content shows green instead of the default WebView white
-    document.documentElement.style.background = '#0d9488';
-    document.body && (document.body.style.background = '#0d9488');
+    document.documentElement.style.setProperty('background', '#0d9488', 'important');
+    document.body && document.body.style.setProperty('background', '#0d9488', 'important');
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('/sw.js').catch(() => {});
     }
@@ -163,6 +163,6 @@
       if (bar) bar.style.display = 'none';
     }
   </script>
-<script type="module" src="js/app.js?v=85"></script>
+<script type="module" src="js/app.js?v=86"></script>
 </body>
 </html>
