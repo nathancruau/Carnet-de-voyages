@@ -62,12 +62,16 @@ export function navigateToTrip(id) {
 export function goHome() {
   destroyTripMap();
   destroyMyMap();
+  document.body.style.overflowY = '';
+  document.documentElement.style.overflowY = '';
   showScreen('home');
   renderHome();
 }
 
 export function goMyMap() {
   destroyTripMap();
+  document.body.style.overflowY = '';
+  document.documentElement.style.overflowY = '';
   showScreen('mymap');
   renderMyMap();
 }

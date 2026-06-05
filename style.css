@@ -1581,7 +1581,7 @@ body{height:100%;min-height:-webkit-fill-available;font-family:var(--fn);backgro
 
   /* ── Safe-area / FAB bottom clearance ── */
   .home-wrap{padding-bottom:calc(66px + env(safe-area-inset-bottom))!important}
-  .journal-wrap,.days-scroll,.pk-grid,.mm-tree{padding-bottom:env(safe-area-inset-bottom)!important}
+  .journal-wrap,.pk-grid{padding-bottom:env(safe-area-inset-bottom)!important}
   .bud-main,.bud-side-sc,.tri-main,.tri-side-sc{padding-bottom:calc(66px + env(safe-area-inset-bottom))!important}
 
   /* ── Grands-parents mode ── */
@@ -1669,6 +1669,10 @@ html,body{height:auto;overflow-y:auto}
 #screen-app.active:not(.tab-map-active):not(.tab-fixed-active) .journal-wrap,
 #screen-app.active:not(.tab-map-active):not(.tab-fixed-active) .days-scroll,
 #screen-app.active:not(.tab-map-active):not(.tab-fixed-active) .pk-grid{overflow-y:visible;height:auto;flex:none}
+/* days-scroll in body-scroll panels needs safe-area bottom clearance */
+#screen-app.active:not(.tab-map-active):not(.tab-fixed-active) .days-scroll{padding-bottom:env(safe-area-inset-bottom)!important}
+/* journal-map: parent chain is height:auto in body-scroll, so give Leaflet a concrete height */
+#screen-app.active:not(.tab-map-active):not(.tab-fixed-active) #journal-map{height:45vh!important;min-height:200px!important}
 
 /* ── Fullscreen stat card ── */
 .stat-card.stat-fs{

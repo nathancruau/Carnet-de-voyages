@@ -102,7 +102,8 @@ export async function switchTab(tabId) {
   app?.classList.toggle('tab-map-active',   _isMapTab);
   app?.classList.toggle('tab-fixed-active', !_isMapTab && _isFixedTab);
   // Body scroll: disable during map/fixed tabs so Leaflet gets all touch events
-  document.body.style.overflowY = _isFixedTab ? 'hidden' : '';
+  document.body.style.overflowY                = _isFixedTab ? 'hidden' : '';
+  document.documentElement.style.overflowY     = _isFixedTab ? 'hidden' : '';
   // Sync body/html background with active tab content
   const _tabBg = _isMapTab
     ? '#aad3df'
