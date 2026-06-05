@@ -1648,31 +1648,27 @@ body{height:100%;min-height:-webkit-fill-available;font-family:var(--fn);backgro
 html,body{background:var(--c)}
 .panels,.panel{background:var(--c)}
 
-/* Body-scroll architecture: home, login, trip content panels use body scroll.
-   This enables Safari toolbar auto-hide and fixes the bottom-edge appearance.
-   Map panels (mapcal, mymap) keep position:fixed — Leaflet requires fixed height. */
+/* Body-scroll architecture: home, login, and simple-list trip panels use body scroll.
+   Complex panels (budget, tricount, mapcal) keep position:fixed. */
 html,body{height:auto;overflow-y:auto}
 
 /* Screens that use body scroll */
 #screen-home.active,
 #screen-login.active,
-#screen-app.active:not(.tab-map-active){
+#screen-app.active:not(.tab-map-active):not(.tab-fixed-active){
   position:relative;top:auto;left:auto;right:auto;bottom:auto;
   height:auto;min-height:100dvh;overflow:visible;
+  background:var(--c)!important;
 }
 /* Home: inner scroll container becomes natural flow */
 #screen-home.active .home-wrap{overflow-y:visible;height:auto;flex:none}
 /* Trip: sticky topbar + panels in natural flow */
-#screen-app.active:not(.tab-map-active) .topbar{position:sticky;top:0;z-index:300}
-#screen-app.active:not(.tab-map-active) .panels,
-#screen-app.active:not(.tab-map-active) .panel.active{overflow:visible;height:auto;flex:none}
-#screen-app.active:not(.tab-map-active) .journal-wrap,
-#screen-app.active:not(.tab-map-active) .days-scroll,
-#screen-app.active:not(.tab-map-active) .pk-grid,
-#screen-app.active:not(.tab-map-active) .bud-main,
-#screen-app.active:not(.tab-map-active) .bud-side-sc,
-#screen-app.active:not(.tab-map-active) .tri-main,
-#screen-app.active:not(.tab-map-active) .tri-side-sc{overflow-y:visible;height:auto;flex:none}
+#screen-app.active:not(.tab-map-active):not(.tab-fixed-active) .topbar{position:sticky;top:0;z-index:300}
+#screen-app.active:not(.tab-map-active):not(.tab-fixed-active) .panels,
+#screen-app.active:not(.tab-map-active):not(.tab-fixed-active) .panel.active{overflow:visible;height:auto;flex:none}
+#screen-app.active:not(.tab-map-active):not(.tab-fixed-active) .journal-wrap,
+#screen-app.active:not(.tab-map-active):not(.tab-fixed-active) .days-scroll,
+#screen-app.active:not(.tab-map-active):not(.tab-fixed-active) .pk-grid{overflow-y:visible;height:auto;flex:none}
 
 /* ── Fullscreen stat card ── */
 .stat-card.stat-fs{

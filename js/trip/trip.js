@@ -95,8 +95,20 @@ export async function switchTab(tabId) {
     p.classList.toggle('active', p.id === `panel-${tabId}`);
   });
 
-  // Map panel needs position:fixed (Leaflet); all others use body scroll
-  document.getElementById('screen-app')?.classList.toggle('tab-map-active', tabId === 'mapcal');
+  // Map + complex panels (budget/tricount) need position:fixed layout
+  const _isMapTab   = tabId === 'mapcal';
+  const _isFixedTab = _isMapTab || tabId === 'budget' || tabId === 'tricount';
+  const app = document.getElementById('screen-app');
+  app?.classList.toggle('tab-map-active',   _isMapTab);
+  app?.classList.toggle('tab-fixed-active', !_isMapTab && _isFixedTab);
+  // Body scroll: disable during map/fixed tabs so Leaflet gets all touch events
+  document.body.style.overflowY = _isFixedTab ? 'hidden' : '';
+  // Sync body/html background with active tab content
+  const _tabBg = _isMapTab
+    ? '#aad3df'
+    : (getComputedStyle(document.documentElement).getPropertyValue('--c').trim() || '#faf7f2');
+  document.documentElement.style.setProperty('background', _tabBg, 'important');
+  document.body.style.setProperty('background', _tabBg, 'important');
   window.scrollTo(0, 0);
 
   // Render content for the activated panel
