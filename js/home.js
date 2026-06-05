@@ -1011,6 +1011,59 @@ function _addCardHtml() {
   `;
 }
 
+// ── Live feed helpers ─────────────────────────────────────────────────────────
+
+function _liveGpxSlide(item) {
+  const s = item.gpxStats;
+  if (!s) return null;
+  const distKm = s.distanceM >= 1000 ? (s.distanceM / 1000).toFixed(1) + ' km' : s.distanceM + ' m';
+  let dur = '';
+  if (s.durationSecs) {
+    const h = Math.floor(s.durationSecs / 3600);
+    const m = Math.floor((s.durationSecs % 3600) / 60);
+    dur = h > 0 ? `${h}h${m.toString().padStart(2, '0')}` : `${m} min`;
+  }
+  const stats = [
+    { v: distKm,                         l: 'Distance' },
+    s.elevGain  ? { v: `+${s.elevGain} m`,   l: 'Dénivelé +' }  : null,
+    s.elevLoss  ? { v: `-${s.elevLoss} m`,   l: 'Dénivelé −' }  : null,
+    dur         ? { v: dur,                   l: 'Durée' }       : null,
+    s.speedAvgKph != null ? { v: `${s.speedAvgKph} km/h`, l: 'Vitesse moy.' } : null,
+  ].filter(Boolean);
+  return `<div class="tl-gpx-card">
+    <div class="tl-gpx-icon">🥾</div>
+    <div class="tl-gpx-name">${_esc(item.text || '')}</div>
+    <div class="tl-gpx-stats">${stats.map(st =>
+      `<div class="tl-gpx-stat"><span>${_esc(st.v)}</span><small>${_esc(st.l)}</small></div>`
+    ).join('')}</div>
+  </div>`;
+}
+
+function _liveCarouselHtml(slides, carId) {
+  if (slides.length === 0) return '';
+  const dots = slides.length > 1
+    ? `<div class="tl-car-dots">${slides.map((_, i) =>
+        `<div class="tl-dot${i === 0 ? ' active' : ''}"></div>`).join('')}</div>`
+    : '';
+  return `<div class="tl-carousel" data-car-id="${_esc(carId)}">
+    <div class="tl-car-track" data-car-track="${_esc(carId)}">
+      ${slides.map(s => `<div class="tl-car-slide">${s}</div>`).join('')}
+    </div>
+    ${dots}
+  </div>`;
+}
+
+function _initHomeCarousels(el) {
+  el.querySelectorAll('[data-car-track]').forEach(track => {
+    const dots = track.closest('[data-car-id]')?.querySelectorAll('.tl-dot');
+    if (!dots || dots.length < 2) return;
+    track.addEventListener('scroll', () => {
+      const idx = Math.round(track.scrollLeft / track.clientWidth);
+      dots.forEach((d, i) => d.classList.toggle('active', i === idx));
+    }, { passive: true });
+  });
+}
+
 // ── Live feed (En direct) ──────────────────────────────────────────────────────
 
 function _buildLiveFeedHtml(observingTrips) {
@@ -1034,26 +1087,35 @@ function _buildLiveFeedHtml(observingTrips) {
     </div>`;
   }
 
-  return posts.map(({ trip, day, item }) => {
-    const jd      = item.journalData;
-    const photos  = jd.photos || [];
-    const ts      = jd.validatedAt;
+  return posts.map(({ trip, day, item }, idx) => {
+    const jd     = item.journalData;
+    const photos = jd.photos || [];
+    const ts     = jd.validatedAt;
     const dateStr = ts
-      ? new Date(ts).toLocaleDateString('fr-FR', { day:'numeric', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' })
+      ? new Date(ts).toLocaleDateString('fr-FR', { day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' })
       : '';
-    const dayInfo = `Jour ${day.num}${day.title ? ' · ' + _esc(day.title) : ''}`;
+
+    // Build carousel: GPX card first (if trace), then photos
+    const slides = [];
+    if (item.gpxStats) {
+      const gpx = _liveGpxSlide(item);
+      if (gpx) slides.push(gpx);
+    }
+    photos.forEach(src => {
+      slides.push(`<img src="${_esc(src)}" loading="lazy" onclick="window.open(this.src,'_blank')">`);
+    });
+    const carousel = _liveCarouselHtml(slides, 'lv_' + (item.id || idx));
 
     return `<div class="live-post">
       <div class="live-post-hd">
-        <div class="live-post-badge" style="background:${trip.color||'#0d9488'}">${trip.flag||'🌍'} <span>${_esc(trip.name)}</span></div>
-        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px">
-          <div class="live-post-day">${dayInfo}${item.text ? ` · <strong style="color:var(--ink)">${_esc(item.text)}</strong>` : ''}</div>
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:5px">
+          <div class="live-post-badge" style="background:${trip.color||'#0d9488'};margin-bottom:0">${trip.flag||'🌍'} <span>${_esc(trip.name)}</span></div>
           ${dateStr ? `<div class="live-post-time">${dateStr}</div>` : ''}
         </div>
+        <div class="live-post-day">Jour ${day.num}${day.title ? ' · ' + _esc(day.title) : ''}</div>
+        ${item.text ? `<div style="font-size:13px;font-weight:600;color:var(--ink);margin-top:3px">${_esc(item.text)}</div>` : ''}
       </div>
-      ${photos.length > 0 ? `<div class="live-post-photos">${photos.map(src =>
-        `<img src="${_esc(src)}" class="live-photo" loading="lazy" onclick="window.open(this.src,'_blank')">`
-      ).join('')}</div>` : ''}
+      ${carousel}
       ${jd.notes ? `<div class="live-post-notes">${_esc(jd.notes).replace(/\n/g,'<br>')}</div>` : ''}
     </div>`;
   }).join('');
@@ -1107,6 +1169,7 @@ export function renderHome(filter = _currentFilter) {
         ${_buildLiveFeedHtml(observingTrips)}
       </div>`;
     if (!_listenerAttached) { _attachListeners(wrap); _listenerAttached = true; }
+    _initHomeCarousels(wrap);
     return;
   }
 
@@ -1161,6 +1224,8 @@ export function renderHome(filter = _currentFilter) {
     _attachListeners(wrap);
     _listenerAttached = true;
   }
+
+  _initHomeCarousels(wrap);
 
   // Home FAB toggle
   const homeFab  = document.getElementById('home-fab');

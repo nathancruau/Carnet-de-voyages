@@ -91,6 +91,59 @@ function _gpxStatsHtml(item) {
   return `<div class="tl-meta" style="margin-top:4px">${parts.join('')}</div>`;
 }
 
+// ── Photo carousel helpers ────────────────────────────────────────────────────
+
+function _gpxSlideInner(item) {
+  const s = item.gpxStats;
+  if (!s) return null;
+  const distKm = s.distanceM >= 1000 ? (s.distanceM / 1000).toFixed(1) + ' km' : s.distanceM + ' m';
+  let dur = '';
+  if (s.durationSecs) {
+    const h = Math.floor(s.durationSecs / 3600);
+    const m = Math.floor((s.durationSecs % 3600) / 60);
+    dur = h > 0 ? `${h}h${m.toString().padStart(2, '0')}` : `${m} min`;
+  }
+  const stats = [
+    { v: distKm,                     l: 'Distance' },
+    s.elevGain  ? { v: `+${s.elevGain} m`,  l: 'Dénivelé +' }   : null,
+    s.elevLoss  ? { v: `-${s.elevLoss} m`,  l: 'Dénivelé −' }   : null,
+    dur         ? { v: dur,                  l: 'Durée' }        : null,
+    s.speedAvgKph != null ? { v: `${s.speedAvgKph} km/h`, l: 'Vitesse moy.' } : null,
+  ].filter(Boolean);
+  return `<div class="tl-gpx-card">
+    <div class="tl-gpx-icon">🥾</div>
+    <div class="tl-gpx-name">${_esc(item.text || '')}</div>
+    <div class="tl-gpx-stats">${stats.map(st =>
+      `<div class="tl-gpx-stat"><span>${_esc(st.v)}</span><small>${_esc(st.l)}</small></div>`
+    ).join('')}</div>
+  </div>`;
+}
+
+function _carouselHtml(slides, carId) {
+  if (slides.length === 0) return '';
+  const dots = slides.length > 1
+    ? `<div class="tl-car-dots">${slides.map((_, i) =>
+        `<div class="tl-dot${i === 0 ? ' active' : ''}"></div>`).join('')}</div>`
+    : '';
+  return `<div class="tl-carousel" data-car-id="${_esc(carId)}">
+    <div class="tl-car-track" data-car-track="${_esc(carId)}">
+      ${slides.map(s => `<div class="tl-car-slide">${s}</div>`).join('')}
+    </div>
+    ${dots}
+  </div>`;
+}
+
+function _initCarousels(el) {
+  el.querySelectorAll('[data-car-track]').forEach(track => {
+    const dots = track.closest('[data-car-id]')?.querySelectorAll('.tl-dot');
+    if (!dots || dots.length < 2) return;
+    track.addEventListener('scroll', () => {
+      const idx = Math.round(track.scrollLeft / track.clientWidth);
+      dots.forEach((d, i) => d.classList.toggle('active', i === idx));
+    }, { passive: true });
+  });
+}
+
 // ── Handler registry (avoids double-binding) ─────────────────────────────────
 
 const _handlers = new WeakMap();
@@ -444,6 +497,7 @@ function _renderTimelineView(panel, trip, tripId, isObserver) {
         ${_buildTimelineHtml(trip, tripId, isObserver, sharedDoc, currentUid)}
       </div>
     </div>`;
+  _initCarousels(panel);
 }
 
 function _buildTimelineHtml(trip, tripId, isObserver, sharedDoc, currentUid) {
@@ -526,11 +580,6 @@ function _tlItemHtml(day, item, itemIdx, isObserver, tripId, sharedDoc, currentU
     metaHtml.push(`<a class="tl-meta-pill tl-sv-pill" href="${svUrl}" target="_blank" rel="noopener" title="Ouvrir Street View">🔭 Street View</a>`);
   }
 
-  const photosHtml = photos.length > 0 ? `
-    <div class="tl-photos">
-      ${photos.map(src => `<img src="${_esc(src)}" class="tl-photo" loading="lazy" onclick="window.open(this.src,'_blank')">`).join('')}
-    </div>` : '';
-
   const notesHtml = jd.notes
     ? `<div class="tl-notes">${_esc(jd.notes).replace(/\n/g, '<br>')}</div>` : '';
 
@@ -540,6 +589,17 @@ function _tlItemHtml(day, item, itemIdx, isObserver, tripId, sharedDoc, currentU
       title="${validated ? 'Modifier' : 'Documenter'}">
       ${validated ? '✓' : '+ Documenter'}
     </button>` : '';
+
+  // Build carousel: GPX card first (if trace), then photos
+  const slides = [];
+  if (item.gpxStats) {
+    const gpxInner = _gpxSlideInner(item);
+    if (gpxInner) slides.push(gpxInner);
+  }
+  photos.forEach(src => {
+    slides.push(`<img src="${_esc(src)}" loading="lazy" onclick="window.open(this.src,'_blank')">`);
+  });
+  const carousel = _carouselHtml(slides, 'tl_' + (item.id || itemIdx));
 
   // Reactions & comments — only on validated items of shared trips
   let interactionsHtml = '';
@@ -576,11 +636,10 @@ function _tlItemHtml(day, item, itemIdx, isObserver, tripId, sharedDoc, currentU
           ${isNew ? `<span class="obs-new-badge">Nouveau</span>` : ''}
           ${validateBtn}
         </div>
-        ${photosHtml}
-        ${notesHtml}
-        ${_gpxStatsHtml(item)}
-        ${metaHtml.length > 0 ? `<div class="tl-meta">${metaHtml.join('')}</div>` : ''}
+        ${carousel}
         ${interactionsHtml}
+        ${notesHtml}
+        ${metaHtml.length > 0 ? `<div class="tl-meta">${metaHtml.join('')}</div>` : ''}
       </div>
     </div>`;
 }

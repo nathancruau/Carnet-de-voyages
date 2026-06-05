@@ -29,7 +29,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,600;0,700;1,400;1,600;1,700&family=Nunito:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="style.css?v=111" />
+<link rel="stylesheet" href="style.css?v=112" />
   <script>
     (function(){try{
       var d=JSON.parse(localStorage.getItem('carnet_voyages_v1')||'{}');
@@ -45,7 +45,12 @@
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('/sw.js').catch(() => {});
     }
-    // iOS 10+ ignores user-scalable=no — block pinch/gesture zoom outside Leaflet maps
+    // iOS 10+ ignores user-scalable=no.
+    // Leaflet uses touchmove (not gesture events) for map pan/zoom, so gesturestart/change/end
+    // can be prevented globally without breaking map interaction.
+    document.addEventListener('gesturestart',  function(e) { e.preventDefault(); }, { passive: false });
+    document.addEventListener('gesturechange', function(e) { e.preventDefault(); }, { passive: false });
+    document.addEventListener('gestureend',    function(e) { e.preventDefault(); }, { passive: false });
     document.addEventListener('touchstart', function(e) {
       if (e.touches.length > 1 &&
           !e.target.closest('.leaflet-container') &&
@@ -53,20 +58,8 @@
         e.preventDefault();
       }
     }, { passive: false });
-    document.addEventListener('gesturestart', function(e) {
-      if (!e.target.closest('.leaflet-container') &&
-          !e.target.closest('#mm-map-col')) {
-        e.preventDefault();
-      }
-    }, { passive: false });
-    document.addEventListener('gesturechange', function(e) {
-      if (!e.target.closest('.leaflet-container') &&
-          !e.target.closest('#mm-map-col')) {
-        e.preventDefault();
-      }
-    }, { passive: false });
     document.addEventListener('touchmove', function(e) {
-      if (e.touches.length > 1 &&
+      if ((e.touches.length > 1 || (e.scale != null && e.scale !== 1)) &&
           !e.target.closest('.leaflet-container') &&
           !e.target.closest('#mm-map-col')) {
         e.preventDefault();
@@ -189,6 +182,6 @@
       if (bar) bar.style.display = 'none';
     }
   </script>
-<script type="module" src="js/app.js?v=111"></script>
+<script type="module" src="js/app.js?v=112"></script>
 </body>
 </html>

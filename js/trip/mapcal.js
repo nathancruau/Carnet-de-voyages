@@ -1712,7 +1712,13 @@ function _showMobileEventSheet(html) {
     'font-family:var(--fn)',
     'transform:translateY(100%);transition:transform .28s cubic-bezier(.25,.8,.25,1)',
   ].join(';');
-  sheet.innerHTML = html;
+  // Force single-column layout for 2-col grids and flex rows on mobile
+  sheet.innerHTML = `<style>
+    #_evt-sheet [style*="grid-template-columns"]{display:flex!important;flex-direction:column!important;gap:0!important}
+    #_evt-sheet [style*="grid-template-columns"]>.fg{margin-bottom:0}
+    #_evt-sheet [style*="gap:10px"]{flex-direction:column!important;gap:6px!important}
+    #_evt-sheet [style*="flex:1"]{min-width:0;width:100%!important;box-sizing:border-box!important}
+  </style>` + html;
   document.body.appendChild(sheet);
   requestAnimationFrame(() => requestAnimationFrame(() => { sheet.style.transform = 'translateY(0)'; }));
 }

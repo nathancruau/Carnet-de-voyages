@@ -17,7 +17,7 @@ Quatre endroits à synchroniser, toujours le même numéro N :
 | `index.html` | `style.css?v=N` et `app.js?v=N` |
 | `sw.js` | `const SHELL_CACHE = 'cv-shell-N'` |
 
-Version actuelle : **110**
+Version actuelle : **112**
 
 ---
 
@@ -217,3 +217,6 @@ uid()          // ID court aléatoire
 | v109 | Bouton fermer carte stats sous notch | `padding-top:max(20px,env(safe-area-inset-top))` sur `.stat-card.stat-fs` |
 | v110 | Modal ajouter/modifier écrasée sur mobile | Sheet plein-écran sur `body` (`_showMobileEventSheet`) au lieu de `.mbox` dans `.ov` |
 | v110 | Clic pin carte ouvre EDP sur mobile | `_openEDP` redirige vers `_openEditEventModal` sur tout mobile (pas juste jours-mode) |
+| v112 | Champs Heure/Coût et nuits superposés dans sheet | Injected `<style>` dans `_showMobileEventSheet` force colonne unique |
+| v112 | Zoom pinch toujours possible hors carte | `gesturestart/change/end` prévenés globalement (Leaflet utilise touchmove) + `e.scale` check |
+| v112 | Photos timeline/live-feed en petites vignettes | Carrousel scroll-snap plein-largeur avec carte GPX stats en 1ère slide |
