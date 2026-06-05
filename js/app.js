@@ -42,6 +42,8 @@ export function showScreen(id) {
     : getComputedStyle(document.documentElement).getPropertyValue('--c').trim() || '#faf7f2';
   document.documentElement.style.setProperty('background', _screenBg, 'important');
   document.body.style.setProperty('background', _screenBg, 'important');
+  // Sync Safari/Chrome browser chrome color with screen content
+  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', _screenBg);
 
   if (id === 'app' || id === 'mymap') {
     setTimeout(() => window.dispatchEvent(new Event('resize')), 200);
