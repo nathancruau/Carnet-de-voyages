@@ -1579,9 +1579,9 @@ body{height:100%;min-height:-webkit-fill-available;font-family:var(--fn);backgro
   .hero-logo{font-size:22px}
   .hero-secondary-actions{display:none}
 
-  /* ── Safe-area bottom: content reaches physical screen bottom ── */
-  .home-wrap,.journal-wrap,.days-scroll,.pk-grid,.mm-tree{padding-bottom:0!important}
-  /* Budget & tricount have a panel FAB — keep clearance */
+  /* ── Safe-area / FAB bottom clearance ── */
+  .home-wrap{padding-bottom:calc(66px + env(safe-area-inset-bottom))!important}
+  .journal-wrap,.days-scroll,.pk-grid,.mm-tree{padding-bottom:env(safe-area-inset-bottom)!important}
   .bud-main,.bud-side-sc,.tri-main,.tri-side-sc{padding-bottom:calc(66px + env(safe-area-inset-bottom))!important}
 
   /* ── Grands-parents mode ── */
@@ -1648,18 +1648,31 @@ body{height:100%;min-height:-webkit-fill-available;font-family:var(--fn);backgro
 html,body{background:var(--c)}
 .panels,.panel{background:var(--c)}
 
-/* Safari browser mode: home screen uses body scroll so Safari auto-hides toolbars.
-   Map/trip screens keep position:fixed (Leaflet). Only home is converted. */
-@media not all and (display-mode: standalone) {
-  html,body{height:auto;overflow-y:auto}
-  #screen-home.active{
-    position:relative;top:auto;left:auto;right:auto;bottom:auto;
-    height:auto;min-height:100dvh;overflow:visible;
-  }
-  #screen-home.active .home-wrap{
-    overflow-y:visible;height:auto;flex:none;
-  }
+/* Body-scroll architecture: home, login, trip content panels use body scroll.
+   This enables Safari toolbar auto-hide and fixes the bottom-edge appearance.
+   Map panels (mapcal, mymap) keep position:fixed — Leaflet requires fixed height. */
+html,body{height:auto;overflow-y:auto}
+
+/* Screens that use body scroll */
+#screen-home.active,
+#screen-login.active,
+#screen-app.active:not(.tab-map-active){
+  position:relative;top:auto;left:auto;right:auto;bottom:auto;
+  height:auto;min-height:100dvh;overflow:visible;
 }
+/* Home: inner scroll container becomes natural flow */
+#screen-home.active .home-wrap{overflow-y:visible;height:auto;flex:none}
+/* Trip: sticky topbar + panels in natural flow */
+#screen-app.active:not(.tab-map-active) .topbar{position:sticky;top:0;z-index:300}
+#screen-app.active:not(.tab-map-active) .panels,
+#screen-app.active:not(.tab-map-active) .panel.active{overflow:visible;height:auto;flex:none}
+#screen-app.active:not(.tab-map-active) .journal-wrap,
+#screen-app.active:not(.tab-map-active) .days-scroll,
+#screen-app.active:not(.tab-map-active) .pk-grid,
+#screen-app.active:not(.tab-map-active) .bud-main,
+#screen-app.active:not(.tab-map-active) .bud-side-sc,
+#screen-app.active:not(.tab-map-active) .tri-main,
+#screen-app.active:not(.tab-map-active) .tri-side-sc{overflow-y:visible;height:auto;flex:none}
 
 /* ── Fullscreen stat card ── */
 .stat-card.stat-fs{

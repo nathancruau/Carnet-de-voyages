@@ -95,6 +95,10 @@ export async function switchTab(tabId) {
     p.classList.toggle('active', p.id === `panel-${tabId}`);
   });
 
+  // Map panel needs position:fixed (Leaflet); all others use body scroll
+  document.getElementById('screen-app')?.classList.toggle('tab-map-active', tabId === 'mapcal');
+  window.scrollTo(0, 0);
+
   // Render content for the activated panel
   await _renderActiveTab(tabId, _tripId, _isObserver);
 
