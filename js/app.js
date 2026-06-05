@@ -37,14 +37,14 @@ export function showScreen(id) {
   if (el) el.classList.add('active');
   // Sync html/body background with the screen's visual content so any viewport gap
   // (iOS safe area / Android nav bar) blends in rather than showing white
-  const _screenBg = id === 'login' ? '#0d9488'
+  const _screenBg = id === 'login' ? '#065f55'
     : (id === 'app' || id === 'mymap') ? '#aad3df'
     : getComputedStyle(document.documentElement).getPropertyValue('--c').trim() || '#faf7f2';
   document.documentElement.style.setProperty('background', _screenBg, 'important');
   document.body.style.setProperty('background', _screenBg, 'important');
 
   if (id === 'app' || id === 'mymap') {
-    setTimeout(() => window.dispatchEvent(new Event('resize')), 50);
+    setTimeout(() => window.dispatchEvent(new Event('resize')), 200);
   }
 }
 
