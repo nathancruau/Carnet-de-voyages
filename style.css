@@ -1697,10 +1697,11 @@ html,body{background:var(--c)}
   #screen-mymap.active .mm-content{height:calc(100dvh - var(--mm-tabs-h, 52px));overflow:hidden;flex:none}
   #screen-mymap.active #mm-map-col{position:relative;height:100%;overflow:hidden}
   #screen-mymap.active #mymap{position:absolute!important;inset:0!important;height:100%!important}
-  /* Destinations tab: sidebar content flows into page body (body scroll) */
-  #screen-mymap.active .mymap-wrap.mm-destinations-mode .mm-content{height:auto!important;overflow:visible!important}
-  #screen-mymap.active .mymap-wrap.mm-destinations-mode .mm-sidebar{height:auto!important;overflow:visible!important}
-  #screen-mymap.active .mymap-wrap.mm-destinations-mode .mm-tree{overflow-y:visible!important;height:auto!important;flex:none!important}
+  /* Destinations tab: break all flex containers → pure block page scroll */
+  #screen-mymap.active .mymap-wrap.mm-destinations-mode{display:block!important;height:auto!important;overflow:visible!important}
+  #screen-mymap.active .mymap-wrap.mm-destinations-mode .mm-content{display:block!important;height:auto!important;overflow:visible!important;position:static!important}
+  #screen-mymap.active .mymap-wrap.mm-destinations-mode .mm-sidebar{display:block!important;height:auto!important;overflow:visible!important;width:100%!important;min-width:100%!important;position:static!important;transform:none!important}
+  #screen-mymap.active .mymap-wrap.mm-destinations-mode .mm-tree{display:block!important;height:auto!important;overflow:visible!important}
 
   /* ── Mapcal Carte mode: body-scroll with explicit map height ── */
   /* Override generic height:auto/overflow:visible from body-scroll block */
