@@ -1648,14 +1648,12 @@ body{height:100%;min-height:-webkit-fill-available;font-family:var(--fn);backgro
 html,body{background:var(--c)}
 .panels,.panel{background:var(--c)}
 
-/* Body-scroll architecture: home, login, and simple-list trip panels use body scroll.
-   Complex panels (budget, tricount, mapcal) keep position:fixed. */
-html,body{height:auto;overflow-y:auto}
-
 /* Body-scroll architecture — mobile only.
    Desktop keeps position:fixed screens with internal scroll containers.
    Mobile uses body scroll so Safari toolbars auto-hide. */
 @media (max-width:768px) {
+  /* Enable body scroll on mobile; desktop keeps html,body{overflow:hidden} from the reset */
+  html,body{height:auto;overflow-y:auto}
   #screen-home.active,
   #screen-login.active,
   #screen-app.active:not(.tab-map-active):not(.tab-fixed-active){
@@ -1684,6 +1682,11 @@ html,body{height:auto;overflow-y:auto}
   #screen-app.active:not(.tab-map-active):not(.tab-fixed-active) #panel-journal .mapcal{flex:none!important;height:auto!important;overflow:visible!important}
   #screen-app.active:not(.tab-map-active):not(.tab-fixed-active) #panel-journal .map-col{min-height:calc(100dvh - 180px)}
   #screen-app.active:not(.tab-map-active):not(.tab-fixed-active) #journal-map{height:calc(100dvh - 180px)!important;min-height:300px!important}
+  /* Map safe area: stop tiles above home indicator; #aad3df background fills the gap */
+  #screen-app.active.tab-map-active .map-col,
+  #screen-mymap.active .map-col{padding-bottom:env(safe-area-inset-bottom)}
+  /* Sidebar back-btn is redundant on mobile (mm-mob-tabs provides ← Bibliothèque) */
+  .mm-sidebar-header .back-btn{display:none}
 }
 /* In map tab, panels/panel background matches map colour so any subpixel gap is invisible */
 #screen-app.active.tab-map-active .panels,

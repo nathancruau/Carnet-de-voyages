@@ -1173,6 +1173,8 @@ export function renderMyMap() {
 
     _redrawMarkers(pins);
     _redrawRoutes(); // async
+    // Re-measure after layout settles (iOS flex chain can resolve after rAF)
+    setTimeout(() => { if (_map) _map.invalidateSize(); }, 150);
   });
 }
 

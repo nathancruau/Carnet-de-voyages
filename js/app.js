@@ -70,8 +70,8 @@ export function goHome() {
 
 export function goMyMap() {
   destroyTripMap();
-  document.body.style.overflowY = '';
-  document.documentElement.style.overflowY = '';
+  document.body.style.overflowY = 'hidden';
+  document.documentElement.style.overflowY = 'hidden';
   showScreen('mymap');
   renderMyMap();
 }

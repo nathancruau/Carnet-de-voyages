@@ -877,6 +877,7 @@ function _initMap(tripId) {
     });
 
     _map.invalidateSize();
+    setTimeout(() => { if (_map) _map.invalidateSize(); }, 150);
 
     _refreshMapPins(tripId);
     _drawGpxOverlays(tripId);
