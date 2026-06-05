@@ -218,3 +218,18 @@ window._refreshJournalInteractions = (updatedTripId) => {
 
 // ── Bootstrap ──────────────────────────────────────────────────────────────────
 initAuth(_onAuthReady);
+
+// ── Safari browser: forward swipe direction to document scroll ──────────────
+// Safari only auto-hides its toolbars when the DOCUMENT scrolls, not inner elements.
+// When in browser mode (not standalone), mirror the user's swipe direction to a
+// 1px document scroll so Safari detects it and hides/shows bars like any normal site.
+if (!window.matchMedia('(display-mode: standalone)').matches && !navigator.standalone && 'ontouchstart' in window) {
+  let _ty = 0, _docScrolled = false;
+  document.addEventListener('touchstart', e => { _ty = e.touches[0].clientY; }, { passive: true });
+  document.addEventListener('touchmove', e => {
+    const dy = _ty - e.touches[0].clientY;
+    _ty = e.touches[0].clientY;
+    if (dy > 4 && !_docScrolled)       { window.scrollTo(0, 1); _docScrolled = true; }
+    else if (dy < -4 && _docScrolled)  { window.scrollTo(0, 0); _docScrolled = false; }
+  }, { passive: true });
+}
