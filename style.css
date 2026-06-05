@@ -1652,27 +1652,34 @@ html,body{background:var(--c)}
    Complex panels (budget, tricount, mapcal) keep position:fixed. */
 html,body{height:auto;overflow-y:auto}
 
-/* Screens that use body scroll */
-#screen-home.active,
-#screen-login.active,
-#screen-app.active:not(.tab-map-active):not(.tab-fixed-active){
-  position:relative;top:auto;left:auto;right:auto;bottom:auto;
-  height:auto;min-height:100dvh;overflow:visible;
-  background:var(--c)!important;
+/* Body-scroll architecture — mobile only.
+   Desktop keeps position:fixed screens with internal scroll containers.
+   Mobile uses body scroll so Safari toolbars auto-hide. */
+@media (max-width:768px) {
+  #screen-home.active,
+  #screen-login.active,
+  #screen-app.active:not(.tab-map-active):not(.tab-fixed-active){
+    position:relative;top:auto;left:auto;right:auto;bottom:auto;
+    height:auto;min-height:100dvh;overflow:visible;
+    background:var(--c)!important;
+  }
+  #screen-home.active .home-wrap{overflow-y:visible;height:auto;flex:none}
+  #screen-app.active:not(.tab-map-active):not(.tab-fixed-active) .topbar{position:sticky;top:0;z-index:300}
+  #screen-app.active:not(.tab-map-active):not(.tab-fixed-active) .panels,
+  #screen-app.active:not(.tab-map-active):not(.tab-fixed-active) .panel.active{overflow:visible;height:auto;flex:none}
+  #screen-app.active:not(.tab-map-active):not(.tab-fixed-active) .journal-wrap,
+  #screen-app.active:not(.tab-map-active):not(.tab-fixed-active) .days-scroll,
+  #screen-app.active:not(.tab-map-active):not(.tab-fixed-active) .pk-grid{overflow-y:visible;height:auto;flex:none}
+  #screen-app.active:not(.tab-map-active):not(.tab-fixed-active) .days-scroll{padding-bottom:env(safe-area-inset-bottom)!important}
+  /* journal panel: #panel-journal .mapcal has flex:1 (for fixed-mode use) which collapses
+     to 0px when parent has height:auto — reset to block flow driven by journal-map height */
+  #screen-app.active:not(.tab-map-active):not(.tab-fixed-active) #panel-journal .mapcal{flex:none!important;height:auto!important;overflow:visible!important}
+  #screen-app.active:not(.tab-map-active):not(.tab-fixed-active) #panel-journal .map-col{min-height:45vh}
+  #screen-app.active:not(.tab-map-active):not(.tab-fixed-active) #journal-map{height:45vh!important;min-height:200px!important}
 }
-/* Home: inner scroll container becomes natural flow */
-#screen-home.active .home-wrap{overflow-y:visible;height:auto;flex:none}
-/* Trip: sticky topbar + panels in natural flow */
-#screen-app.active:not(.tab-map-active):not(.tab-fixed-active) .topbar{position:sticky;top:0;z-index:300}
-#screen-app.active:not(.tab-map-active):not(.tab-fixed-active) .panels,
-#screen-app.active:not(.tab-map-active):not(.tab-fixed-active) .panel.active{overflow:visible;height:auto;flex:none}
-#screen-app.active:not(.tab-map-active):not(.tab-fixed-active) .journal-wrap,
-#screen-app.active:not(.tab-map-active):not(.tab-fixed-active) .days-scroll,
-#screen-app.active:not(.tab-map-active):not(.tab-fixed-active) .pk-grid{overflow-y:visible;height:auto;flex:none}
-/* days-scroll in body-scroll panels needs safe-area bottom clearance */
-#screen-app.active:not(.tab-map-active):not(.tab-fixed-active) .days-scroll{padding-bottom:env(safe-area-inset-bottom)!important}
-/* journal-map: parent chain is height:auto in body-scroll, so give Leaflet a concrete height */
-#screen-app.active:not(.tab-map-active):not(.tab-fixed-active) #journal-map{height:45vh!important;min-height:200px!important}
+/* In map tab, panels/panel background matches map colour so any subpixel gap is invisible */
+#screen-app.active.tab-map-active .panels,
+#screen-app.active.tab-map-active .panel{background:#aad3df}
 
 /* ── Fullscreen stat card ── */
 .stat-card.stat-fs{
