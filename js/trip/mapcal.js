@@ -1668,6 +1668,191 @@ function _startInlineTitleEdit(dayId, tripId) {
   });
 }
 
+// ─── Edit Event Modal (used on mobile jours mode where map column is hidden) ──
+
+function _openEditEventModal(dayId, evtIdx, tripId) {
+  const trip = getTrip(tripId);
+  if (!trip) return;
+  const day = (trip.days || []).find(d => d.id === dayId);
+  if (!day) return;
+  const item = day.items?.[evtIdx];
+  if (!item) return;
+
+  const evtTypes = getEventTypes();
+  let selType      = item.type      || 'visit';
+  let selTransport = item.transport || 'car';
+
+  const sorted    = (trip.days || []).filter(d => d.date).sort((a, b) => a.date.localeCompare(b.date));
+  const tripStart = sorted[0]?.date || '';
+  const tripEnd   = sorted[sorted.length - 1]?.date || '';
+
+  function _typeBtnsHtml() {
+    return evtTypes.map(et => {
+      const active = et.key === selType;
+      return `<button class="tp${active ? ' sel' : ''}" data-ee-type="${_esc(et.key)}"
+        style="${active ? `background:${et.color};border-color:${et.color};color:#fff` : ''}">${et.emoji} ${et.label}</button>`;
+    }).join('');
+  }
+
+  function _modeBtnsHtml() {
+    return ['car','train','bus','plane','ferry','foot','bike'].map(m => {
+      const active = m === selTransport;
+      return `<button class="tp${active ? ' sel' : ''}" data-ee-mode="${m}"
+        style="${active ? `background:${trCol(m)};border-color:${trCol(m)};color:#fff` : ''}">${trIc(m)} ${trNm(m)}</button>`;
+    }).join('');
+  }
+
+  showModal(`
+    <h3>✏️ Modifier l'événement</h3>
+    <div class="fg">
+      <label>Type</label>
+      <div style="display:flex;gap:6px;flex-wrap:wrap" id="ee-types">${_typeBtnsHtml()}</div>
+    </div>
+    <div id="ee-transport-row" style="display:${selType === 'drive' ? '' : 'none'}" class="fg">
+      <label>Mode de transport</label>
+      <div style="display:flex;gap:6px;flex-wrap:wrap" id="ee-modes">${_modeBtnsHtml()}</div>
+    </div>
+    <div id="ee-sleep-dates" style="display:${selType === 'sleep' ? '' : 'none'}" class="fg">
+      <label>Nuits passées ici</label>
+      <div style="display:flex;gap:10px">
+        <div style="flex:1">
+          <div style="font-size:11px;color:var(--ink3);margin-bottom:3px">Première nuit</div>
+          <input type="date" id="ee-sleep-from" value="${_esc(item.dateFrom || day.date || '')}" min="${tripStart}" max="${tripEnd}">
+        </div>
+        <div style="flex:1">
+          <div style="font-size:11px;color:var(--ink3);margin-bottom:3px">Dernière nuit</div>
+          <input type="date" id="ee-sleep-to" value="${_esc(item.dateTo || tripEnd || '')}" min="${tripStart}" max="${tripEnd}">
+        </div>
+      </div>
+    </div>
+    <div class="fg">
+      <label>Description</label>
+      <input type="text" id="ee-text" value="${_esc(item.text || '')}" placeholder="Description…" autocomplete="off">
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 12px">
+      <div class="fg">
+        <label>Heure</label>
+        <input type="time" id="ee-time" value="${_esc(item.time || '')}">
+      </div>
+      <div class="fg">
+        <label>Coût (€)</label>
+        <input type="number" id="ee-cost" min="0" step="0.01" value="${_esc(String(item.cost || ''))}" placeholder="0">
+      </div>
+    </div>
+    <div class="fg">
+      <label>Notes</label>
+      <textarea id="ee-notes" class="notes-ta" placeholder="Vos notes…" style="min-height:55px">${_esc(item.notes || '')}</textarea>
+    </div>
+    <div class="ma" style="justify-content:space-between">
+      <button class="bc" id="ee-del" style="color:#e85d3e;border-color:#e85d3e">🗑 Supprimer</button>
+      <div style="display:flex;gap:8px">
+        <button class="bc" id="ee-cancel">Annuler</button>
+        <button class="bs" id="ee-save">Enregistrer</button>
+      </div>
+    </div>
+  `);
+
+  const typesContainer = document.getElementById('ee-types');
+  const transportRow   = document.getElementById('ee-transport-row');
+  const sleepDatesRow  = document.getElementById('ee-sleep-dates');
+
+  typesContainer?.addEventListener('click', e => {
+    const pill = e.target.closest('[data-ee-type]');
+    if (!pill) return;
+    selType = pill.dataset.eeType;
+    typesContainer.querySelectorAll('[data-ee-type]').forEach(p => {
+      const tKey   = p.dataset.eeType;
+      const etInfo = evtTypes.find(t => t.key === tKey);
+      const active = tKey === selType;
+      p.classList.toggle('sel', active);
+      p.style.background  = active ? (etInfo?.color || tCol(tKey)) : '';
+      p.style.borderColor = active ? (etInfo?.color || tCol(tKey)) : '';
+      p.style.color       = active ? '#fff' : '';
+    });
+    if (transportRow)  transportRow.style.display  = selType === 'drive' ? '' : 'none';
+    if (sleepDatesRow) sleepDatesRow.style.display  = selType === 'sleep' ? '' : 'none';
+  });
+
+  document.getElementById('ee-modes')?.addEventListener('click', e => {
+    const pill = e.target.closest('[data-ee-mode]');
+    if (!pill) return;
+    selTransport = pill.dataset.eeMode;
+    document.getElementById('ee-modes').querySelectorAll('[data-ee-mode]').forEach(p => {
+      const m = p.dataset.eeMode;
+      const active = m === selTransport;
+      p.classList.toggle('sel', active);
+      p.style.background  = active ? trCol(m) : '';
+      p.style.borderColor = active ? trCol(m) : '';
+      p.style.color       = active ? '#fff'   : '';
+    });
+  });
+
+  document.getElementById('ee-cancel')?.addEventListener('click', closeModal);
+
+  document.getElementById('ee-del')?.addEventListener('click', () => {
+    closeModal();
+    _deleteEvent(dayId, evtIdx, tripId);
+  });
+
+  document.getElementById('ee-save')?.addEventListener('click', () => {
+    const text  = (document.getElementById('ee-text')?.value  || '').trim();
+    const time  = document.getElementById('ee-time')?.value   || null;
+    const cost  = parseFloat(document.getElementById('ee-cost')?.value  || '0') || 0;
+    const notes = document.getElementById('ee-notes')?.value  || '';
+
+    const sleepFrom = selType === 'sleep' ? (document.getElementById('ee-sleep-from')?.value || null) : null;
+    const sleepTo   = selType === 'sleep' ? (document.getElementById('ee-sleep-to')?.value   || null) : null;
+    if (selType === 'sleep') {
+      if (!sleepFrom || !sleepTo) { notify('Les dates de début et de fin sont requises', '⚠️'); return; }
+      if (sleepFrom > sleepTo)    { notify('La date de fin doit être après la date de début', '⚠️'); return; }
+      if (tripStart && sleepFrom < tripStart) { notify('La date de début est avant le voyage', '⚠️'); return; }
+      if (tripEnd   && sleepTo   > tripEnd)   { notify('La date de fin est après le voyage',   '⚠️'); return; }
+    }
+
+    const freshTrip = getTrip(tripId);
+    if (!freshTrip) return;
+    const freshDay = (freshTrip.days || []).find(d => d.id === dayId);
+    if (!freshDay) return;
+
+    const oldItem  = freshDay.items[evtIdx];
+    const newEt    = getEventTypes().find(et => et.key === selType);
+
+    const updatedItems = [...(freshDay.items || [])];
+    updatedItems[evtIdx] = {
+      ...oldItem,
+      type:      selType,
+      emoji:     newEt?.emoji || null,
+      color:     newEt?.color || null,
+      transport: selType === 'drive' ? selTransport : oldItem.transport,
+      text,
+      time:  time || null,
+      cost,
+      notes,
+      ...(selType === 'sleep' ? { dateFrom: sleepFrom, dateTo: sleepTo } : {}),
+    };
+
+    updateTrip(tripId, { days: freshTrip.days.map(d => d.id === dayId ? { ...d, items: updatedItems } : d) });
+
+    if (oldItem.id) {
+      const t3 = getTrip(tripId);
+      if (t3) {
+        const bl = (t3.budgetLines || []).find(l => l.source === 'event' && l.eventId === oldItem.id);
+        if (bl) {
+          updateTrip(tripId, { budgetLines: (t3.budgetLines || []).map(l =>
+            l.id === bl.id ? { ...l, amount: cost, desc: text } : l
+          )});
+        }
+      }
+    }
+
+    closeModal();
+    notify('Événement mis à jour', '✅');
+    _renderDaysList(tripId);
+    _refreshMapPins(tripId);
+    updateTopStats(tripId);
+  });
+}
+
 // ─── Event detail panel (EDP) ─────────────────────────────────────────────────
 
 function _openEDP(dayId, evtIdx, tripId) {
@@ -1680,6 +1865,15 @@ function _openEDP(dayId, evtIdx, tripId) {
   }
 
   _activeEvtKey = { dayId, idx: evtIdx };
+
+  // In mobile jours mode, the map column is hidden — open modal instead
+  if (window.innerWidth <= 768 && document.querySelector('.mapcal')?.classList.contains('mc-jours-mode')) {
+    _activeEvtKey = null;
+    _renderDaysList(tripId);
+    _openEditEventModal(dayId, evtIdx, tripId);
+    return;
+  }
+
   _renderDaysList(tripId);
 
   const trip = getTrip(tripId);
