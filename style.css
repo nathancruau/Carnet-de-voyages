@@ -1682,9 +1682,9 @@ html,body{background:var(--c)}
   #screen-app.active:not(.tab-map-active):not(.tab-fixed-active) #panel-journal .mapcal{flex:none!important;height:auto!important;overflow:visible!important}
   #screen-app.active:not(.tab-map-active):not(.tab-fixed-active) #panel-journal .map-col{min-height:calc(100dvh - 180px)}
   #screen-app.active:not(.tab-map-active):not(.tab-fixed-active) #journal-map{height:calc(100dvh - 180px)!important;min-height:300px!important}
-  /* Map safe area: stop tiles above home indicator; #aad3df background fills the gap */
-  #screen-app.active.tab-map-active .map-col,
-  #screen-mymap.active .map-col{padding-bottom:env(safe-area-inset-bottom)}
+  /* Map fills from topbar/tabs bottom to physical screen edge (100dvh = full screen with viewport-fit=cover) */
+  #screen-app.active.tab-map-active #map{height:calc(100dvh - env(safe-area-inset-top) - 66px)!important;min-height:300px!important}
+  #screen-mymap.active #mymap{height:calc(100dvh - env(safe-area-inset-top) - 52px)!important;min-height:300px!important}
   /* Sidebar back-btn is redundant on mobile (mm-mob-tabs provides ← Bibliothèque) */
   .mm-sidebar-header .back-btn{display:none}
 }

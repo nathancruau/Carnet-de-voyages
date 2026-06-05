@@ -1099,7 +1099,7 @@ export function renderMyMap() {
         <button class="bm-tab" data-mm-tab="destinations">📋 Destinations</button>
       </div>` : ''}
     <div class="mm-content" id="mm-content">
-      <div class="mm-sidebar" id="mm-sidebar">
+      <div class="mm-sidebar${isMobile ? ' collapsed' : ''}" id="mm-sidebar">
         ${_sidebarHtml(pins)}
       </div>
       <div class="map-col" id="mm-map-col">
@@ -1119,10 +1119,13 @@ export function renderMyMap() {
         if (!btn) return;
         const tab = btn.dataset.mmTab;
         tabs.querySelectorAll('.bm-tab').forEach(b => b.classList.toggle('active', b === btn));
+        const sidebar = document.getElementById('mm-sidebar');
         if (tab === 'destinations') {
           wrap.classList.add('mm-destinations-mode');
+          if (sidebar) sidebar.classList.remove('collapsed');
         } else {
           wrap.classList.remove('mm-destinations-mode');
+          if (sidebar) sidebar.classList.add('collapsed');
           setTimeout(() => { if (_map) _map.invalidateSize(); }, 50);
         }
       });
@@ -1158,7 +1161,7 @@ export function renderMyMap() {
       center:             [46.5, 2.5],
       zoom:               5,
       zoomControl:        true,
-      minZoom:            3,
+      minZoom:            1,
       maxBounds:          [[-85.051129, -1e10], [85.051129, 1e10]],
       maxBoundsViscosity: 1.0,
     });
