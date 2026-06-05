@@ -1689,7 +1689,7 @@ html,body{background:var(--c)}
   #screen-mymap.active{
     position:relative;top:auto;left:auto;right:auto;bottom:auto;
     height:auto;min-height:100dvh;overflow:visible;
-    background:#aad3df!important;
+    background:var(--c)!important;
   }
   #screen-mymap.active #mymap-wrap{height:auto;overflow:visible;flex:none}
   #screen-mymap.active .mm-mob-tabs{position:sticky;top:0;z-index:300}
