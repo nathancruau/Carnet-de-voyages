@@ -1682,13 +1682,35 @@ html,body{background:var(--c)}
   #screen-app.active:not(.tab-map-active):not(.tab-fixed-active) #panel-journal .mapcal{flex:none!important;height:auto!important;overflow:visible!important}
   #screen-app.active:not(.tab-map-active):not(.tab-fixed-active) #panel-journal .map-col{min-height:calc(100dvh - 180px)}
   #screen-app.active:not(.tab-map-active):not(.tab-fixed-active) #journal-map{height:calc(100dvh - 180px)!important;min-height:300px!important}
-  /* Map fills to physical screen bottom — height driven by JS-measured --topbar-h / --mm-tabs-h vars */
-  #screen-app.active.tab-map-active #map{height:calc(100dvh - var(--topbar-h, 88px))!important;min-height:300px!important}
-  #screen-mymap.active #mymap{height:calc(100dvh - var(--mm-tabs-h, 52px))!important;min-height:300px!important}
-  /* Destinations: sidebar fills to physical bottom */
-  .mymap-wrap.mm-destinations-mode .mm-sidebar{height:calc(100dvh - var(--mm-tabs-h, 52px))!important;overflow:hidden!important}
   /* Sidebar back-btn is redundant on mobile (mm-mob-tabs provides ← Bibliothèque) */
   .mm-sidebar-header .back-btn{display:none}
+
+  /* ── MyMap: body-scroll (same pattern as home/app) ── */
+  #screen-mymap.active{
+    position:relative;top:auto;left:auto;right:auto;bottom:auto;
+    height:auto;min-height:100dvh;overflow:visible;
+    background:#aad3df!important;
+  }
+  #screen-mymap.active #mymap-wrap{height:auto;overflow:visible;flex:none}
+  #screen-mymap.active .mm-mob-tabs{position:sticky;top:0;z-index:300}
+  /* Carte tab: map-col fills viewport below sticky tabs */
+  #screen-mymap.active .mm-content{height:calc(100dvh - var(--mm-tabs-h, 52px));overflow:hidden;flex:none}
+  #screen-mymap.active #mm-map-col{position:relative;height:100%;overflow:hidden}
+  #screen-mymap.active #mymap{position:absolute!important;inset:0!important;height:100%!important}
+  /* Destinations tab: sidebar content flows into page body (body scroll) */
+  #screen-mymap.active .mymap-wrap.mm-destinations-mode .mm-content{height:auto!important;overflow:visible!important}
+  #screen-mymap.active .mymap-wrap.mm-destinations-mode .mm-sidebar{height:auto!important;overflow:visible!important}
+  #screen-mymap.active .mymap-wrap.mm-destinations-mode .mm-tree{overflow-y:visible!important;height:auto!important;flex:none!important}
+
+  /* ── Mapcal Carte mode: body-scroll with explicit map height ── */
+  /* Override generic height:auto/overflow:visible from body-scroll block */
+  #screen-app.active.mc-carte-mode .panels{height:calc(100dvh - var(--topbar-h, 88px))!important;overflow:hidden!important;flex:none!important}
+  #screen-app.active.mc-carte-mode #panel-mapcal.active{height:100%!important;overflow:hidden!important;flex:none!important}
+  /* Override jours-mode mapcal rules (equal specificity 2,4,0 — later source order wins) */
+  #screen-app.active.mc-carte-mode #panel-mapcal.active .mapcal{height:100%!important;overflow:hidden!important;flex:1!important;display:flex!important}
+  #screen-app.active.mc-carte-mode #panel-mapcal.active .left-panel{position:absolute!important;height:100%!important;width:284px!important;max-width:284px!important;transform:translateX(-100%)!important;overflow:hidden!important}
+  #screen-app.active.mc-carte-mode #panel-mapcal .map-col{position:relative!important;height:100%!important;overflow:hidden!important;flex:1!important}
+  #screen-app.active.mc-carte-mode #map{position:absolute!important;inset:0!important;height:100%!important}
 }
 /* In map tab, panels/panel background matches map colour so any subpixel gap is invisible */
 #screen-app.active.tab-map-active .panels,

@@ -95,17 +95,18 @@ export async function switchTab(tabId) {
     p.classList.toggle('active', p.id === `panel-${tabId}`);
   });
 
-  // Only the map tab needs position:fixed (Leaflet); budget/tricount use body-scroll on mobile
-  const _isMapTab   = tabId === 'mapcal';
+  // Desktop: mapcal needs position:fixed for Leaflet. Mobile: body-scroll with explicit map height.
+  const _isMapTab   = tabId === 'mapcal' && window.innerWidth > 768;
   const _isFixedTab = _isMapTab;
   const app = document.getElementById('screen-app');
   app?.classList.toggle('tab-map-active',   _isMapTab);
   app?.classList.toggle('tab-fixed-active', !_isMapTab && _isFixedTab);
-  // Body scroll: disable during map/fixed tabs so Leaflet gets all touch events
+  app?.classList.remove('mc-carte-mode'); // cleared here; re-added by _applyMcScreenMode if needed
+  // Body scroll: disable during fixed tabs so Leaflet gets all touch events (desktop only)
   document.body.style.overflowY                = _isFixedTab ? 'hidden' : '';
   document.documentElement.style.overflowY     = _isFixedTab ? 'hidden' : '';
-  // Sync body/html background with active tab content
-  const _tabBg = _isMapTab
+  // Sync body/html background with active tab content (mapcal always uses map blue)
+  const _tabBg = (tabId === 'mapcal')
     ? '#aad3df'
     : (getComputedStyle(document.documentElement).getPropertyValue('--c').trim() || '#faf7f2');
   document.documentElement.style.setProperty('background', _tabBg, 'important');

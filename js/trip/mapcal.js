@@ -180,23 +180,18 @@ let _mapcalMobTab      = 'carte';    // 'carte' | 'jours' (mobile only)
 
 // ─── Public API ───────────────────────────────────────────────────────────────
 
-// Toggle the screen between fixed layout (Carte = Leaflet needs it) and
-// body-scroll layout (Jours = list content, no map). Mobile only.
+// Toggle between Carte and Jours sub-modes on mobile.
+// Both use body-scroll; mc-carte-mode class drives the CSS map-height layout.
 function _applyMcScreenMode(isCarteMode) {
   if (window.innerWidth > 768) return;
   const app = document.getElementById('screen-app');
   if (!app) return;
+  app.classList.toggle('mc-carte-mode', isCarteMode);
+  document.body.style.overflowY            = '';
+  document.documentElement.style.overflowY = '';
+  window.scrollTo(0, 0);
   if (isCarteMode) {
-    app.classList.add('tab-map-active');
-    document.body.style.overflowY             = 'hidden';
-    document.documentElement.style.overflowY  = 'hidden';
-    window.scrollTo(0, 0);
     setTimeout(() => { if (_map) _map.invalidateSize(); }, 80);
-  } else {
-    app.classList.remove('tab-map-active');
-    document.body.style.overflowY             = '';
-    document.documentElement.style.overflowY  = '';
-    window.scrollTo(0, 0);
   }
 }
 
