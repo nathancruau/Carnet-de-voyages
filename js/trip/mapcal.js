@@ -540,6 +540,7 @@ export function renderMapCal(tripId) {
 }
 
 export function destroyMap() {
+  _closeMobileEventSheet();
   if (_map) {
     if (_tempSearchPin) { try { _map.removeLayer(_tempSearchPin); } catch (_) {} _tempSearchPin = null; }
     try { _map.remove(); } catch (_) { /* already removed */ }
@@ -1697,7 +1698,33 @@ function _startInlineTitleEdit(dayId, tripId) {
   });
 }
 
-// ─── Edit Event Modal (used on mobile jours mode where map column is hidden) ──
+// ─── Mobile full-screen event sheet ──────────────────────────────────────────
+
+function _showMobileEventSheet(html) {
+  document.getElementById('_evt-sheet')?.remove();
+  const sheet = document.createElement('div');
+  sheet.id = '_evt-sheet';
+  sheet.style.cssText = [
+    'position:fixed;inset:0;z-index:10000',
+    'background:var(--c);color:var(--ink)',
+    'overflow-y:auto;-webkit-overflow-scrolling:touch',
+    'padding:max(44px,env(safe-area-inset-top)) 20px calc(24px + env(safe-area-inset-bottom))',
+    'font-family:var(--fn)',
+    'transform:translateY(100%);transition:transform .28s cubic-bezier(.25,.8,.25,1)',
+  ].join(';');
+  sheet.innerHTML = html;
+  document.body.appendChild(sheet);
+  requestAnimationFrame(() => requestAnimationFrame(() => { sheet.style.transform = 'translateY(0)'; }));
+}
+
+function _closeMobileEventSheet() {
+  const sheet = document.getElementById('_evt-sheet');
+  if (!sheet) return;
+  sheet.style.transform = 'translateY(100%)';
+  setTimeout(() => sheet.remove(), 300);
+}
+
+// ─── Edit Event Modal (mobile — full-screen sheet replacing the desktop EDP) ──
 
 function _openEditEventModal(dayId, evtIdx, tripId) {
   const trip = getTrip(tripId);
@@ -1731,8 +1758,8 @@ function _openEditEventModal(dayId, evtIdx, tripId) {
     }).join('');
   }
 
-  showModal(`
-    <h3>✏️ Modifier l'événement</h3>
+  _showMobileEventSheet(`
+    <h3 style="margin-bottom:16px">✏️ Modifier l'événement</h3>
     <div class="fg">
       <label>Type</label>
       <div style="display:flex;gap:6px;flex-wrap:wrap" id="ee-types">${_typeBtnsHtml()}</div>
@@ -1816,10 +1843,10 @@ function _openEditEventModal(dayId, evtIdx, tripId) {
     });
   });
 
-  document.getElementById('ee-cancel')?.addEventListener('click', closeModal);
+  document.getElementById('ee-cancel')?.addEventListener('click', _closeMobileEventSheet);
 
   document.getElementById('ee-del')?.addEventListener('click', () => {
-    closeModal();
+    _closeMobileEventSheet();
     _deleteEvent(dayId, evtIdx, tripId);
   });
 
@@ -1874,7 +1901,7 @@ function _openEditEventModal(dayId, evtIdx, tripId) {
       }
     }
 
-    closeModal();
+    _closeMobileEventSheet();
     notify('Événement mis à jour', '✅');
     _renderDaysList(tripId);
     _refreshMapPins(tripId);
@@ -1895,8 +1922,8 @@ function _openEDP(dayId, evtIdx, tripId) {
 
   _activeEvtKey = { dayId, idx: evtIdx };
 
-  // In mobile jours mode, the map column is hidden — open modal instead
-  if (window.innerWidth <= 768 && document.querySelector('.mapcal')?.classList.contains('mc-jours-mode')) {
+  // On mobile, the EDP is a desktop-only side panel — always use the full-screen sheet
+  if (window.innerWidth <= 768) {
     _activeEvtKey = null;
     _renderDaysList(tripId);
     _openEditEventModal(dayId, evtIdx, tripId);
@@ -3208,6 +3235,9 @@ function _openAddEventModal(dayId, tripId, prefill = null) {
   const _aeEnd     = _aeSorted[_aeSorted.length - 1]?.date || '';
   const _aeDay     = (_aeTrip?.days || []).find(d => d.id === dayId);
   const _aeDate    = _aeDay?.date || '';
+  const _isMob     = window.innerWidth <= 768;
+  const _close     = _isMob ? _closeMobileEventSheet : closeModal;
+  const _openSheet = _isMob ? _showMobileEventSheet  : showModal;
 
   function _aeTypeBtnsHtml() {
     return evtTypes.map(et => {
@@ -3217,8 +3247,8 @@ function _openAddEventModal(dayId, tripId, prefill = null) {
     }).join('');
   }
 
-  showModal(`
-    <h3>＋ Ajouter un événement</h3>
+  _openSheet(`
+    <h3 style="margin-bottom:16px">＋ Ajouter un événement</h3>
 
     <div class="fg">
       <label>Type</label>
@@ -3299,7 +3329,7 @@ function _openAddEventModal(dayId, tripId, prefill = null) {
     locWidgetEl,
     ({ lat, lng }) => { pickedLat = lat; pickedLng = lng; },
     () => {
-      closeModal();
+      _close();
       if (_map) {
         _map.getContainer().style.cursor = 'crosshair';
         const infoEl = document.createElement('div');
@@ -3330,7 +3360,7 @@ function _openAddEventModal(dayId, tripId, prefill = null) {
       destWidgetEl,
       ({ lat, lng }) => { destLat = lat; destLng = lng; },
       () => {
-        closeModal();
+        _close();
         if (_map) {
           _map.getContainer().style.cursor = 'crosshair';
           const infoEl = document.createElement('div');
@@ -3394,7 +3424,7 @@ function _openAddEventModal(dayId, tripId, prefill = null) {
     });
   });
 
-  document.getElementById('ae-cancel')?.addEventListener('click', closeModal);
+  document.getElementById('ae-cancel')?.addEventListener('click', _close);
 
   document.getElementById('ae-save')?.addEventListener('click', () => {
     const text  = (document.getElementById('ae-text')?.value  || '').trim();
@@ -3480,7 +3510,7 @@ function _openAddEventModal(dayId, tripId, prefill = null) {
     }
     // ─────────────────────────────────────────────────────────────────────
 
-    closeModal();
+    _close();
     _renderDaysList(tripId);
     _refreshMapPins(tripId);
     updateTopStats(tripId);
