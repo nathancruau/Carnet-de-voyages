@@ -1671,11 +1671,19 @@ html,body{height:auto;overflow-y:auto}
   #screen-app.active:not(.tab-map-active):not(.tab-fixed-active) .days-scroll,
   #screen-app.active:not(.tab-map-active):not(.tab-fixed-active) .pk-grid{overflow-y:visible;height:auto;flex:none}
   #screen-app.active:not(.tab-map-active):not(.tab-fixed-active) .days-scroll{padding-bottom:env(safe-area-inset-bottom)!important}
-  /* journal panel: #panel-journal .mapcal has flex:1 (for fixed-mode use) which collapses
-     to 0px when parent has height:auto — reset to block flow driven by journal-map height */
+  /* Budget / tricount: internal scroll containers become natural flow */
+  #screen-app.active:not(.tab-map-active):not(.tab-fixed-active) .bud-main,
+  #screen-app.active:not(.tab-map-active):not(.tab-fixed-active) .tri-main{overflow-y:visible!important;height:auto}
+  /* Sub-tabs (Lignes/Stats) would conflict with sticky topbar — let them scroll with content */
+  #screen-app.active:not(.tab-map-active):not(.tab-fixed-active) .bud-mob-tabs,
+  #screen-app.active:not(.tab-map-active):not(.tab-fixed-active) .tri-mob-tabs{position:static!important}
+  /* Mapcal jours mode: mapcal/left-panel become natural block flow */
+  #screen-app.active:not(.tab-map-active):not(.tab-fixed-active) #panel-mapcal .mapcal{flex:none!important;height:auto!important;overflow:visible!important}
+  #screen-app.active:not(.tab-map-active):not(.tab-fixed-active) #panel-mapcal .left-panel{position:static!important;height:auto!important;width:100%!important;max-width:100%!important;transform:none!important;overflow:visible!important}
+  /* journal panel: mapcal collapses to 0px with height:auto parent — drive size from map height */
   #screen-app.active:not(.tab-map-active):not(.tab-fixed-active) #panel-journal .mapcal{flex:none!important;height:auto!important;overflow:visible!important}
-  #screen-app.active:not(.tab-map-active):not(.tab-fixed-active) #panel-journal .map-col{min-height:45vh}
-  #screen-app.active:not(.tab-map-active):not(.tab-fixed-active) #journal-map{height:45vh!important;min-height:200px!important}
+  #screen-app.active:not(.tab-map-active):not(.tab-fixed-active) #panel-journal .map-col{min-height:calc(100dvh - 180px)}
+  #screen-app.active:not(.tab-map-active):not(.tab-fixed-active) #journal-map{height:calc(100dvh - 180px)!important;min-height:300px!important}
 }
 /* In map tab, panels/panel background matches map colour so any subpixel gap is invisible */
 #screen-app.active.tab-map-active .panels,

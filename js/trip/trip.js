@@ -95,9 +95,9 @@ export async function switchTab(tabId) {
     p.classList.toggle('active', p.id === `panel-${tabId}`);
   });
 
-  // Map + complex panels (budget/tricount) need position:fixed layout
+  // Only the map tab needs position:fixed (Leaflet); budget/tricount use body-scroll on mobile
   const _isMapTab   = tabId === 'mapcal';
-  const _isFixedTab = _isMapTab || tabId === 'budget' || tabId === 'tricount';
+  const _isFixedTab = _isMapTab;
   const app = document.getElementById('screen-app');
   app?.classList.toggle('tab-map-active',   _isMapTab);
   app?.classList.toggle('tab-fixed-active', !_isMapTab && _isFixedTab);

@@ -180,6 +180,26 @@ let _mapcalMobTab      = 'carte';    // 'carte' | 'jours' (mobile only)
 
 // ─── Public API ───────────────────────────────────────────────────────────────
 
+// Toggle the screen between fixed layout (Carte = Leaflet needs it) and
+// body-scroll layout (Jours = list content, no map). Mobile only.
+function _applyMcScreenMode(isCarteMode) {
+  if (window.innerWidth > 768) return;
+  const app = document.getElementById('screen-app');
+  if (!app) return;
+  if (isCarteMode) {
+    app.classList.add('tab-map-active');
+    document.body.style.overflowY             = 'hidden';
+    document.documentElement.style.overflowY  = 'hidden';
+    window.scrollTo(0, 0);
+    setTimeout(() => { if (_map) _map.invalidateSize(); }, 80);
+  } else {
+    app.classList.remove('tab-map-active');
+    document.body.style.overflowY             = '';
+    document.documentElement.style.overflowY  = '';
+    window.scrollTo(0, 0);
+  }
+}
+
 export function renderMapCal(tripId) {
   _tripId = tripId;
 
@@ -318,10 +338,12 @@ export function renderMapCal(tripId) {
         } else {
           if (mapcal) mapcal.classList.remove('mc-jours-mode');
           if (lpEl)   lpEl.classList.add('collapsed');
-          setTimeout(() => { if (_map) _map.invalidateSize(); }, 60);
         }
+        _applyMcScreenMode(tab !== 'jours');
       });
     });
+    // Apply correct mode for the current tab state on first render
+    _applyMcScreenMode(_mapcalMobTab !== 'jours');
   }
 
   // Attach event delegation for left panel (including drag-and-drop)
