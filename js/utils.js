@@ -32,6 +32,8 @@ export function notify(msg, icon = '✓') {
 
 // ── Modal ──────────────────────────────────────────────────────────────────────
 let _modalCloseCallback = null;
+let _scrollLockY = 0;
+let _bodyLocked  = false;
 
 /**
  * Show the shared modal overlay.
@@ -58,11 +60,31 @@ export function showModal(htmlContent, { onClose } = {}) {
 
   // Prevent overlay close when clicking inside the box
   box.onclick = e => e.stopPropagation();
+
+  // iOS Safari: lock the body so scrolling the modal doesn't scroll the page behind it.
+  // Only needed on mobile body-scroll pages (desktop uses overflow:hidden on html/body).
+  if (window.innerWidth <= 768 && !_bodyLocked) {
+    _scrollLockY = window.scrollY;
+    _bodyLocked  = true;
+    document.body.style.position  = 'fixed';
+    document.body.style.top       = `-${_scrollLockY}px`;
+    document.body.style.width     = '100%';
+  }
 }
 
 export function closeModal() {
   const ov = document.getElementById('modal-overlay');
   if (ov) ov.classList.remove('open');
+
+  // Restore body scroll position locked by showModal
+  if (_bodyLocked) {
+    _bodyLocked = false;
+    document.body.style.position = '';
+    document.body.style.top      = '';
+    document.body.style.width    = '';
+    window.scrollTo(0, _scrollLockY);
+  }
+
   if (_modalCloseCallback) {
     _modalCloseCallback();
     _modalCloseCallback = null;

@@ -959,6 +959,7 @@ html,body{height:100%;font-family:var(--fn);background:var(--c);color:var(--ink)
   background:#fff;border-radius:16px;padding:20px;
   width:480px;max-width:96vw;max-height:92vh;overflow-y:auto;
   box-shadow:var(--shl);position:relative;border:1px solid var(--c3);
+  overscroll-behavior:contain;
 }
 .mbox h3{font-family:var(--sf);font-size:18px;font-weight:700;margin-bottom:14px}
 .mc{
@@ -1548,7 +1549,7 @@ html,body{height:100%;font-family:var(--fn);background:var(--c);color:var(--ink)
   #mm-map-col .lp-toggle-btn{bottom:calc(90px + env(safe-area-inset-bottom))}
 
   /* ── Modals: sheet from bottom ── */
-  .mbox{max-width:98vw;margin:0;border-radius:14px 14px 0 0;max-height:92dvh;position:fixed;bottom:0;left:0;right:0;overflow-y:auto;overflow-x:hidden;padding-bottom:calc(20px + env(safe-area-inset-bottom))}
+  .mbox{max-width:98vw;margin:0;border-radius:14px 14px 0 0;max-height:92dvh;position:fixed;bottom:0;left:0;right:0;overflow-y:auto;overflow-x:hidden;padding-bottom:calc(20px + env(safe-area-inset-bottom));overscroll-behavior:contain}
 
   /* ── Share modal: compact on mobile ── */
   .share-qr{width:140px;height:140px}
@@ -1646,6 +1647,80 @@ html,body{height:100%;font-family:var(--fn);background:var(--c);color:var(--ink)
 /* Stronger background fill to prevent white-band on all screens */
 html,body{background:var(--c)!important}
 .panels,.panel{background:var(--c)}
+
+/* Body-scroll architecture — mobile only.
+   Desktop keeps position:fixed screens with internal scroll containers.
+   Mobile uses body scroll so Safari toolbars auto-hide. */
+@media (max-width:768px) {
+  /* Enable body scroll on mobile; desktop keeps html,body{overflow:hidden} from the reset */
+  html,body{height:auto;overflow-y:auto}
+  #screen-home.active,
+  #screen-login.active,
+  #screen-app.active:not(.tab-map-active):not(.tab-fixed-active){
+    position:relative;top:auto;left:auto;right:auto;bottom:auto;
+    height:auto;min-height:100dvh;overflow:visible;
+    background:var(--c)!important;
+  }
+  #screen-home.active .home-wrap{overflow-y:visible;height:auto;flex:none}
+  #screen-app.active:not(.tab-map-active):not(.tab-fixed-active) .topbar{position:sticky;top:0;z-index:300}
+  #screen-app.active:not(.tab-map-active):not(.tab-fixed-active) .panels,
+  #screen-app.active:not(.tab-map-active):not(.tab-fixed-active) .panel.active{overflow:visible;height:auto;flex:none}
+  #screen-app.active:not(.tab-map-active):not(.tab-fixed-active) .journal-wrap,
+  #screen-app.active:not(.tab-map-active):not(.tab-fixed-active) .days-scroll,
+  #screen-app.active:not(.tab-map-active):not(.tab-fixed-active) .pk-grid{overflow-y:visible;height:auto;flex:none}
+  #screen-app.active:not(.tab-map-active):not(.tab-fixed-active) .days-scroll{padding-bottom:env(safe-area-inset-bottom)!important}
+  /* Budget / tricount: internal scroll containers become natural flow */
+  #screen-app.active:not(.tab-map-active):not(.tab-fixed-active) .bud-main,
+  #screen-app.active:not(.tab-map-active):not(.tab-fixed-active) .tri-main{overflow-y:visible!important;height:auto}
+  /* Sub-tabs (Lignes/Stats) would conflict with sticky topbar — let them scroll with content */
+  #screen-app.active:not(.tab-map-active):not(.tab-fixed-active) .bud-mob-tabs,
+  #screen-app.active:not(.tab-map-active):not(.tab-fixed-active) .tri-mob-tabs{position:static!important}
+  /* Mapcal jours mode: mapcal/left-panel become natural block flow */
+  #screen-app.active:not(.tab-map-active):not(.tab-fixed-active) #panel-mapcal .mapcal{flex:none!important;height:auto!important;overflow:visible!important}
+  #screen-app.active:not(.tab-map-active):not(.tab-fixed-active) #panel-mapcal .left-panel{position:static!important;height:auto!important;width:100%!important;max-width:100%!important;transform:none!important;overflow:visible!important}
+  /* journal panel: mapcal collapses to 0px with height:auto parent — drive size from map height */
+  #screen-app.active:not(.tab-map-active):not(.tab-fixed-active) #panel-journal .mapcal{flex:none!important;height:auto!important;overflow:visible!important}
+  #screen-app.active:not(.tab-map-active):not(.tab-fixed-active) #panel-journal .map-col{min-height:calc(100dvh - 180px)}
+  #screen-app.active:not(.tab-map-active):not(.tab-fixed-active) #journal-map{height:calc(100dvh - 180px)!important;min-height:300px!important}
+  /* Journal timeline: body-scroll — break the flex:1/overflow:hidden chain so items are page-scrollable */
+  #screen-app.active:not(.tab-map-active):not(.tab-fixed-active) #panel-journal.active{overflow:visible!important}
+  #screen-app.active:not(.tab-map-active):not(.tab-fixed-active) #jn-tl-wrap{flex:none!important;height:auto!important;min-height:auto!important;overflow:visible!important}
+  #screen-app.active:not(.tab-map-active):not(.tab-fixed-active) .tl-wrap{display:block!important;height:auto!important;overflow:visible!important}
+  #screen-app.active:not(.tab-map-active):not(.tab-fixed-active) .tl-scroll{flex:none!important;height:auto!important;overflow-y:visible!important}
+  /* Sidebar back-btn is redundant on mobile (mm-mob-tabs provides ← Bibliothèque) */
+  .mm-sidebar-header .back-btn{display:none}
+
+  /* ── MyMap: body-scroll (same pattern as home/app) ── */
+  #screen-mymap.active{
+    position:relative;top:auto;left:auto;right:auto;bottom:auto;
+    height:auto;min-height:100dvh;overflow:visible;
+    background:var(--c)!important;
+  }
+  #screen-mymap.active #mymap-wrap{height:auto;overflow:visible;flex:none}
+  #screen-mymap.active .mm-mob-tabs{position:sticky;top:0;z-index:300}
+  /* Carte tab: map-col fills viewport below sticky tabs */
+  #screen-mymap.active .mm-content{height:calc(100dvh - var(--mm-tabs-h, 52px));overflow:hidden;flex:none}
+  #screen-mymap.active #mm-map-col{position:relative;height:100%;overflow:hidden}
+  #screen-mymap.active #mymap{position:absolute!important;inset:0!important;height:100%!important}
+  /* Destinations tab: break all flex containers → pure block page scroll */
+  #screen-mymap.active .mymap-wrap.mm-destinations-mode{display:block!important;height:auto!important;min-height:100dvh!important;overflow:visible!important;background:#fff!important}
+  #screen-mymap.active .mymap-wrap.mm-destinations-mode .mm-content{display:block!important;height:auto!important;overflow:visible!important;position:static!important}
+  #screen-mymap.active .mymap-wrap.mm-destinations-mode .mm-sidebar{display:block!important;height:auto!important;overflow:visible!important;width:100%!important;min-width:100%!important;position:static!important;transform:none!important}
+  #screen-mymap.active .mymap-wrap.mm-destinations-mode .mm-tree{display:block!important;height:auto!important;overflow:visible!important}
+
+  /* ── Mapcal Carte mode: body-scroll with explicit map height ── */
+  /* Override generic height:auto/overflow:visible from body-scroll block */
+  #screen-app.active.mc-carte-mode .panels{height:calc(100dvh - var(--topbar-h, 88px))!important;overflow:hidden!important;flex:none!important}
+  #screen-app.active.mc-carte-mode #panel-mapcal.active{height:100%!important;overflow:hidden!important;flex:none!important}
+  /* Override jours-mode mapcal rules (equal specificity 2,4,0 — later source order wins) */
+  #screen-app.active.mc-carte-mode #panel-mapcal.active .mapcal{height:100%!important;overflow:hidden!important;flex:1!important;display:flex!important}
+  #screen-app.active.mc-carte-mode #panel-mapcal.active .left-panel{position:absolute!important;height:100%!important;width:284px!important;max-width:284px!important;transform:translateX(-100%)!important;overflow:hidden!important}
+  #screen-app.active.mc-carte-mode #panel-mapcal .map-col{position:relative!important;height:100%!important;overflow:hidden!important;flex:1!important}
+  #screen-app.active.mc-carte-mode #map{position:absolute!important;inset:0!important;height:100%!important}
+}
+/* In map tab, panels/panel background matches map colour so any subpixel gap is invisible */
+#screen-app.active.tab-map-active .panels,
+#screen-app.active.tab-map-active .panel{background:#aad3df}
 
 /* ── Fullscreen stat card ── */
 .stat-card.stat-fs{
