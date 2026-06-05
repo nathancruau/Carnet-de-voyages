@@ -30,7 +30,7 @@
 
 /* ── Reset ── */
 *{box-sizing:border-box;margin:0;padding:0}
-html{height:100%;min-height:-webkit-fill-available;font-family:var(--fn);background:var(--c);color:var(--ink);overflow:hidden;overscroll-behavior:none}
+html{height:100%;min-height:-webkit-fill-available;font-family:var(--fn);background:var(--c);color:var(--ink);overflow:hidden;overscroll-behavior:none;touch-action:manipulation}
 body{height:100%;min-height:-webkit-fill-available;font-family:var(--fn);background:var(--c);color:var(--ink);overflow:hidden;overscroll-behavior:none}
 
 /* ── Screens ── */
@@ -1724,6 +1724,12 @@ html,body{background:var(--c)}
 /* In map tab, panels/panel background matches map colour so any subpixel gap is invisible */
 #screen-app.active.tab-map-active .panels,
 #screen-app.active.tab-map-active .panel{background:#aad3df}
+
+/* ── Mobile event sheet (position:fixed on body, no .mbox wrapper) ── */
+#_evt-sheet input:not([type=radio]):not([type=checkbox]),
+#_evt-sheet select,
+#_evt-sheet textarea{min-width:0;width:100%;font-size:16px!important;box-sizing:border-box}
+#_evt-sheet [style*="flex:1"]{min-width:0}
 
 /* ── Fullscreen stat card ── */
 .stat-card.stat-fs{
