@@ -17,7 +17,7 @@ Quatre endroits à synchroniser, toujours le même numéro N :
 | `index.html` | `style.css?v=N` et `app.js?v=N` |
 | `sw.js` | `const SHELL_CACHE = 'cv-shell-N'` |
 
-Version actuelle : **112**
+Version actuelle : **113**
 
 ---
 

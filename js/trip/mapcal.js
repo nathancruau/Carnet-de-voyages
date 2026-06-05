@@ -1712,13 +1712,7 @@ function _showMobileEventSheet(html) {
     'font-family:var(--fn)',
     'transform:translateY(100%);transition:transform .28s cubic-bezier(.25,.8,.25,1)',
   ].join(';');
-  // Force single-column layout for 2-col grids and flex rows on mobile
-  sheet.innerHTML = `<style>
-    #_evt-sheet [style*="grid-template-columns"]{display:flex!important;flex-direction:column!important;gap:0!important}
-    #_evt-sheet [style*="grid-template-columns"]>.fg{margin-bottom:0}
-    #_evt-sheet [style*="gap:10px"]{flex-direction:column!important;gap:6px!important}
-    #_evt-sheet [style*="flex:1"]{min-width:0;width:100%!important;box-sizing:border-box!important}
-  </style>` + html;
+  sheet.innerHTML = html;
   document.body.appendChild(sheet);
   requestAnimationFrame(() => requestAnimationFrame(() => { sheet.style.transform = 'translateY(0)'; }));
 }
@@ -1775,31 +1769,22 @@ function _openEditEventModal(dayId, evtIdx, tripId) {
       <div style="display:flex;gap:6px;flex-wrap:wrap" id="ee-modes">${_modeBtnsHtml()}</div>
     </div>
     <div id="ee-sleep-dates" style="display:${selType === 'sleep' ? '' : 'none'}" class="fg">
-      <label>Nuits passées ici</label>
-      <div style="display:flex;gap:10px">
-        <div style="flex:1">
-          <div style="font-size:11px;color:var(--ink3);margin-bottom:3px">Première nuit</div>
-          <input type="date" id="ee-sleep-from" value="${_esc(item.dateFrom || day.date || '')}" min="${tripStart}" max="${tripEnd}">
-        </div>
-        <div style="flex:1">
-          <div style="font-size:11px;color:var(--ink3);margin-bottom:3px">Dernière nuit</div>
-          <input type="date" id="ee-sleep-to" value="${_esc(item.dateTo || tripEnd || '')}" min="${tripStart}" max="${tripEnd}">
-        </div>
-      </div>
+      <label>Première nuit</label>
+      <input type="date" id="ee-sleep-from" value="${_esc(item.dateFrom || day.date || '')}" min="${tripStart}" max="${tripEnd}">
+      <label style="display:block;margin-top:8px">Dernière nuit</label>
+      <input type="date" id="ee-sleep-to" value="${_esc(item.dateTo || tripEnd || '')}" min="${tripStart}" max="${tripEnd}">
     </div>
     <div class="fg">
       <label>Description</label>
       <input type="text" id="ee-text" value="${_esc(item.text || '')}" placeholder="Description…" autocomplete="off">
     </div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 12px">
-      <div class="fg">
-        <label>Heure</label>
-        <input type="time" id="ee-time" value="${_esc(item.time || '')}">
-      </div>
-      <div class="fg">
-        <label>Coût (€)</label>
-        <input type="number" id="ee-cost" min="0" step="0.01" value="${_esc(String(item.cost || ''))}" placeholder="0">
-      </div>
+    <div class="fg">
+      <label>Heure</label>
+      <input type="time" id="ee-time" value="${_esc(item.time || '')}">
+    </div>
+    <div class="fg">
+      <label>Coût (€)</label>
+      <input type="number" id="ee-cost" min="0" step="0.01" value="${_esc(String(item.cost || ''))}" placeholder="0">
     </div>
     <div class="fg">
       <label>Notes</label>
@@ -3281,15 +3266,13 @@ function _openAddEventModal(dayId, tripId, prefill = null) {
       <input type="text" id="ae-text" placeholder="Ex : Visite du temple Fushimi Inari…" autocomplete="off">
     </div>
 
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 12px">
-      <div class="fg">
-        <label>Heure</label>
-        <input type="time" id="ae-time">
-      </div>
-      <div class="fg">
-        <label>Coût (€)</label>
-        <input type="number" id="ae-cost" min="0" step="0.01" placeholder="0">
-      </div>
+    <div class="fg">
+      <label>Heure</label>
+      <input type="time" id="ae-time">
+    </div>
+    <div class="fg">
+      <label>Coût (€)</label>
+      <input type="number" id="ae-cost" min="0" step="0.01" placeholder="0">
     </div>
 
     <div id="ae-dest-row" style="display:${selType === 'drive' ? '' : 'none'}" class="fg">
@@ -3298,19 +3281,12 @@ function _openAddEventModal(dayId, tripId, prefill = null) {
     </div>
 
     <div id="ae-sleep-dates" style="display:${selType === 'sleep' ? '' : 'none'}" class="fg">
-      <label>Nuits passées ici</label>
-      <div style="display:flex;gap:10px">
-        <div style="flex:1">
-          <div style="font-size:11px;color:var(--ink3);margin-bottom:3px">Première nuit</div>
-          <input type="date" id="ae-sleep-from" value="${_aeDate}" min="${_aeStart}" max="${_aeEnd}"
-            style="width:100%;padding:5px 8px;border:1.5px solid var(--c3);border-radius:6px;font-size:12px;background:var(--c);color:var(--ink)">
-        </div>
-        <div style="flex:1">
-          <div style="font-size:11px;color:var(--ink3);margin-bottom:3px">Dernière nuit</div>
-          <input type="date" id="ae-sleep-to" value="${_aeEnd}" min="${_aeStart}" max="${_aeEnd}"
-            style="width:100%;padding:5px 8px;border:1.5px solid var(--c3);border-radius:6px;font-size:12px;background:var(--c);color:var(--ink)">
-        </div>
-      </div>
+      <label>Première nuit</label>
+      <input type="date" id="ae-sleep-from" value="${_aeDate}" min="${_aeStart}" max="${_aeEnd}"
+        style="width:100%;padding:5px 8px;border:1.5px solid var(--c3);border-radius:6px;font-size:14px;background:var(--c);color:var(--ink)">
+      <label style="display:block;margin-top:8px">Dernière nuit</label>
+      <input type="date" id="ae-sleep-to" value="${_aeEnd}" min="${_aeStart}" max="${_aeEnd}"
+        style="width:100%;padding:5px 8px;border:1.5px solid var(--c3);border-radius:6px;font-size:14px;background:var(--c);color:var(--ink)">
     </div>
 
     <div class="fg">

@@ -1368,7 +1368,7 @@ function _openValidateModal(tripId, dayId, itemIdx) {
     <div class="fg">
       <label>Photos</label>
       <div id="vld-photos-list">${buildPhotosHtml()}</div>
-      <input type="file" id="vld-photo-file" accept="image/*" style="font-size:12px;color:var(--ink3);margin-top:6px">
+      <input type="file" id="vld-photo-file" accept="image/*" multiple style="font-size:12px;color:var(--ink3);margin-top:6px">
     </div>
 
     <div class="ma">
@@ -1402,12 +1402,14 @@ function _openValidateModal(tripId, dayId, itemIdx) {
     if (list) list.innerHTML = buildPhotosHtml();
   });
 
-  // Photo upload
+  // Photo upload — multiple files supported
   document.getElementById('vld-photo-file')?.addEventListener('change', async ev => {
-    const file = ev.target.files?.[0];
-    if (!file) return;
-    const base64 = await _compressImg(file);
-    state.photos.push(base64);
+    const files = [...(ev.target.files || [])];
+    if (!files.length) return;
+    for (const file of files) {
+      const base64 = await _compressImg(file);
+      state.photos.push(base64);
+    }
     const list = document.getElementById('vld-photos-list');
     if (list) list.innerHTML = buildPhotosHtml();
     ev.target.value = '';
