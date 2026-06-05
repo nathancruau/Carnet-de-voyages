@@ -1579,9 +1579,11 @@ body{height:100%;min-height:-webkit-fill-available;font-family:var(--fn);backgro
   .hero-logo{font-size:22px}
   .hero-secondary-actions{display:none}
 
-  /* ── Safe-area bottom: no padding — content reaches bottom:0 (physical visible edge) ── */
-  /* The 34px home-indicator zone below bottom:0 shows html/body background which we match in JS */
-  .home-wrap,.journal-wrap,.days-scroll,.pk-grid,.mm-tree{padding-bottom:0!important}
+  /* ── Safe-area bottom padding ── */
+  /* home-wrap: clear the FAB (54px height + 4px bottom offset) + safe area */
+  .home-wrap{padding-bottom:calc(66px + env(safe-area-inset-bottom))!important}
+  /* Other scrollers: just clear the home indicator zone */
+  .journal-wrap,.days-scroll,.pk-grid,.mm-tree{padding-bottom:env(safe-area-inset-bottom)!important}
   /* Budget & tricount have a panel FAB — keep clearance */
   .bud-main,.bud-side-sc,.tri-main,.tri-side-sc{padding-bottom:calc(66px + env(safe-area-inset-bottom))!important}
 
