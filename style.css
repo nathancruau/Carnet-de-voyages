@@ -1698,7 +1698,7 @@ html,body{background:var(--c)}
   #screen-mymap.active #mm-map-col{position:relative;height:100%;overflow:hidden}
   #screen-mymap.active #mymap{position:absolute!important;inset:0!important;height:100%!important}
   /* Destinations tab: break all flex containers → pure block page scroll */
-  #screen-mymap.active .mymap-wrap.mm-destinations-mode{display:block!important;height:auto!important;overflow:visible!important}
+  #screen-mymap.active .mymap-wrap.mm-destinations-mode{display:block!important;height:auto!important;min-height:100dvh!important;overflow:visible!important;background:#fff!important}
   #screen-mymap.active .mymap-wrap.mm-destinations-mode .mm-content{display:block!important;height:auto!important;overflow:visible!important;position:static!important}
   #screen-mymap.active .mymap-wrap.mm-destinations-mode .mm-sidebar{display:block!important;height:auto!important;overflow:visible!important;width:100%!important;min-width:100%!important;position:static!important;transform:none!important}
   #screen-mymap.active .mymap-wrap.mm-destinations-mode .mm-tree{display:block!important;height:auto!important;overflow:visible!important}
@@ -2102,6 +2102,7 @@ a.tl-sv-pill:hover{background:var(--c3);color:var(--ink)}
 [data-theme="dark"] .pfm-btn:hover{background:var(--c3)}
 [data-theme="dark"] .bud-mob-tabs,[data-theme="dark"] .tri-mob-tabs{background:var(--c2);border-bottom-color:var(--c4)}
 [data-theme="dark"] .mm-sidebar{background:var(--c2);border-right-color:var(--c4)}
+[data-theme="dark"] .mymap-wrap.mm-destinations-mode{background:var(--c2)!important}
 [data-theme="dark"] .mm-info-panel{background:var(--c2)}
 [data-theme="dark"] .jn-entry{background:var(--c2)}
 [data-theme="dark"] .pk-cat{background:var(--c2)}
