@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
   <title>Carnet de Voyages</title>
 
   <!-- PWA manifest -->
@@ -29,7 +29,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,600;0,700;1,400;1,600;1,700&family=Nunito:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="style.css?v=107" />
+<link rel="stylesheet" href="style.css?v=109" />
   <script>
     (function(){try{
       var d=JSON.parse(localStorage.getItem('carnet_voyages_v1')||'{}');
@@ -45,6 +45,20 @@
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('/sw.js').catch(() => {});
     }
+    // iOS 10+ ignores user-scalable=no — block pinch/gesture zoom outside Leaflet maps
+    document.addEventListener('touchstart', function(e) {
+      if (e.touches.length > 1 &&
+          !e.target.closest('.leaflet-container') &&
+          !e.target.closest('#mm-map-col')) {
+        e.preventDefault();
+      }
+    }, { passive: false });
+    document.addEventListener('gesturestart', function(e) {
+      if (!e.target.closest('.leaflet-container') &&
+          !e.target.closest('#mm-map-col')) {
+        e.preventDefault();
+      }
+    }, { passive: false });
   </script>
 </head>
 <body>
@@ -162,6 +176,6 @@
       if (bar) bar.style.display = 'none';
     }
   </script>
-<script type="module" src="js/app.js?v=107"></script>
+<script type="module" src="js/app.js?v=109"></script>
 </body>
 </html>

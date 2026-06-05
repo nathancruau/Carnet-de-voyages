@@ -962,6 +962,7 @@ body{height:100%;min-height:-webkit-fill-available;font-family:var(--fn);backgro
   background:#fff;border-radius:16px;padding:20px;
   width:480px;max-width:96vw;max-height:92vh;overflow-y:auto;
   box-shadow:var(--shl);position:relative;border:1px solid var(--c3);
+  overscroll-behavior:contain;
 }
 .mbox h3{font-family:var(--sf);font-size:18px;font-weight:700;margin-bottom:14px}
 .mc{
@@ -1551,7 +1552,9 @@ body{height:100%;min-height:-webkit-fill-available;font-family:var(--fn);backgro
   #mm-map-col .lp-toggle-btn{bottom:calc(90px + env(safe-area-inset-bottom))}
 
   /* ── Modals: sheet from bottom ── */
-  .mbox{max-width:98vw;margin:0;border-radius:14px 14px 0 0;max-height:92dvh;position:fixed;bottom:0;left:0;right:0;overflow-y:auto;overflow-x:hidden;padding-bottom:calc(20px + env(safe-area-inset-bottom))}
+  .mbox{max-width:98vw;margin:0;border-radius:14px 14px 0 0;max-height:92dvh;position:fixed;bottom:0;left:0;right:0;overflow-y:auto;overflow-x:hidden;padding-bottom:calc(20px + env(safe-area-inset-bottom));overscroll-behavior:contain}
+  /* Prevent iOS auto-zoom when focusing inputs inside modals (font-size must be ≥ 16px) */
+  .mbox input:not([type="radio"]):not([type="checkbox"]),.mbox select,.mbox textarea{font-size:16px!important}
 
   /* ── Share modal: compact on mobile ── */
   .share-qr{width:140px;height:140px}
@@ -1682,6 +1685,11 @@ html,body{background:var(--c)}
   #screen-app.active:not(.tab-map-active):not(.tab-fixed-active) #panel-journal .mapcal{flex:none!important;height:auto!important;overflow:visible!important}
   #screen-app.active:not(.tab-map-active):not(.tab-fixed-active) #panel-journal .map-col{min-height:calc(100dvh - 180px)}
   #screen-app.active:not(.tab-map-active):not(.tab-fixed-active) #journal-map{height:calc(100dvh - 180px)!important;min-height:300px!important}
+  /* Journal timeline: body-scroll — break the flex:1/overflow:hidden chain so items are page-scrollable */
+  #screen-app.active:not(.tab-map-active):not(.tab-fixed-active) #panel-journal.active{overflow:visible!important}
+  #screen-app.active:not(.tab-map-active):not(.tab-fixed-active) #jn-tl-wrap{flex:none!important;height:auto!important;min-height:auto!important;overflow:visible!important}
+  #screen-app.active:not(.tab-map-active):not(.tab-fixed-active) .tl-wrap{display:block!important;height:auto!important;overflow:visible!important}
+  #screen-app.active:not(.tab-map-active):not(.tab-fixed-active) .tl-scroll{flex:none!important;height:auto!important;overflow-y:visible!important}
   /* Sidebar back-btn is redundant on mobile (mm-mob-tabs provides ← Bibliothèque) */
   .mm-sidebar-header .back-btn{display:none}
 
@@ -1721,6 +1729,7 @@ html,body{background:var(--c)}
 .stat-card.stat-fs{
   position:fixed;inset:0;z-index:9500;border-radius:0;margin:0;
   max-width:none;overflow:auto;padding:20px;
+  padding-top:max(20px, env(safe-area-inset-top));
 }
 .stat-card.stat-fs .world-map-canvas{width:100%!important;height:auto!important;max-height:80vh}
 #wm-expand-btn{background:rgba(255,255,255,.18);border:1.5px solid rgba(255,255,255,.3);border-radius:6px;padding:4px 9px;font-size:11px;font-weight:700;cursor:pointer;color:var(--teal);background:var(--c2);border-color:var(--c3);transition:all .15s}
