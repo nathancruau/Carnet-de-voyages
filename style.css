@@ -1648,11 +1648,17 @@ body{height:100%;min-height:-webkit-fill-available;font-family:var(--fn);backgro
 html,body{background:var(--c)}
 .panels,.panel{background:var(--c)}
 
-/* Safari browser mode: body has 0 scrollable height (all screens are position:fixed),
-   so Safari never enables toolbar auto-hide. Make document 1px scrollable to unlock it. */
+/* Safari browser mode: home screen uses body scroll so Safari auto-hides toolbars.
+   Map/trip screens keep position:fixed (Leaflet). Only home is converted. */
 @media not all and (display-mode: standalone) {
-  html{height:100%;overflow-y:auto}
-  body{min-height:calc(100% + 1px)}
+  html,body{height:auto;overflow-y:auto}
+  #screen-home.active{
+    position:relative;top:auto;left:auto;right:auto;bottom:auto;
+    height:auto;min-height:100dvh;overflow:visible;
+  }
+  #screen-home.active .home-wrap{
+    overflow-y:visible;height:auto;flex:none;
+  }
 }
 
 /* ── Fullscreen stat card ── */
