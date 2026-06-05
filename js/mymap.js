@@ -1111,6 +1111,12 @@ export function renderMyMap() {
   `;
 
   if (isMobile) {
+    // Measure tab bar height so CSS can fill map/sidebar edge-to-edge
+    const tabsForMeasure = document.getElementById('mm-mob-tabs');
+    if (tabsForMeasure) {
+      document.documentElement.style.setProperty('--mm-tabs-h', tabsForMeasure.offsetHeight + 'px');
+    }
+
     // Mobile tab switcher
     const tabs = document.getElementById('mm-mob-tabs');
     if (tabs) {
@@ -1161,7 +1167,7 @@ export function renderMyMap() {
       center:             [46.5, 2.5],
       zoom:               5,
       zoomControl:        true,
-      minZoom:            1,
+      minZoom:            2,
       maxBounds:          [[-85.051129, -1e10], [85.051129, 1e10]],
       maxBoundsViscosity: 1.0,
     });

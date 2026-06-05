@@ -112,6 +112,12 @@ export async function switchTab(tabId) {
   document.body.style.setProperty('background', _tabBg, 'important');
   window.scrollTo(0, 0);
 
+  // Keep --topbar-h CSS var accurate so the map height calc fills edge-to-edge on mobile
+  if (window.innerWidth <= 768) {
+    const tb = document.getElementById('topbar');
+    if (tb) document.documentElement.style.setProperty('--topbar-h', tb.offsetHeight + 'px');
+  }
+
   // Render content for the activated panel
   await _renderActiveTab(tabId, _tripId, _isObserver);
 
