@@ -3,7 +3,7 @@
    ============================================================ */
 
 import { getTrip, updateTrip, uid } from '../store.js';
-import { notify, showModal, closeModal, fmtDateShort } from '../utils.js';
+import { notify, showModal, closeModal, fmtDateShort, esc as _esc } from '../utils.js';
 import { updateTopStats } from './trip.js';
 
 // ── Module state ──────────────────────────────────────────────────────────────
@@ -72,14 +72,6 @@ async function _fetchRates() {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function _esc(s) {
-  return String(s ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
-}
-
 function _fmtEur(v) {
   const n = Number(v) || 0;
   return n.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
@@ -96,48 +88,66 @@ function getParticipants(trip) {
 
 // ── Balance calculation ───────────────────────────────────────────────────────
 
+/**
+ * Compute the net balance (in EUR) for every participant.
+ * Positive = owed money back; Negative = owes money to others.
+ *
+ * Algorithm:
+ *  1. Payer is credited the full EUR amount.
+ *  2a. If custom splits exist, each person is debited their specific share.
+ *  2b. Otherwise the amount is divided equally among `sharedWith` participants.
+ *  3. Transfers are handled as a direct credit/debit pair.
+ *
+ * Results are rounded to 2 decimal places to eliminate floating-point drift
+ * (e.g. €33.33 + €33.33 + €33.34 should sum to exactly €0.00).
+ */
 function computeBalances(trip) {
   const participants = getParticipants(trip);
   const balances = {};
   participants.forEach(p => { balances[p.id] = 0; });
 
   for (const exp of (trip.realExpenses || [])) {
+    // Transfers: direct credit/debit between two participants
     if (exp.type === 'transfer') {
       if (balances[exp.fromId] !== undefined) balances[exp.fromId] += Number(exp.amount) || 0;
       if (balances[exp.toId]   !== undefined) balances[exp.toId]   -= Number(exp.amount) || 0;
       continue;
     }
 
-    // Payer gets credited the full amount (use EUR-converted amount when available)
+    // Normalise to EUR: use pre-computed amountEur when currency differs, else use amount directly
     const eurAmt = exp.currency && exp.currency !== 'EUR'
       ? (Number(exp.amountEur) || Number(exp.amount) || 0)
       : (Number(exp.amount) || 0);
+
+    // Credit the payer
     if (balances[exp.paidById] !== undefined) {
       balances[exp.paidById] += eurAmt;
     }
 
     if (exp.splits && exp.splits.length > 0) {
-      // Custom splits: each person owes their specific share
+      // Custom per-person splits (amounts already in EUR from the modal)
       for (const split of exp.splits) {
         if (balances[split.id] !== undefined) {
           balances[split.id] -= Number(split.amount) || 0;
         }
       }
     } else {
-      // Equal split (backward compat)
+      // Equal split across all sharedWith participants
       const splitCount = (exp.sharedWith || []).length;
       if (splitCount === 0) continue;
-      const eurAmt2 = exp.currency && exp.currency !== 'EUR'
-        ? (Number(exp.amountEur) || Number(exp.amount) || 0)
-        : (Number(exp.amount) || 0);
-      const share = eurAmt2 / splitCount;
+      const share = eurAmt / splitCount; // eurAmt already converted above
       for (const pid of (exp.sharedWith || [])) {
         if (balances[pid] !== undefined) balances[pid] -= share;
       }
     }
   }
 
-  return balances;
+  // Round each balance to 2 decimal places to eliminate accumulated float errors
+  const rounded = {};
+  for (const [id, bal] of Object.entries(balances)) {
+    rounded[id] = Math.round(bal * 100) / 100;
+  }
+  return rounded;
 }
 
 function computeSettlements(balances) {

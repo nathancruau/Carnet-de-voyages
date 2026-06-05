@@ -1,6 +1,15 @@
 /* ============================================================
-   CARNET DE VOYAGES — Store (localStorage)
-   Key: 'carnet_voyages_v1'
+   CARNET DE VOYAGES — Store (localStorage + Firestore bridge)
+   localStorage key: 'carnet_voyages_v1'
+
+   Architecture:
+   - All reads/writes go through this module (single source of truth).
+   - saveData() persists to localStorage immediately and schedules a
+     debounced (400 ms) push to Firestore via _syncCallback.
+   - setState() merges a cloud snapshot: for each trip it keeps whichever
+     version has the higher updatedAt timestamp (last-write-wins).
+   - replaceTripFromNetwork() is used by real-time listeners (share.js)
+     to apply a single-trip update without triggering another cloud push.
    ============================================================ */
 
 const STORAGE_KEY = 'carnet_voyages_v1';
@@ -179,29 +188,40 @@ export function replaceTripFromNetwork(id, tripData) {
 }
 
 
+/**
+ * Merge a Firestore snapshot into local state (called on first auth + reconnect).
+ *
+ * Merge strategy (last-write-wins per trip):
+ *  - For each trip that exists on both sides, keep the version with the
+ *    higher updatedAt timestamp.
+ *  - Local-only trips (not yet pushed) are appended so they are not lost.
+ *  - Cloud settings / sharedTripIds overwrite local equivalents since they
+ *    are only ever written from one device at a time.
+ */
 export function setState(cloudData) {
   if (!cloudData || typeof cloudData !== 'object') return;
 
-  const localTrips  = Array.isArray(state.trips) ? state.trips : [];
-  const cloudTrips  = Array.isArray(cloudData.trips) ? cloudData.trips : [];
-  const localById   = new Map(localTrips.map(t => [t.id, t]));
+  const localTrips = Array.isArray(state.trips)          ? state.trips          : [];
+  const cloudTrips = Array.isArray(cloudData.trips)       ? cloudData.trips      : [];
+  const localById  = new Map(localTrips.map(t => [t.id, t]));
 
-  // For each cloud trip, keep whichever version is newer
   const merged = cloudTrips.map(ct => {
     const lt = localById.get(ct.id);
-    localById.delete(ct.id);
+    localById.delete(ct.id); // mark as seen
+    // Keep local if it is strictly newer (unsaved local edit wins)
     if (lt && (lt.updatedAt || 0) > (ct.updatedAt || 0)) return lt;
     return ct;
   });
 
-  // Append local-only trips not yet synced to cloud
+  // Trips that only exist locally (not yet synced to cloud)
   for (const lt of localById.values()) merged.push(lt);
 
   state = { ...cloudData, trips: merged };
   if (!Array.isArray(state.trips)) state.trips = [];
+  // Run migration on every trip to fill missing fields from older schema versions
   state.trips = state.trips.map(t => _migrateTrip(t));
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
-  catch (e) { console.warn('Carnet: failed to save state', e); }
+  catch (e) { console.warn('Carnet: failed to persist merged state', e); }
 }
 
 export function setSyncCallback(fn) { _syncCallback = fn; }
@@ -222,28 +242,42 @@ export function loadData() {
   }
 }
 
+/**
+ * Fill any fields that are absent in trips saved by older app versions.
+ * Called on every trip on load and after every cloud merge.
+ * Mutates and returns the trip object (always operates on a copy from the caller).
+ */
 function _migrateTrip(t) {
-  if (!t.budgetCats)      t.budgetCats      = defaultBudgetCats();
-  if (!t.budgetLines)     t.budgetLines     = [];
-  if (!t.realExpenses)    t.realExpenses    = [];
-  if (!t.packingCats)     t.packingCats     = defaultPackingCats();
-  if (!t.packingChecked)  t.packingChecked  = {};
-  if (!t.journalEntries)  t.journalEntries  = [];
-  if (!t.companions)      t.companions      = [];
-  if (!t.days)            t.days            = [];
-  if (t.flag    === undefined) t.flag       = '🌍';
-  if (t.photo   === undefined) t.photo      = '';
-  if (t.color   === undefined) t.color      = '#0d9488';
-  if (t.type    === undefined) t.type       = 'voyage';
-  // Only mark legacy (pre-status) trips as done — don't overwrite an explicit '' or 'planning'
-  if (t.status === undefined || t.status === null) t.status = 'done';
-  if (t.countryCode   === undefined) t.countryCode   = '';
-  if (t.multiCountry  === undefined) t.multiCountry  = false;
-  // Normalise updatedAt: Firestore may return it as an ISO string when merged
-  // from older documents; the merge comparisons in setState/replaceTripFromNetwork
-  // expect a numeric timestamp so coerce here.
-  if (typeof t.updatedAt === 'string') t.updatedAt = new Date(t.updatedAt).getTime() || 0;
-  // Sortie: ensure pin object exists
+  // Arrays / objects that were added in later versions
+  if (!t.budgetCats)     t.budgetCats     = defaultBudgetCats();
+  if (!t.budgetLines)    t.budgetLines    = [];
+  if (!t.realExpenses)   t.realExpenses   = [];
+  if (!t.packingCats)    t.packingCats    = defaultPackingCats();
+  if (!t.packingChecked) t.packingChecked = {};
+  if (!t.journalEntries) t.journalEntries = [];
+  if (!t.companions)     t.companions     = [];
+  if (!t.days)           t.days           = [];
+
+  // Scalar fields with defaults
+  if (t.flag   === undefined) t.flag   = '🌍';
+  if (t.photo  === undefined) t.photo  = '';
+  if (t.color  === undefined) t.color  = '#0d9488';
+  if (t.type   === undefined) t.type   = 'voyage';
+
+  // status: only default to 'done' for pre-status trips (undefined/null).
+  // An explicit '' or 'planning' is left untouched.
+  if (t.status == null) t.status = 'done';
+
+  if (t.countryCode  === undefined) t.countryCode  = '';
+  if (t.multiCountry === undefined) t.multiCountry = false;
+
+  // updatedAt: Firestore timestamps arrive as ISO strings in some paths;
+  // coerce to a numeric ms timestamp so comparisons in setState() work correctly.
+  if (typeof t.updatedAt === 'string') {
+    t.updatedAt = new Date(t.updatedAt).getTime() || 0;
+  }
+
+  // Sortie type: ensure the pin sub-object exists
   if (t.type === 'sortie' && !t.pin) {
     t.pin = {
       lat: null, lng: null, pinType: 'visit',
@@ -251,22 +285,31 @@ function _migrateTrip(t) {
       description: '', weather: null, cost: 0, currency: 'EUR',
     };
   }
-  // Ensure companions have ids
+
+  // Ensure every companion has a stable id and colour
   t.companions = t.companions.map(c => ({
     id:    c.id    || ('c_' + uid()),
     name:  c.name  || 'Inconnu',
     color: c.color || COMP_COLORS[0],
   }));
+
   return t;
 }
 
+/**
+ * Persist state to localStorage immediately, then schedule a debounced
+ * Firestore sync (400 ms).  Rapid successive saves within the window share
+ * a single cloud push — the last write always wins.
+ *
+ * Note: if the page is closed inside the 400 ms window the cloud push is
+ * lost, but localStorage is already up to date so no data is actually lost.
+ */
 export function saveData() {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
   } catch (e) {
-    console.warn('Carnet: failed to save to localStorage', e);
+    console.warn('Carnet: localStorage full or unavailable — data may not persist', e);
   }
-  // Debounce Firestore pushes so rapid edits don't flood the cloud.
   clearTimeout(_syncTimer);
   _syncTimer = setTimeout(() => {
     _syncTimer = null;
