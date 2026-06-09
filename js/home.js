@@ -17,7 +17,7 @@ import {
   generateDays,
 } from './utils.js';
 // navigateToTrip / goMyMap accessed via window globals (set by app.js) to avoid circular import
-import { importFile } from './import.js';
+import { importFile, importPolarstepsZip } from './import.js';
 import { getCurrentUser, logout, syncToFirestore, isFirebaseConfigured } from './auth.js';
 import { requestNotificationPermission, notificationPermissionGranted } from './notifications.js';
 import { openShareModal, leaveSharedTrip, removeSharedTripMember, isCurrentUserObserver } from './share.js';
@@ -2706,7 +2706,7 @@ function _openImportModal() {
     <button class="mc" onclick="closeModal()">✕</button>
     <h3>⬆ Importer des voyages</h3>
     <p style="font-size:13px;color:var(--ink3);margin-bottom:12px">
-      Importez depuis un fichier <strong>JSON</strong> (voyage exporté depuis l'appli ou <strong>export Polarsteps</strong>), <strong>KML</strong> (Google Earth) ou <strong>CSV</strong>.
+      Importez depuis un fichier <strong>JSON</strong> (voyage exporté depuis l'appli ou export Polarsteps), <strong>ZIP</strong> (export complet Polarsteps avec photos), <strong>KML</strong> (Google Earth) ou <strong>CSV</strong>.
     </p>
     <div style="margin-bottom:12px">
       <button type="button" id="imp-download-sample"
@@ -2723,8 +2723,8 @@ function _openImportModal() {
       </div>
     </div>
     <div class="fg">
-      <label>Fichier JSON, KML ou CSV</label>
-      <input type="file" id="imp-file" accept=".kml,.csv,.json" class="mi"
+      <label>Fichier JSON, ZIP, KML ou CSV</label>
+      <input type="file" id="imp-file" accept=".kml,.csv,.json,.zip" class="mi"
              style="padding:8px;cursor:pointer" />
     </div>
     <div id="imp-status" style="font-size:12px;color:var(--ink4);margin-top:8px;min-height:18px"></div>
@@ -2770,12 +2770,36 @@ function _openImportModal() {
 
   document.getElementById('imp-go')?.addEventListener('click', async () => {
     const fileInput = document.getElementById('imp-file');
-    const file = fileInput?.files?.[0];
+    const file      = fileInput?.files?.[0];
+    const statusEl  = document.getElementById('imp-status');
     if (!file) {
-      document.getElementById('imp-status').textContent = 'Veuillez sélectionner un fichier.';
+      statusEl.textContent = 'Veuillez sélectionner un fichier.';
       return;
     }
-    document.getElementById('imp-status').textContent = 'Import en cours…';
+
+    // ZIP: Polarsteps full export with photos
+    if (file.name.toLowerCase().endsWith('.zip')) {
+      statusEl.style.color = '';
+      statusEl.textContent = 'Lecture du ZIP…';
+      try {
+        const trip = await importPolarstepsZip(file, (done, total) => {
+          statusEl.textContent = total > 0 ? `Photos : ${done} / ${total}…` : 'Chargement…';
+        });
+        if (trip) {
+          const steps = trip.days?.reduce((n, d) => n + (d.items?.length || 0), 0) || 0;
+          closeModal();
+          renderHome(_currentFilter);
+          notify(`Import ZIP : ${trip.name} — ${trip.days?.length || 0} jours, ${steps} étapes`, '✅');
+        }
+      } catch (err) {
+        statusEl.style.color = 'var(--coral)';
+        statusEl.textContent = err.message;
+      }
+      return;
+    }
+
+    statusEl.style.color = '';
+    statusEl.textContent = 'Import en cours…';
     await importFile(file, selectedType, count => {
       closeModal();
       renderHome(_currentFilter);

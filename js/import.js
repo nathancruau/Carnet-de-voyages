@@ -5,7 +5,7 @@
 import { addTrip, uid } from './store.js';
 import { notify } from './utils.js';
 
-// ── Polarsteps import ─────────────────────────────────────────────────────────
+// ── Polarsteps constants ──────────────────────────────────────────────────────
 
 const _PS_WEATHER = {
   'clear-day':           '☀️',
@@ -22,7 +22,6 @@ const _PS_WEATHER = {
   'thunderstorm':        '⛈️',
 };
 
-// Common country-code → French name for the destination field
 const _PS_CC_NAME = {
   IS:'Islande',FR:'France',ES:'Espagne',IT:'Italie',DE:'Allemagne',PT:'Portugal',
   GB:'Royaume-Uni',NL:'Pays-Bas',BE:'Belgique',CH:'Suisse',AT:'Autriche',
@@ -37,50 +36,51 @@ const _PS_CC_NAME = {
   QA:'Qatar',GE:'Géorgie',AM:'Arménie',KZ:'Kazakhstan',
 };
 
-/**
- * Return true if the parsed JSON object looks like a Polarsteps trip export.
- */
-export function isPolarstepsExport(data) {
-  return data != null && typeof data === 'object' && Array.isArray(data.all_steps);
+// ── Polarsteps private helpers ────────────────────────────────────────────────
+
+function _psToIso(ts) {
+  return ts == null ? null : new Date(ts * 1000).toISOString().slice(0, 10);
 }
 
-/**
- * Import a Polarsteps trip export JSON and add it to the store.
- * Returns the created trip object, or null on failure.
- */
-export function importPolarstepsTrip(data) {
-  if (!isPolarstepsExport(data)) return null;
+function _psToTime(ts) {
+  return ts == null ? '' : new Date(ts * 1000).toTimeString().slice(0, 5);
+}
 
-  const _tsToIso = ts => {
-    if (ts == null) return null;
-    return new Date(ts * 1000).toISOString().slice(0, 10);
-  };
-  const _tsToTime = ts => {
-    if (ts == null) return '';
-    const d = new Date(ts * 1000);
-    return d.toTimeString().slice(0, 5);
-  };
-  const _ccToFlag = cc => {
-    if (!cc || cc.length !== 2) return null;
-    const u = cc.toUpperCase();
-    return String.fromCodePoint(u.charCodeAt(0) - 65 + 0x1F1E6, u.charCodeAt(1) - 65 + 0x1F1E6);
-  };
+function _psCcToFlag(cc) {
+  if (!cc || cc.length !== 2) return null;
+  const u = cc.toUpperCase();
+  return String.fromCodePoint(u.charCodeAt(0) - 65 + 0x1F1E6, u.charCodeAt(1) - 65 + 0x1F1E6);
+}
 
-  // Most-frequent country code → flag + destination name
+function _psTripBase(data) {
   const countryCounts = {};
   for (const s of data.all_steps) {
     const cc = s.location?.country_code;
     if (cc) countryCounts[cc] = (countryCounts[cc] || 0) + 1;
   }
   const mainCC      = Object.entries(countryCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || '';
-  const flag        = _ccToFlag(mainCC) || '🌍';
+  const flag        = _psCcToFlag(mainCC) || '🌍';
   const destination = _PS_CC_NAME[mainCC.toUpperCase()] || mainCC || '';
+  return {
+    name:      data.name || 'Voyage Polarsteps',
+    destination,
+    flag,
+    color:     '#0d9488',
+    type:      'voyage',
+    status:    'done',
+    startDate: _psToIso(data.start_date),
+    endDate:   _psToIso(data.end_date),
+  };
+}
 
-  // Group steps by date
+// stepPhotos: { [stepId]: [base64, …] }
+// validateAll: true for ZIP imports — sets journalData.validated on every step
+function _psBuildDays(steps, stepPhotos = {}, validateAll = false) {
   const daysMap = {};
-  for (const step of data.all_steps) {
+
+  for (const step of steps) {
     if (step.start_time == null) continue;
-    const dateKey = _tsToIso(step.start_time);
+    const dateKey = _psToIso(step.start_time);
     if (!dateKey) continue;
 
     if (!daysMap[dateKey]) {
@@ -91,8 +91,8 @@ export function importPolarstepsTrip(data) {
         date:   dateKey,
         title:  loc.name || loc.detail || '',
         region: loc.full_detail || loc.detail || loc.name || '',
-        lat:    loc.lat  ?? null,
-        lng:    loc.lon  ?? null,
+        lat:    loc.lat ?? null,
+        lng:    loc.lon ?? null,
         color:  '#0d9488',
         photo:  '',
         items:  [],
@@ -103,37 +103,144 @@ export function importPolarstepsTrip(data) {
     const wx     = _PS_WEATHER[step.weather_condition] || '';
     const wxTemp = step.weather_temperature != null ? `${step.weather_temperature}°C` : '';
     const wxNote = [wx, wxTemp].filter(Boolean).join(' ');
-    const notes  = [step.description || '', wxNote].filter(Boolean).join('\n\n').trim();
+    const desc   = (step.description || '').trim();
+    const notes  = [desc, wxNote].filter(Boolean).join('\n\n').trim();
+    const photos = stepPhotos[step.id] || [];
 
-    daysMap[dateKey].items.push({
+    const item = {
       id:    'i_' + uid(),
       type:  'visit',
-      text:  step.name || 'Étape',
-      time:  _tsToTime(step.start_time),
+      text:  step.name || step.display_name || 'Étape',
+      time:  _psToTime(step.start_time),
       cost:  0,
       notes,
       lat:   loc.lat ?? null,
       lng:   loc.lon ?? null,
-    });
+    };
+
+    if (validateAll || photos.length > 0) {
+      item.journalData = {
+        validated:   true,
+        validatedAt: step.start_time * 1000,
+        notes:       desc,
+        photos,
+      };
+    }
+
+    daysMap[dateKey].items.push(item);
   }
 
   const days = Object.values(daysMap).sort((a, b) => (a.date || '').localeCompare(b.date || ''));
   days.forEach((d, i) => { d.num = i + 1; });
+  return days;
+}
 
-  return addTrip({
-    name:        data.name     || 'Voyage Polarsteps',
-    destination,
-    flag,
-    color:       '#0d9488',
-    type:        'voyage',
-    status:      'done',
-    startDate:   _tsToIso(data.start_date),
-    endDate:     _tsToIso(data.end_date),
-    days,
+// ── Public Polarsteps API ─────────────────────────────────────────────────────
+
+/**
+ * Return true if the parsed JSON object looks like a Polarsteps trip export.
+ */
+export function isPolarstepsExport(data) {
+  return data != null && typeof data === 'object' && Array.isArray(data.all_steps);
+}
+
+/**
+ * Import a Polarsteps JSON export and add it to the store.
+ * Returns the created trip object, or null on failure.
+ */
+export function importPolarstepsTrip(data) {
+  if (!isPolarstepsExport(data)) return null;
+  return addTrip({ ..._psTripBase(data), days: _psBuildDays(data.all_steps) });
+}
+
+// ── ZIP helpers ───────────────────────────────────────────────────────────────
+
+async function _loadJSZip() {
+  if (window.JSZip) return window.JSZip;
+  return new Promise((resolve, reject) => {
+    const s  = document.createElement('script');
+    s.src    = 'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js';
+    s.onload  = () => resolve(window.JSZip);
+    s.onerror = () => reject(new Error('Impossible de charger JSZip depuis le CDN'));
+    document.head.appendChild(s);
   });
 }
 
-// ── Public API ────────────────────────────────────────────────────────────────
+async function _compressPhotoBlob(blob, maxDim = 1200) {
+  return new Promise(resolve => {
+    const img    = new Image();
+    const objUrl = URL.createObjectURL(blob);
+    img.onload = () => {
+      URL.revokeObjectURL(objUrl);
+      let { width: w, height: h } = img;
+      if (w > maxDim || h > maxDim) {
+        if (w >= h) { h = Math.round(h * maxDim / w); w = maxDim; }
+        else        { w = Math.round(w * maxDim / h); h = maxDim; }
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width  = w;
+      canvas.height = h;
+      canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+      resolve(canvas.toDataURL('image/jpeg', 0.78));
+    };
+    img.onerror = () => { URL.revokeObjectURL(objUrl); resolve(null); };
+    img.src = objUrl;
+  });
+}
+
+// ── ZIP import ────────────────────────────────────────────────────────────────
+
+/**
+ * Import a full Polarsteps ZIP export (trip.json + {slug}_{id}/photos/).
+ * All journal entries are automatically validated with descriptions and photos.
+ * @param {File} zipFile
+ * @param {(done: number, total: number) => void} [onProgress]
+ * @returns {Promise<object>} Created trip object
+ */
+export async function importPolarstepsZip(zipFile, onProgress) {
+  const JSZip = await _loadJSZip();
+  const zip   = await JSZip.loadAsync(zipFile);
+
+  // Find trip.json (root or inside a sub-folder)
+  const tripEntry = zip.file('trip.json') ?? zip.file(/(?:^|\/)trip\.json$/)?.[0];
+  if (!tripEntry) throw new Error('trip.json introuvable dans le ZIP');
+
+  const tripData = JSON.parse(await tripEntry.async('text'));
+  if (!isPolarstepsExport(tripData)) throw new Error('Format trip.json non reconnu');
+
+  // Collect photo files — folder name pattern: {slug}_{stepId}/photos/{file}
+  const photoEntries = [];
+  zip.forEach((path, entry) => {
+    if (!entry.dir
+      && /\/photos\/[^/]+$/i.test(path)
+      && /\.(jpe?g|png|webp|gif)$/i.test(path)) {
+      const m = path.match(/_(\d+)\/photos\/[^/]+$/i);
+      if (m) photoEntries.push({ path, entry, stepId: parseInt(m[1], 10) });
+    }
+  });
+
+  const total = photoEntries.length;
+  let done = 0;
+  if (onProgress) onProgress(0, total);
+
+  const stepPhotos = {};
+  for (const { path, entry, stepId } of photoEntries) {
+    try {
+      const blob   = await entry.async('blob');
+      const base64 = await _compressPhotoBlob(blob);
+      if (base64) (stepPhotos[stepId] ??= []).push(base64);
+    } catch (e) {
+      console.warn('[zip] photo error', path, e.message);
+    }
+    done++;
+    if (onProgress) onProgress(done, total);
+  }
+
+  const days = _psBuildDays(tripData.all_steps, stepPhotos, /* validateAll */ true);
+  return addTrip({ ..._psTripBase(tripData), days });
+}
+
+// ── KML / CSV public API ──────────────────────────────────────────────────────
 
 /**
  * Parse a KML string and return an array of raw placemark objects.
@@ -291,12 +398,12 @@ export function importPlacemarks(placemarks, defaultType = 'voyage') {
         };
       }
       daysMap[dayKey].items.push({
-        id:        'i_' + uid(),
-        type:      'visit',
-        text:      p.name || 'Point',
-        time:      '',
-        cost:      0,
-        notes:     p.description || '',
+        id:    'i_' + uid(),
+        type:  'visit',
+        text:  p.name || 'Point',
+        time:  '',
+        cost:  0,
+        notes: p.description || '',
       });
     });
 
@@ -321,7 +428,7 @@ export function importPlacemarks(placemarks, defaultType = 'voyage') {
 }
 
 /**
- * Handle a file input change event — reads the file and imports it.
+ * Handle a file input — reads the file and imports it.
  * Supports .json (full trip export), .kml, .csv
  * @param {File} file
  * @param {string} type — 'voyage' | 'weekend' | 'sortie' (for KML/CSV)
@@ -354,7 +461,7 @@ export async function importFile(file, type, onDone) {
       let count = 0;
       for (const tripData of trips) {
         if (tripData && typeof tripData === 'object' && tripData.name) {
-          addTrip(tripData); // createTrip() inside will assign fresh id/createdAt
+          addTrip(tripData);
           count++;
         }
       }
@@ -375,7 +482,7 @@ export async function importFile(file, type, onDone) {
     } else if (file.name.toLowerCase().endsWith('.csv')) {
       placemarks = parseCSV(text);
     } else {
-      notify('Format non supporté. Utilisez .json, .kml ou .csv', '⚠');
+      notify('Format non supporté. Utilisez .json, .kml, .csv ou .zip', '⚠');
       return;
     }
   } catch (err) {

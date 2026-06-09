@@ -18,7 +18,7 @@ Quatre endroits à synchroniser, toujours le même numéro N :
 | `sw.js` | `const SHELL_CACHE = 'cv-shell-N'` |
 | `store.js` | `export const APP_VERSION = 'N'` |
 
-Version actuelle : **115**
+Version actuelle : **116**
 
 ---
 
@@ -224,3 +224,4 @@ uid()          // ID court aléatoire
 | v113 | Champs superposés encore présents | HTML templates modifiés directement en `.fg` blocs empilés (pas d'injection CSS) |
 | v114 | Import Polarsteps | `isPolarstepsExport` détecte `all_steps`, `importPolarstepsTrip` groupe par date, mappe météo → emoji |
 | v115 | Stats catégories/compagnons + auto-save settings | `catExpenses`/`compMap` dans `_statsViewHtml` ; `change` délégué sur `.mbox` remplace le bouton Enregistrer |
+| v116 | Import ZIP Polarsteps avec photos | `importPolarstepsZip` dans `import.js` (JSZip CDN, compression canvas, `journalData.validated=true` sur tous les PINs) |
