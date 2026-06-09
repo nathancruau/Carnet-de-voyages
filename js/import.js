@@ -537,16 +537,39 @@ export async function importAnyZip(zipFile, onProgress) {
   const JSZip = await _loadJSZip();
   const zip   = await JSZip.loadAsync(zipFile);
 
-  // Polarsteps: root trip.json with all_steps
+  // ── Polarsteps: root trip.json with all_steps ──────────────────────────────
   const rootTrip = zip.file('trip.json');
   if (rootTrip) {
-    try {
-      const data = JSON.parse(await rootTrip.async('text'));
-      if (isPolarstepsExport(data)) {
-        const trip = await importPolarstepsZip(zipFile, onProgress);
-        return { trips: trip ? [trip] : [], format: 'polarsteps' };
+    let tripData = null;
+    try { tripData = JSON.parse(await rootTrip.async('text')); } catch (_) {}
+    if (tripData && isPolarstepsExport(tripData)) {
+      // Extract photos inline (avoids re-reading the ZIP a second time)
+      const photoEntries = [];
+      zip.forEach((path, entry) => {
+        if (!entry.dir
+          && /\/photos\/[^/]+$/i.test(path)
+          && /\.(jpe?g|png|webp|gif)$/i.test(path)) {
+          const m = path.match(/_(\d+)\/photos\/[^/]+$/i);
+          if (m) photoEntries.push({ path, entry, stepId: parseInt(m[1], 10) });
+        }
+      });
+      const total = photoEntries.length;
+      let done = 0;
+      if (onProgress) onProgress(0, total);
+      const stepPhotos = {};
+      for (const { path, entry, stepId } of photoEntries) {
+        try {
+          const blob   = await entry.async('blob');
+          const base64 = await _compressPhotoBlob(blob);
+          if (base64) (stepPhotos[stepId] ??= []).push(base64);
+        } catch (e) { console.warn('[zip] photo error', path, e.message); }
+        done++;
+        if (onProgress) onProgress(done, total);
       }
-    } catch (_) {}
+      const days = _psBuildDays(tripData.all_steps, stepPhotos, true);
+      const trip = addTrip({ ..._psTripBase(tripData), days });
+      return { trips: trip ? [trip] : [], format: 'polarsteps' };
+    }
   }
 
   // App "All": subfolders with {folder}/trip.json
