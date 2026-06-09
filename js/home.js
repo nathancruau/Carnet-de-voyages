@@ -3,7 +3,7 @@
    ============================================================ */
 
 import {
-  getTrips, getState, addTrip, updateTrip, deleteTrip,
+  getTrips, getTrip, getState, addTrip, updateTrip, deleteTrip,
   TRIP_TYPES, COMP_COLORS, uid,
   getSettings, updateSettings,
   getEventTypes, DEFAULT_EVENT_TYPES,
@@ -17,7 +17,8 @@ import {
   generateDays,
 } from './utils.js';
 // navigateToTrip / goMyMap accessed via window globals (set by app.js) to avoid circular import
-import { importFile, importPolarstepsZip } from './import.js';
+import { importFile, importAnyZip } from './import.js';
+import { tripToPlanning, downloadTripPlanning, downloadTripAll, downloadTripsZip, exportTripPdf } from './export.js';
 import { getCurrentUser, logout, syncToFirestore, isFirebaseConfigured } from './auth.js';
 import { requestNotificationPermission, notificationPermissionGranted } from './notifications.js';
 import { openShareModal, leaveSharedTrip, removeSharedTripMember, isCurrentUserObserver } from './share.js';
@@ -53,6 +54,8 @@ let _sortiePhotoMode   = 'url';
 let _sortiePhotoBase64 = null;
 
 const WEATHER_EMOJIS = ['☀️','🌤️','⛅','🌦️','🌧️','⛈️','🌨️','❄️','🌫️','💨','🌈'];
+
+let _openTripMenuEl = null;
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -959,7 +962,10 @@ function _sortieCardHtml(trip) {
       <div class="tc-body">
         <div class="tc-header">
           <div>${typeBadge(trip.type)}</div>
-          <button class="tc-edit-btn" data-action="edit-trip" data-trip-id="${trip.id}" title="Modifier">✎</button>
+          <div style="display:flex;gap:3px">
+            <button class="tc-edit-btn" data-action="edit-trip" data-trip-id="${trip.id}" title="Modifier">✎</button>
+            <button class="tc-more-btn" data-action="trip-menu" data-trip-id="${trip.id}" title="Plus d'options">⋯</button>
+          </div>
         </div>
         <div class="tc-title">${_esc(trip.name || 'Sortie')}</div>
         <div class="tc-dates">
@@ -1060,6 +1066,10 @@ function _tripCardHtml(trip) {
                     data-action="edit-trip"
                     data-trip-id="${trip.id}"
                     title="Modifier">✎</button>
+            <button class="tc-more-btn"
+                    data-action="trip-menu"
+                    data-trip-id="${trip.id}"
+                    title="Plus d'options">⋯</button>
           </div>
         </div>
         <div class="tc-title">${trip.flag || '🌍'} ${_esc(trip.name) || 'Sans titre'}</div>
@@ -1691,7 +1701,7 @@ function _attachListeners(wrap) {
         break;
 
       case 'export-all':
-        _downloadCsv(_buildCsv(getTrips().map(_tripToCsvRow)), 'carnet-voyages.csv');
+        _openExportModal();
         break;
 
       case 'new-trip':
@@ -1743,6 +1753,11 @@ function _attachListeners(wrap) {
         renderHome(_currentFilter);
         break;
       }
+
+      case 'trip-menu':
+        e.stopPropagation();
+        _openTripMenu(target.dataset.tripId, target);
+        break;
     }
   });
 
@@ -2782,14 +2797,19 @@ function _openImportModal() {
       statusEl.style.color = '';
       statusEl.textContent = 'Lecture du ZIP…';
       try {
-        const trip = await importPolarstepsZip(file, (done, total) => {
-          statusEl.textContent = total > 0 ? `Photos : ${done} / ${total}…` : 'Chargement…';
+        const result = await importAnyZip(file, (done, total) => {
+          statusEl.textContent = total > 0 ? `Traitement : ${done} / ${total}…` : 'Chargement…';
         });
-        if (trip) {
-          const steps = trip.days?.reduce((n, d) => n + (d.items?.length || 0), 0) || 0;
-          closeModal();
-          renderHome(_currentFilter);
-          notify(`Import ZIP : ${trip.name} — ${trip.days?.length || 0} jours, ${steps} étapes`, '✅');
+        const trips = result.trips || [];
+        closeModal();
+        renderHome(_currentFilter);
+        if (result.format === 'polarsteps') {
+          const t = trips[0];
+          const steps = t?.days?.reduce((n, d) => n + (d.items?.length || 0), 0) || 0;
+          notify(`Polarsteps importé : ${t?.name} — ${t?.days?.length || 0} jours, ${steps} étapes`, '✅');
+        } else {
+          const count = trips.length;
+          notify(`${count} voyage${count > 1 ? 's' : ''} importé${count > 1 ? 's' : ''}`, '✅');
         }
       } catch (err) {
         statusEl.style.color = 'var(--coral)';
@@ -2804,5 +2824,169 @@ function _openImportModal() {
       closeModal();
       renderHome(_currentFilter);
     });
+  });
+}
+
+// ── Trip three-dot menu ────────────────────────────────────────────────────────
+
+function _closeTripMenu() {
+  if (_openTripMenuEl) { _openTripMenuEl.remove(); _openTripMenuEl = null; }
+}
+
+function _openTripMenu(tripId, btn) {
+  _closeTripMenu();
+  const menu = document.createElement('div');
+  menu.className = 'tc-dropdown';
+  menu.innerHTML = `
+    <button data-tm="duplicate">⧉ Dupliquer</button>
+    <button data-tm="export-planning">📋 Exporter Planning</button>
+    <button data-tm="export-all">📦 Exporter Tout</button>
+    <button data-tm="export-pdf">🖨 Exporter PDF</button>
+  `;
+  document.body.appendChild(menu);
+  _openTripMenuEl = menu;
+
+  const rect = btn.getBoundingClientRect();
+  const mw   = 192;
+  let left   = rect.right - mw;
+  if (left < 8) left = 8;
+  if (left + mw > window.innerWidth - 8) left = window.innerWidth - mw - 8;
+  menu.style.cssText = `position:fixed;top:${rect.bottom + 4}px;left:${left}px;z-index:99999;min-width:${mw}px`;
+
+  menu.addEventListener('click', async e2 => {
+    const btn2 = e2.target.closest('[data-tm]');
+    if (!btn2) return;
+    _closeTripMenu();
+    const trip = getTrip(tripId);
+    if (!trip) return;
+    switch (btn2.dataset.tm) {
+      case 'duplicate':
+        _duplicateTrip(trip);
+        break;
+      case 'export-planning':
+        downloadTripPlanning(trip);
+        break;
+      case 'export-all':
+        notify('Préparation de l\'export…', '📦');
+        try { await downloadTripAll(trip); } catch (err) { notify(err.message, '⚠'); }
+        break;
+      case 'export-pdf':
+        exportTripPdf(trip);
+        break;
+    }
+  });
+
+  setTimeout(() => document.addEventListener('click', _closeTripMenu, { once: true }), 0);
+}
+
+function _duplicateTrip(trip) {
+  const days = (trip.days || []).map(day => ({
+    ...day,
+    id:    'd_' + uid(),
+    items: (day.items || []).map(item => ({ ...item, id: 'i_' + uid() })),
+  }));
+  const copy = addTrip({
+    ...trip,
+    id:        undefined,
+    name:      (trip.name || 'Voyage') + ' (copie)',
+    createdAt: undefined,
+    updatedAt: undefined,
+    days,
+  });
+  renderHome(_currentFilter);
+  notify(`"${copy.name}" créé.`, '⧉');
+}
+
+// ── Export modal ──────────────────────────────────────────────────────────────
+
+function _openExportModal() {
+  const trips    = getTrips();
+  const listHtml = trips.map(t => `
+    <label class="exp-trip-row">
+      <input type="checkbox" class="exp-cb" value="${t.id}" checked>
+      <span class="exp-trip-lbl">${t.flag || '🌍'} ${_esc(t.name || 'Voyage')}</span>
+      <span class="exp-trip-meta">${t.startDate ? t.startDate.slice(0, 7) : ''}</span>
+    </label>`).join('');
+
+  showModal(`
+    <button class="mc" onclick="closeModal()">✕</button>
+    <h3>⬇ Exporter des voyages</h3>
+    <div class="fg" style="margin-bottom:10px">
+      <label>Format d'export</label>
+      <div class="t-row" id="exp-types">
+        <button class="tp sel" data-exp-type="planning" style="background:#0d9488;border-color:#0d9488;color:#fff">📋 Planning</button>
+        <button class="tp" data-exp-type="all">📦 Tout (avec photos)</button>
+        <button class="tp" data-exp-type="csv">📊 CSV</button>
+      </div>
+    </div>
+    <div class="fg">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+        <label style="margin-bottom:0">Voyages à exporter</label>
+        <button id="exp-sel-all" style="font-size:11px;font-weight:700;color:var(--teal);background:none;border:none;cursor:pointer;padding:2px 6px">Tout désélectionner</button>
+      </div>
+      <div id="exp-trips-list" style="max-height:260px;overflow-y:auto;border:1px solid var(--c3);border-radius:8px;padding:4px 0">
+        ${listHtml || '<p style="padding:12px;font-size:12px;color:var(--ink4)">Aucun voyage</p>'}
+      </div>
+    </div>
+    <div id="exp-status" style="font-size:12px;color:var(--ink4);margin-top:8px;min-height:18px"></div>
+    <div class="ma">
+      <button class="bc" onclick="closeModal()">Annuler</button>
+      <button class="bs" id="exp-go">Exporter</button>
+    </div>`);
+
+  let selectedType = 'planning';
+  let allSelected  = true;
+
+  document.getElementById('exp-types')?.addEventListener('click', e => {
+    const btn = e.target.closest('[data-exp-type]');
+    if (!btn) return;
+    selectedType = btn.dataset.expType;
+    const colors = { planning: '#0d9488', all: '#7c3aed', csv: '#d97706' };
+    document.querySelectorAll('#exp-types [data-exp-type]').forEach(b => {
+      const sel = b.dataset.expType === selectedType;
+      const col = colors[b.dataset.expType] || '#0d9488';
+      b.classList.toggle('sel', sel);
+      b.style.background  = sel ? col : '';
+      b.style.borderColor = sel ? col : '';
+      b.style.color       = sel ? '#fff' : '';
+    });
+  });
+
+  document.getElementById('exp-sel-all')?.addEventListener('click', () => {
+    allSelected = !allSelected;
+    document.querySelectorAll('#exp-trips-list .exp-cb').forEach(cb => { cb.checked = allSelected; });
+    document.getElementById('exp-sel-all').textContent = allSelected ? 'Tout désélectionner' : 'Tout sélectionner';
+  });
+
+  document.getElementById('exp-go')?.addEventListener('click', async () => {
+    const checked = [...document.querySelectorAll('#exp-trips-list .exp-cb:checked')].map(cb => cb.value);
+    const statusEl = document.getElementById('exp-status');
+    if (!checked.length) { statusEl.textContent = 'Sélectionnez au moins un voyage.'; return; }
+    const selectedTrips = checked.map(id => getTrip(id)).filter(Boolean);
+
+    if (selectedType === 'csv') {
+      const blob = new Blob(['﻿' + _buildCsv(selectedTrips.map(_tripToCsvRow))], { type: 'text/csv;charset=utf-8' });
+      const date = new Date().toISOString().slice(0, 10);
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement('a');
+      a.href = url; a.download = `carnet-voyages_${date}.csv`;
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      closeModal();
+      return;
+    }
+
+    statusEl.style.color = '';
+    statusEl.textContent = 'Préparation…';
+    try {
+      await downloadTripsZip(selectedTrips, selectedType, (done, total) => {
+        statusEl.textContent = `${done} / ${total} voyage${total > 1 ? 's' : ''}…`;
+      });
+      closeModal();
+      notify(`${selectedTrips.length} voyage${selectedTrips.length > 1 ? 's' : ''} exporté${selectedTrips.length > 1 ? 's' : ''}`, '✅');
+    } catch (err) {
+      statusEl.style.color = 'var(--coral)';
+      statusEl.textContent = err.message;
+    }
   });
 }
