@@ -1,9 +1,137 @@
 /* ============================================================
-   CARNET DE VOYAGES — KML / CSV Import
+   CARNET DE VOYAGES — KML / CSV / Polarsteps Import
    ============================================================ */
 
 import { addTrip, uid } from './store.js';
 import { notify } from './utils.js';
+
+// ── Polarsteps import ─────────────────────────────────────────────────────────
+
+const _PS_WEATHER = {
+  'clear-day':           '☀️',
+  'clear-night':         '🌙',
+  'partly-cloudy-day':   '⛅',
+  'partly-cloudy-night': '☁️',
+  'cloudy':              '☁️',
+  'rain':                '🌧️',
+  'sleet':               '🌨️',
+  'snow':                '❄️',
+  'wind':                '💨',
+  'fog':                 '🌫️',
+  'hail':                '🌨️',
+  'thunderstorm':        '⛈️',
+};
+
+// Common country-code → French name for the destination field
+const _PS_CC_NAME = {
+  IS:'Islande',FR:'France',ES:'Espagne',IT:'Italie',DE:'Allemagne',PT:'Portugal',
+  GB:'Royaume-Uni',NL:'Pays-Bas',BE:'Belgique',CH:'Suisse',AT:'Autriche',
+  GR:'Grèce',HR:'Croatie',PL:'Pologne',NO:'Norvège',SE:'Suède',DK:'Danemark',
+  FI:'Finlande',IE:'Irlande',US:'États-Unis',CA:'Canada',MX:'Mexique',
+  JP:'Japon',CN:'Chine',AU:'Australie',NZ:'Nouvelle-Zélande',BR:'Brésil',
+  AR:'Argentine',CL:'Chili',CO:'Colombie',PE:'Pérou',MA:'Maroc',TN:'Tunisie',
+  EG:'Égypte',ZA:'Afrique du Sud',KE:'Kenya',TH:'Thaïlande',VN:'Vietnam',
+  ID:'Indonésie',MY:'Malaisie',SG:'Singapour',PH:'Philippines',IN:'Inde',
+  NP:'Népal',LK:'Sri Lanka',TW:'Taïwan',KH:'Cambodge',TR:'Turquie',
+  IL:'Israël',JO:'Jordanie',AE:'Émirats arabes unis',SA:'Arabie Saoudite',
+  QA:'Qatar',GE:'Géorgie',AM:'Arménie',KZ:'Kazakhstan',
+};
+
+/**
+ * Return true if the parsed JSON object looks like a Polarsteps trip export.
+ */
+export function isPolarstepsExport(data) {
+  return data != null && typeof data === 'object' && Array.isArray(data.all_steps);
+}
+
+/**
+ * Import a Polarsteps trip export JSON and add it to the store.
+ * Returns the created trip object, or null on failure.
+ */
+export function importPolarstepsTrip(data) {
+  if (!isPolarstepsExport(data)) return null;
+
+  const _tsToIso = ts => {
+    if (ts == null) return null;
+    return new Date(ts * 1000).toISOString().slice(0, 10);
+  };
+  const _tsToTime = ts => {
+    if (ts == null) return '';
+    const d = new Date(ts * 1000);
+    return d.toTimeString().slice(0, 5);
+  };
+  const _ccToFlag = cc => {
+    if (!cc || cc.length !== 2) return null;
+    const u = cc.toUpperCase();
+    return String.fromCodePoint(u.charCodeAt(0) - 65 + 0x1F1E6, u.charCodeAt(1) - 65 + 0x1F1E6);
+  };
+
+  // Most-frequent country code → flag + destination name
+  const countryCounts = {};
+  for (const s of data.all_steps) {
+    const cc = s.location?.country_code;
+    if (cc) countryCounts[cc] = (countryCounts[cc] || 0) + 1;
+  }
+  const mainCC      = Object.entries(countryCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || '';
+  const flag        = _ccToFlag(mainCC) || '🌍';
+  const destination = _PS_CC_NAME[mainCC.toUpperCase()] || mainCC || '';
+
+  // Group steps by date
+  const daysMap = {};
+  for (const step of data.all_steps) {
+    if (step.start_time == null) continue;
+    const dateKey = _tsToIso(step.start_time);
+    if (!dateKey) continue;
+
+    if (!daysMap[dateKey]) {
+      const loc = step.location || {};
+      daysMap[dateKey] = {
+        id:     'd_' + uid(),
+        num:    0,
+        date:   dateKey,
+        title:  loc.name || loc.detail || '',
+        region: loc.full_detail || loc.detail || loc.name || '',
+        lat:    loc.lat  ?? null,
+        lng:    loc.lon  ?? null,
+        color:  '#0d9488',
+        photo:  '',
+        items:  [],
+      };
+    }
+
+    const loc    = step.location || {};
+    const wx     = _PS_WEATHER[step.weather_condition] || '';
+    const wxTemp = step.weather_temperature != null ? `${step.weather_temperature}°C` : '';
+    const wxNote = [wx, wxTemp].filter(Boolean).join(' ');
+    const notes  = [step.description || '', wxNote].filter(Boolean).join('\n\n').trim();
+
+    daysMap[dateKey].items.push({
+      id:    'i_' + uid(),
+      type:  'visit',
+      text:  step.name || 'Étape',
+      time:  _tsToTime(step.start_time),
+      cost:  0,
+      notes,
+      lat:   loc.lat ?? null,
+      lng:   loc.lon ?? null,
+    });
+  }
+
+  const days = Object.values(daysMap).sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+  days.forEach((d, i) => { d.num = i + 1; });
+
+  return addTrip({
+    name:        data.name     || 'Voyage Polarsteps',
+    destination,
+    flag,
+    color:       '#0d9488',
+    type:        'voyage',
+    status:      'done',
+    startDate:   _tsToIso(data.start_date),
+    endDate:     _tsToIso(data.end_date),
+    days,
+  });
+}
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
@@ -202,11 +330,26 @@ export function importPlacemarks(placemarks, defaultType = 'voyage') {
 export async function importFile(file, type, onDone) {
   if (!file) return;
 
-  // JSON full-trip import
+  // JSON full-trip import (standard export OR Polarsteps)
   if (file.name.toLowerCase().endsWith('.json')) {
     try {
       const text = await file.text();
       const data = JSON.parse(text);
+
+      // Polarsteps export detection: has an `all_steps` array at top level
+      if (isPolarstepsExport(data)) {
+        const trip = importPolarstepsTrip(data);
+        if (trip) {
+          const stepCount = trip.days?.reduce((n, d) => n + (d.items?.length || 0), 0) || 0;
+          notify(`Polarsteps importé : ${trip.name} — ${trip.days?.length || 0} jours, ${stepCount} étapes`, '✅');
+          if (onDone) onDone(1);
+        } else {
+          notify('Erreur lors de l\'import Polarsteps', '⚠');
+        }
+        return;
+      }
+
+      // Standard app JSON export (single trip object or array of trips)
       const trips = Array.isArray(data) ? data : [data];
       let count = 0;
       for (const tripData of trips) {

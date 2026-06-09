@@ -2637,7 +2637,7 @@ function _openImportModal() {
     <button class="mc" onclick="closeModal()">✕</button>
     <h3>⬆ Importer des voyages</h3>
     <p style="font-size:13px;color:var(--ink3);margin-bottom:12px">
-      Importez depuis un fichier <strong>JSON</strong> (voyage exporté depuis l'appli), <strong>KML</strong> (Google Earth) ou <strong>CSV</strong>.
+      Importez depuis un fichier <strong>JSON</strong> (voyage exporté depuis l'appli ou <strong>export Polarsteps</strong>), <strong>KML</strong> (Google Earth) ou <strong>CSV</strong>.
     </p>
     <div style="margin-bottom:12px">
       <button type="button" id="imp-download-sample"

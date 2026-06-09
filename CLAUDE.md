@@ -17,7 +17,7 @@ Quatre endroits à synchroniser, toujours le même numéro N :
 | `index.html` | `style.css?v=N` et `app.js?v=N` |
 | `sw.js` | `const SHELL_CACHE = 'cv-shell-N'` |
 
-Version actuelle : **113**
+Version actuelle : **114**
 
 ---
 
@@ -220,3 +220,5 @@ uid()          // ID court aléatoire
 | v112 | Champs Heure/Coût et nuits superposés dans sheet | Injected `<style>` dans `_showMobileEventSheet` force colonne unique |
 | v112 | Zoom pinch toujours possible hors carte | `gesturestart/change/end` prévenés globalement (Leaflet utilise touchmove) + `e.scale` check |
 | v112 | Photos timeline/live-feed en petites vignettes | Carrousel scroll-snap plein-largeur avec carte GPX stats en 1ère slide |
+| v113 | Champs superposés encore présents | HTML templates modifiés directement en `.fg` blocs empilés (pas d'injection CSS) |
+| v114 | Import Polarsteps | `isPolarstepsExport` détecte `all_steps`, `importPolarstepsTrip` groupe par date, mappe météo → emoji |
