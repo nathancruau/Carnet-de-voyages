@@ -537,8 +537,9 @@ export async function importAnyZip(zipFile, onProgress) {
   const JSZip = await _loadJSZip();
   const zip   = await JSZip.loadAsync(zipFile);
 
-  // ── Polarsteps: root trip.json with all_steps ──────────────────────────────
-  const rootTrip = zip.file('trip.json');
+  // ── Polarsteps: trip.json with all_steps (root or inside a parent folder) ────
+  // Use regex fallback so we find trip.json even when it's inside export_name/trip.json
+  const rootTrip = zip.file('trip.json') ?? zip.file(/(?:^|\/)trip\.json$/)?.[0];
   if (rootTrip) {
     let tripData = null;
     try { tripData = JSON.parse(await rootTrip.async('text')); } catch (_) {}
@@ -572,12 +573,13 @@ export async function importAnyZip(zipFile, onProgress) {
     }
   }
 
-  // App "All": subfolders with {folder}/trip.json
+  // App "All": subfolders with {…/}folder/trip.json
+  // Accept both flat (folder/trip.json) and nested (parent/folder/trip.json)
   const folders = [];
   zip.forEach((path, entry) => {
-    if (!entry.dir) {
-      const parts = path.split('/');
-      if (parts.length === 2 && parts[1] === 'trip.json') folders.push(parts[0]);
+    if (!entry.dir && path.endsWith('/trip.json')) {
+      const folder = path.slice(0, -'/trip.json'.length);
+      if (folder) folders.push(folder);
     }
   });
 
@@ -602,10 +604,14 @@ export async function importAnyZip(zipFile, onProgress) {
     return { trips, format: 'carnet-all' };
   }
 
-  // App "Planning": *.json files at root (no subfolders)
+  // App "Planning": *.json files with no sub-path depth (root or single parent folder)
   const planFiles = [];
   zip.forEach((path, entry) => {
-    if (!entry.dir && !path.includes('/') && path.endsWith('.json')) planFiles.push({ path, entry });
+    if (!entry.dir && path.endsWith('.json')) {
+      const depth = path.split('/').length;
+      // Accept root-level (depth=1) or directly inside one parent folder (depth=2)
+      if (depth <= 2) planFiles.push({ path, entry });
+    }
   });
 
   if (planFiles.length > 0) {
