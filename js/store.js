@@ -14,6 +14,8 @@
 
 const STORAGE_KEY = 'carnet_voyages_v1';
 
+export const APP_VERSION = '115';
+
 export const COMP_COLORS = [
   '#0d9488','#7c3aed','#e85d3e','#d97706',
   '#db2777','#0284c7','#16a34a','#f59e0b'

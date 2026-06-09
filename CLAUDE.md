@@ -16,8 +16,9 @@ Quatre endroits à synchroniser, toujours le même numéro N :
 |---------|----------------|
 | `index.html` | `style.css?v=N` et `app.js?v=N` |
 | `sw.js` | `const SHELL_CACHE = 'cv-shell-N'` |
+| `store.js` | `export const APP_VERSION = 'N'` |
 
-Version actuelle : **114**
+Version actuelle : **115**
 
 ---
 
@@ -222,3 +223,4 @@ uid()          // ID court aléatoire
 | v112 | Photos timeline/live-feed en petites vignettes | Carrousel scroll-snap plein-largeur avec carte GPX stats en 1ère slide |
 | v113 | Champs superposés encore présents | HTML templates modifiés directement en `.fg` blocs empilés (pas d'injection CSS) |
 | v114 | Import Polarsteps | `isPolarstepsExport` détecte `all_steps`, `importPolarstepsTrip` groupe par date, mappe météo → emoji |
+| v115 | Stats catégories/compagnons + auto-save settings | `catExpenses`/`compMap` dans `_statsViewHtml` ; `change` délégué sur `.mbox` remplace le bouton Enregistrer |

@@ -7,7 +7,7 @@ import {
   TRIP_TYPES, COMP_COLORS, uid,
   getSettings, updateSettings,
   getEventTypes, DEFAULT_EVENT_TYPES,
-  getLanguage, isTripShared,
+  getLanguage, isTripShared, APP_VERSION,
 } from './store.js';
 import {
   notify, showModal, closeModal,
@@ -680,6 +680,40 @@ function _statsViewHtml(trips) {
     </div>`;
   }).join('');
 
+  // Expenses by category (across all filtered trips)
+  const catExpenses = {};
+  for (const trip of trips) {
+    const catMap = new Map((trip.budgetCats || []).map(c => [c.id, c]));
+    for (const exp of (trip.realExpenses || [])) {
+      if (exp.type === 'transfer') continue;
+      const amt = Number(exp.amount) || 0;
+      if (!amt) continue;
+      const cat   = catMap.get(exp.catId);
+      const name  = cat?.name  || 'Autre';
+      const color = cat?.color || '#6b7280';
+      const icon  = cat?.icon  || '💡';
+      if (!catExpenses[name]) catExpenses[name] = { total: 0, color, icon };
+      catExpenses[name].total += amt;
+    }
+  }
+  const catTotal   = Object.values(catExpenses).reduce((s, v) => s + v.total, 0);
+  const catEntries = Object.entries(catExpenses).sort((a, b) => b[1].total - a[1].total).slice(0, 8);
+
+  // Companions statistics
+  const compMap = {};
+  for (const trip of trips) {
+    const tripDays = trip.startDate && trip.endDate
+      ? Math.round((new Date(trip.endDate + 'T12:00:00') - new Date(trip.startDate + 'T12:00:00')) / 86400000) + 1
+      : 0;
+    for (const comp of (trip.companions || [])) {
+      const nm = comp.name || 'Inconnu';
+      if (!compMap[nm]) compMap[nm] = { trips: 0, days: 0, color: comp.color || '#0d9488' };
+      compMap[nm].trips++;
+      compMap[nm].days += tripDays;
+    }
+  }
+  const compEntries = Object.entries(compMap).sort((a, b) => b[1].trips - a[1].trips).slice(0, 8);
+
   // KPI tiles
   const kpis = [
     { icon:'✈️', val: trips.length,                                       lbl:'Voyages' },
@@ -765,6 +799,41 @@ function _statsViewHtml(trips) {
         <div style="display:flex;gap:3px;overflow-x:auto">${spendBars}</div>
         <div style="font-size:10px;color:var(--ink4);margin-top:4px">Total : <b>${Math.round(s.totalSpent).toLocaleString('fr-FR')} €</b></div>
       </div>` : ''}
+
+      <!-- Row 5: expenses by category + companions -->
+      ${catEntries.length > 0 || compEntries.length > 0 ? `
+      <div class="stat-grid-2" style="margin-bottom:14px">
+        ${catEntries.length > 0 ? `
+        <div class="stat-card">
+          <h4 class="stat-card-title">💳 Dépenses par catégorie</h4>
+          ${catEntries.map(([name, {total, color, icon}]) => {
+            const pct = catTotal > 0 ? Math.round((total / catTotal) * 100) : 0;
+            return `<div style="margin-bottom:8px">
+              <div style="display:flex;justify-content:space-between;align-items:baseline;font-size:12px;margin-bottom:3px">
+                <span style="color:var(--ink2)">${icon} ${_esc(name)}</span>
+                <span style="font-weight:700;color:var(--ink);flex-shrink:0;white-space:nowrap">${Math.round(total).toLocaleString('fr-FR')} €<span style="font-size:10px;color:var(--ink4);font-weight:400"> (${pct}%)</span></span>
+              </div>
+              <div style="background:var(--c3);border-radius:4px;height:7px;overflow:hidden">
+                <div style="width:${pct}%;height:100%;background:${color};border-radius:4px;transition:width .4s"></div>
+              </div></div>`;
+          }).join('')}
+          <div style="font-size:10px;color:var(--ink4);margin-top:6px">Total : <b>${Math.round(catTotal).toLocaleString('fr-FR')} €</b></div>
+        </div>` : '<div></div>'}
+        ${compEntries.length > 0 ? `
+        <div class="stat-card">
+          <h4 class="stat-card-title">👥 Compagnons de voyage</h4>
+          ${compEntries.map(([name, {trips: tc, days, color}]) => {
+            const initials = name.trim().split(/\s+/).map(p => p[0] || '').slice(0, 2).join('').toUpperCase();
+            return `<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+              <div style="width:32px;height:32px;border-radius:50%;background:${color};display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:#fff;flex-shrink:0">${_esc(initials || '?')}</div>
+              <div style="flex:1;min-width:0">
+                <div style="font-size:13px;font-weight:700;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${_esc(name)}</div>
+                <div style="font-size:11px;color:var(--ink3)">${tc} voyage${tc > 1 ? 's' : ''} · ${days} jour${days > 1 ? 's' : ''}</div>
+              </div>
+            </div>`;
+          }).join('')}
+        </div>` : '<div></div>'}
+      </div>` : ''}
     </div>
   `;
 }
@@ -789,7 +858,7 @@ function _heroHtml(trips) {
     <div class="hero">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%">
         <div>
-          <div class="hero-logo">Carnet de Voyages</div>
+          <div class="hero-logo">Carnet de Voyages <span style="font-size:11px;font-weight:400;opacity:.4;margin-left:3px">v${APP_VERSION}</span></div>
           <div class="hero-sub">Planifiez, organisez et vivez vos aventures</div>
         </div>
         <div class="hero-nav-group">
@@ -1466,9 +1535,9 @@ function _openSettingsModal() {
       </div>
 
       <div class="ma">
-        <button class="bc" onclick="closeModal()">Annuler</button>
-        <button class="bs" id="settings-save">Enregistrer</button>
-      </div>`;
+        <button class="bs" onclick="closeModal()">Fermer</button>
+      </div>
+      <div style="text-align:center;font-size:10px;color:var(--ink4);margin-top:10px">Carnet de Voyages v${APP_VERSION}</div>`;
   }
 
   showModal(buildHtml(eventTypes, getLanguage(), curTheme, curNotif));
@@ -1490,6 +1559,52 @@ function _openSettingsModal() {
     return result;
   }
 
+  // ── Auto-save: apply settings immediately on any change ──────────────────────
+
+  function _applySettings() {
+    const newEventTypes   = collectEventTypes();
+    const lang            = document.querySelector('input[name="lang-sel"]:checked')?.value    || 'fr';
+    const theme           = document.querySelector('input[name="theme-sel"]:checked')?.value   || 'light';
+    const notifEnabled    = document.getElementById('notif-enabled')?.checked                  ?? false;
+    const notifDep        = document.getElementById('notif-departure')?.checked                ?? true;
+    const notifCollab     = document.getElementById('notif-collaborative')?.checked            ?? true;
+    const notifObsPub     = document.getElementById('notif-observer-publish')?.checked         ?? true;
+    const grandParents    = document.getElementById('gp-mode')?.checked                       ?? false;
+
+    updateSettings({
+      eventTypes: newEventTypes.length > 0 ? newEventTypes : DEFAULT_EVENT_TYPES,
+      lang, theme,
+      notifications: { enabled: notifEnabled, departure: notifDep, collaborative: notifCollab, observerPublish: notifObsPub },
+      grandParentsMode: grandParents,
+    });
+
+    const root = document.documentElement;
+    if (theme === 'dark')      root.dataset.theme = 'dark';
+    else if (theme === 'auto') root.dataset.theme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : '';
+    else                       delete root.dataset.theme;
+
+    if (_currentTab === 'stats') _renderStats();
+    else renderHome(_currentFilter);
+  }
+
+  // Delegate change events on the whole modal — covers all inputs/radios/checkboxes
+  document.querySelector('.mbox')?.addEventListener('change', async e => {
+    // Toggle notification sub-panel visibility
+    if (e.target.id === 'notif-enabled') {
+      const sub = document.getElementById('notif-sub');
+      if (sub) {
+        sub.style.opacity       = e.target.checked ? '1' : '0.45';
+        sub.style.pointerEvents = e.target.checked ? ''  : 'none';
+      }
+    }
+    _applySettings();
+    // Request permission when enabling notifications
+    if (e.target.id === 'notif-enabled' && e.target.checked && !notificationPermissionGranted()) {
+      const granted = await requestNotificationPermission();
+      if (!granted) notify('Permission refusée par le navigateur', '⚠️');
+    }
+  });
+
   // ── Event type add/delete ────────────────────────────────────────────────────
 
   function reRenderEtRows(types) {
@@ -1506,70 +1621,24 @@ function _openSettingsModal() {
       if (types[idx]?.key === 'sleep') return;
       types.splice(idx, 1);
       reRenderEtRows(types);
+      _applySettings();
     });
   }
   attachEtDelete();
-
-  document.getElementById('notif-enabled')?.addEventListener('change', e => {
-    const sub = document.getElementById('notif-sub');
-    if (sub) {
-      sub.style.opacity = e.target.checked ? '1' : '0.45';
-      sub.style.pointerEvents = e.target.checked ? '' : 'none';
-    }
-  });
 
   document.getElementById('et-add')?.addEventListener('click', () => {
     const types = collectEventTypes();
     types.push({ key: 'evt_' + uid(), emoji: '📌', label: 'Nouveau type', color: '#0d9488' });
     reRenderEtRows(types);
+    _applySettings();
   });
 
-  // ── Clear / save ─────────────────────────────────────────────────────────────
+  // ── Clear data ────────────────────────────────────────────────────────────────
 
   document.getElementById('settings-clear-data')?.addEventListener('click', () => {
     if (confirm('Effacer TOUTES les données (voyages, journal, bagages) ? Cette action est irréversible.')) {
       localStorage.clear();
       location.reload();
-    }
-  });
-
-  document.getElementById('settings-save')?.addEventListener('click', async () => {
-    const newEventTypes = collectEventTypes();
-    const lang    = document.querySelector('input[name="lang-sel"]:checked')?.value || 'fr';
-    const theme   = document.querySelector('input[name="theme-sel"]:checked')?.value || 'light';
-    const notifEnabled       = document.getElementById('notif-enabled')?.checked ?? false;
-    const notifDep           = document.getElementById('notif-departure')?.checked ?? true;
-    const notifCollab        = document.getElementById('notif-collaborative')?.checked ?? true;
-    const notifObsPublish    = document.getElementById('notif-observer-publish')?.checked ?? true;
-    const grandParentsMode   = document.getElementById('gp-mode')?.checked ?? false;
-
-    updateSettings({
-      eventTypes: newEventTypes.length > 0 ? newEventTypes : DEFAULT_EVENT_TYPES,
-      lang,
-      theme,
-      notifications: { enabled: notifEnabled, departure: notifDep, collaborative: notifCollab, observerPublish: notifObsPublish },
-      grandParentsMode,
-    });
-
-    // Apply theme immediately
-    const root = document.documentElement;
-    if (theme === 'dark') root.dataset.theme = 'dark';
-    else if (theme === 'auto') root.dataset.theme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : '';
-    else delete root.dataset.theme;
-
-    // Request notification permission if just enabled
-    if (notifEnabled && !notificationPermissionGranted()) {
-      const granted = await requestNotificationPermission();
-      if (!granted) notify('Permission refusée par le navigateur', '⚠️');
-    }
-
-    notify('Paramètres enregistrés', '✅');
-    closeModal();
-    // Re-render home immediately so grands-parents mode applies without restart
-    if (_currentTab === 'trips' || _currentTab === 'stats') {
-      _currentTab === 'stats' ? _renderStats() : renderHome(_currentFilter);
-    } else {
-      renderHome(_currentFilter);
     }
   });
 }
