@@ -14,7 +14,7 @@
 
 const STORAGE_KEY = 'carnet_voyages_v1';
 
-export const APP_VERSION = '117';
+export const APP_VERSION = '118';
 
 export const COMP_COLORS = [
   '#0d9488','#7c3aed','#e85d3e','#d97706',
@@ -103,10 +103,21 @@ export const DEFAULT_PIN_TYPES = [
 ];
 
 export const DEFAULT_EVENT_TYPES = [
-  { key: 'sleep',    emoji: '🌙', label: 'Nuit',      color: '#7c3aed' },
-  { key: 'drive',    emoji: '🚐', label: 'Transport', color: '#0284c7' },
-  { key: 'visit',    emoji: '📍', label: 'Visite',    color: '#16a34a' },
-  { key: 'activity', emoji: '⚡', label: 'Activité',  color: '#d97706' },
+  { key: 'sleep',      emoji: '🌙', label: 'Nuit',              color: '#7c3aed' },
+  { key: 'drive',      emoji: '🚐', label: 'Transport',         color: '#0284c7' },
+  { key: 'visit',      emoji: '📍', label: 'Visite',            color: '#16a34a' },
+  { key: 'activity',   emoji: '⚡', label: 'Activité',          color: '#d97706' },
+  { key: 'ski',        emoji: '⛷️', label: 'Ski',               color: '#0891b2' },
+  { key: 'museum',     emoji: '🏛️', label: 'Musée',             color: '#7c3aed' },
+  { key: 'hiking',     emoji: '🥾', label: 'Randonnée',         color: '#16a34a' },
+  { key: 'beach',      emoji: '🏖️', label: 'Plage',             color: '#d97706' },
+  { key: 'nature',     emoji: '🌲', label: 'Parc / Forêt',      color: '#059669' },
+  { key: 'panorama',   emoji: '🌅', label: 'Panorama',          color: '#0891b2' },
+  { key: 'castle',     emoji: '⛩️', label: 'Temple / Château',  color: '#92400e' },
+  { key: 'restaurant', emoji: '🍽️', label: 'Restaurant',        color: '#e85d3e' },
+  { key: 'themepark',  emoji: '🎢', label: "Parc d'attraction", color: '#d97706' },
+  { key: 'zoo',        emoji: '🦁', label: 'Zoo',               color: '#16a34a' },
+  { key: 'snorkeling', emoji: '🤿', label: 'Snorkeling',        color: '#0891b2' },
 ];
 
 export function getSettings() {
@@ -127,12 +138,16 @@ export function getPinTypes() {
 export function getEventTypes() {
   const s = state.settings || {};
   if (!Array.isArray(s.eventTypes) || s.eventTypes.length === 0) return DEFAULT_EVENT_TYPES;
+  // Forward migration: add any new default types the user doesn't have yet
+  const types = [...s.eventTypes];
+  const keys  = new Set(types.map(t => t.key));
+  for (const def of DEFAULT_EVENT_TYPES) {
+    if (!keys.has(def.key)) types.push(def);
+  }
   // Ensure sleep is always first
-  const types = s.eventTypes;
   const sleepIdx = types.findIndex(t => t.key === 'sleep');
   if (sleepIdx <= 0) return types;
-  const reordered = [types[sleepIdx], ...types.slice(0, sleepIdx), ...types.slice(sleepIdx + 1)];
-  return reordered;
+  return [types[sleepIdx], ...types.slice(0, sleepIdx), ...types.slice(sleepIdx + 1)];
 }
 
 export function getLanguage() {

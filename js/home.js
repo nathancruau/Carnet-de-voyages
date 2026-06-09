@@ -1421,20 +1421,14 @@ function _openSettingsModal() {
 
   const _etInputStyle = 'height:34px;box-sizing:border-box;border:1.5px solid var(--c3);border-radius:7px;background:var(--c)';
   function _etRowHtml(et, i) {
-    const isProtected = et.key === 'sleep';
     return `
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px" data-et-row="${i}">
-        <input type="hidden" data-et-key="${i}" value="${_esc(et.key)}">
+        <input type="hidden" data-et-key="${i}"   value="${_esc(et.key)}">
+        <input type="hidden" data-et-color="${i}" value="${_esc(et.color || '#0d9488')}">
         <input type="text" data-et-emoji="${i}" value="${_esc(et.emoji)}"
           style="width:48px;text-align:center;font-size:18px;padding:0 4px;${_etInputStyle}">
         <input type="text" data-et-label="${i}" value="${_esc(et.label)}" placeholder="Nom du type"
           style="flex:1;padding:0 8px;font-size:12px;${_etInputStyle}">
-        <input type="color" data-et-color="${i}" value="${_esc(et.color || '#0d9488')}"
-          style="width:34px;padding:2px;cursor:pointer;${_etInputStyle}">
-        ${isProtected
-          ? `<span style="display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;font-size:14px;color:var(--ink4);flex-shrink:0" title="Ce type est protégé et ne peut pas être supprimé">🔒</span>`
-          : `<button type="button" data-et-del="${i}" style="background:var(--crl,#fee2e2);color:var(--coral,#e85d3e);border:none;border-radius:6px;width:34px;height:34px;font-size:12px;cursor:pointer;flex-shrink:0;line-height:1">✕</button>`
-        }
       </div>`;
   }
 
@@ -1482,12 +1476,8 @@ function _openSettingsModal() {
 
       <div class="fg">
         <label style="font-size:12px;font-weight:700;color:var(--ink2)">Types d'activités (planning &amp; carnet)</label>
-        <div style="font-size:11px;color:var(--ink4);margin-bottom:8px">Types disponibles pour les événements du planning.</div>
+        <div style="font-size:11px;color:var(--ink4);margin-bottom:8px">Renommez ou changez l'emoji de chaque type.</div>
         <div id="et-rows">${curEventTypes.map(_etRowHtml).join('')}</div>
-        <button type="button" id="et-add"
-          style="margin-top:6px;background:var(--c2);border:1.5px solid var(--c3);border-radius:7px;padding:5px 12px;font-size:12px;font-weight:700;cursor:pointer;color:var(--ink3)">
-          ＋ Ajouter un type
-        </button>
       </div>
 
       <hr style="border:none;border-top:1px solid var(--c3);margin:16px 0">
@@ -1613,34 +1603,6 @@ function _openSettingsModal() {
       const granted = await requestNotificationPermission();
       if (!granted) notify('Permission refusée par le navigateur', '⚠️');
     }
-  });
-
-  // ── Event type add/delete ────────────────────────────────────────────────────
-
-  function reRenderEtRows(types) {
-    const el = document.getElementById('et-rows');
-    if (el) { el.innerHTML = types.map(_etRowHtml).join(''); attachEtDelete(); }
-  }
-
-  function attachEtDelete() {
-    document.getElementById('et-rows')?.addEventListener('click', e => {
-      const btn = e.target.closest('[data-et-del]');
-      if (!btn) return;
-      const types = collectEventTypes();
-      const idx = parseInt(btn.dataset.etDel, 10);
-      if (types[idx]?.key === 'sleep') return;
-      types.splice(idx, 1);
-      reRenderEtRows(types);
-      _applySettings();
-    });
-  }
-  attachEtDelete();
-
-  document.getElementById('et-add')?.addEventListener('click', () => {
-    const types = collectEventTypes();
-    types.push({ key: 'evt_' + uid(), emoji: '📌', label: 'Nouveau type', color: '#0d9488' });
-    reRenderEtRows(types);
-    _applySettings();
   });
 
   // ── Clear data ────────────────────────────────────────────────────────────────
