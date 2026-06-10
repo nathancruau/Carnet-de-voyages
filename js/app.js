@@ -7,7 +7,7 @@ import { renderHome } from './home.js';
 import { renderMyMap, destroyMyMap } from './mymap.js';
 import { openTrip, destroyTripMap } from './trip/trip.js';
 import { closeModal, showModal, esc } from './utils.js';
-import { initAuth, loginWithGoogle, syncToFirestore, isFirebaseConfigured, listenUserDoc } from './auth.js';
+import { initAuth, loginWithGoogle, syncToFirestore, isFirebaseConfigured, listenUserDoc, setSyncErrorCallback } from './auth.js';
 import { initSharedTrips, handlePendingInvite } from './share.js';
 import { checkDepartureNotifications } from './notifications.js';
 
@@ -253,6 +253,19 @@ function _setOfflineBar(offline) {
 window.addEventListener('online',  () => _setOfflineBar(false));
 window.addEventListener('offline', () => _setOfflineBar(true));
 if (!navigator.onLine) _setOfflineBar(true);
+
+// ── Firestore sync error ───────────────────────────────────────────────────────
+// Notify user when a sync write to Firestore fails (e.g. network error, quota).
+// We debounce to show at most one warning per 30 s so we don't spam.
+let _lastSyncErrTs = 0;
+setSyncErrorCallback(() => {
+  const now = Date.now();
+  if (now - _lastSyncErrTs < 30_000) return;
+  _lastSyncErrTs = now;
+  import('./utils.js').then(({ notify }) => {
+    notify('Synchronisation échouée — données sauvegardées localement', '⚠️');
+  });
+});
 
 // ── Global bindings (for onclick="" in HTML / modals / map popups) ─────────────
 window.goHome         = goHome;

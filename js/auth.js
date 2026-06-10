@@ -33,7 +33,7 @@ let _db   = null;
 let _uid  = null;
 let _user = null;
 
-let _docFn, _getDocFn, _setDocFn, _updateDocFn, _onSnapshotFn, _signOutFn, _GoogleProvider;
+let _docFn, _getDocFn, _getDocFromServerFn, _setDocFn, _updateDocFn, _onSnapshotFn, _signOutFn, _GoogleProvider;
 let _signInRedirectFn, _getRedirectResultFn;
 let _arrayUnionFn, _deleteFieldFn, _deleteDocFn;
 
@@ -65,6 +65,7 @@ export async function initAuth(onReady) {
 
     _docFn               = dbMod.doc;
     _getDocFn            = dbMod.getDoc;
+    _getDocFromServerFn  = dbMod.getDocFromServer;
     _setDocFn            = dbMod.setDoc;
     _updateDocFn         = dbMod.updateDoc;
     _onSnapshotFn        = dbMod.onSnapshot;
@@ -151,12 +152,16 @@ export async function logout() {
 }
 
 /** Push the full app state to the user's Firestore document. */
+let _onSyncError = null;
+export function setSyncErrorCallback(fn) { _onSyncError = fn; }
+
 export async function syncToFirestore(state) {
   if (!_db || !_uid || !_setDocFn || !_docFn) return;
   try {
     await _setDocFn(_docFn(_db, 'users', _uid), state, { merge: true });
   } catch (err) {
     console.warn('[auth] Firestore sync failed:', err.message);
+    if (_onSyncError) _onSyncError(err);
   }
 }
 
@@ -220,9 +225,21 @@ export async function deleteSharedTripDoc(tripId) {
  */
 export function listenUserDoc(uid, callback) {
   if (!_db || !_onSnapshotFn || !_docFn || !uid) return () => {};
-  return _onSnapshotFn(_docFn(_db, 'users', uid), snap => {
-    if (snap.exists()) callback(snap.data(), snap.metadata.hasPendingWrites);
-  });
+  // includeMetadataChanges: true lets us see fromCache flag on every event.
+  // We skip cache-only snapshots so we only process confirmed server writes
+  // from other devices — this prevents stale IndexedDB cache from blocking
+  // real-time updates from other devices.
+  return _onSnapshotFn(
+    _docFn(_db, 'users', uid),
+    { includeMetadataChanges: true },
+    snap => {
+      if (!snap.exists()) return;
+      // fromCache: true = served from local IndexedDB before server confirmed — skip
+      if (snap.metadata.fromCache) return;
+      callback(snap.data(), snap.metadata.hasPendingWrites);
+    },
+    err => console.warn('[auth] listenUserDoc error:', err.message),
+  );
 }
 
 /** Load a shared trip document once (no listener). */
@@ -354,15 +371,26 @@ export async function addActivityEntry(tripId, entry) {
 
 /** Load the user's state from Firestore with a 5 s timeout. */
 async function _loadFromFirestore() {
-  if (!_db || !_uid || !_getDocFn || !_docFn) return null;
+  if (!_db || !_uid || !_docFn) return null;
+  const ref = _docFn(_db, 'users', _uid);
   try {
+    // getDocFromServer bypasses the IndexedDB cache so we always get the latest
+    // data from the server, even if another device wrote while this one was offline.
+    const fetchFn = _getDocFromServerFn || _getDocFn;
     const snap = await Promise.race([
-      _getDocFn(_docFn(_db, 'users', _uid)),
-      new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000)),
+      fetchFn(ref),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 8000)),
     ]);
     return snap.exists() ? snap.data() : null;
   } catch (err) {
-    console.warn('[auth] Firestore load failed:', err.message);
+    console.warn('[auth] Firestore server load failed, falling back to cache:', err.message);
+    // Fall back to cached read on timeout / offline
+    try {
+      if (_getDocFn) {
+        const cached = await _getDocFn(ref);
+        return cached.exists() ? cached.data() : null;
+      }
+    } catch (_) {}
     return null;
   }
 }

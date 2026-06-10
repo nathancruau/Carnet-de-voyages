@@ -14,7 +14,7 @@
 
 const STORAGE_KEY = 'carnet_voyages_v1';
 
-export const APP_VERSION = '135';
+export const APP_VERSION = '136';
 
 export const COMP_COLORS = [
   '#0d9488','#7c3aed','#e85d3e','#d97706',
@@ -66,7 +66,7 @@ export function createTrip(data = {}) {
     color: c.color || COMP_COLORS[Math.floor(Math.random() * COMP_COLORS.length)],
   }));
 
-  return {
+  const trip = {
     id:             'trip_' + Date.now() + '_' + uid(),
     type:           data.type        || 'voyage',
     name:           data.name        || 'Nouveau voyage',
@@ -74,6 +74,7 @@ export function createTrip(data = {}) {
     flag:           data.flag        || '🌍',
     color:          data.color       || '#0d9488',
     photo:          data.photo       || '',
+    photos:         data.photos      || [],
     startDate:      data.startDate   || null,   // 'YYYY-MM-DD' or null
     endDate:        data.endDate     || null,   // 'YYYY-MM-DD' or null
     companions,
@@ -81,6 +82,7 @@ export function createTrip(data = {}) {
     updatedAt:      Date.now(),
     status:         data.status         || 'planning',  // 'planning' | 'done'
     countryCode:    data.countryCode    || '',
+    multiCountry:   data.multiCountry   || false,
 
     days:           data.days           || [],
     budgetCats:     data.budgetCats     || defaultBudgetCats(),
@@ -90,6 +92,9 @@ export function createTrip(data = {}) {
     packingChecked: data.packingChecked || {},
     journalEntries: data.journalEntries || [],
   };
+  // Sortie-specific: carry the pin sub-object through
+  if (data.pin) trip.pin = data.pin;
+  return trip;
 }
 
 // ── Default app settings ───────────────────────────────────────────────────────
