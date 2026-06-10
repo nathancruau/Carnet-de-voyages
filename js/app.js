@@ -155,6 +155,13 @@ function _onAuthReady(user, cloudData) {
       // Read localStorage first so setState can merge local edits that didn't reach Firestore yet
       loadData();
       setState(cloudData);
+      // If localStorage had trips that weren't in the Firestore snapshot
+      // (e.g. a previous sync failed, or the device was offline), push them now
+      // so every device eventually converges to the same list.
+      const cloudIds = new Set((cloudData.trips || []).map(t => t.id));
+      if (getTrips().some(t => !cloudIds.has(t.id))) {
+        syncToFirestore(getState());
+      }
     } else {
       // First login on this device: upload existing local trips to cloud
       loadData();
@@ -189,10 +196,17 @@ function _onAuthReady(user, cloudData) {
     _userDocUnsub = listenUserDoc(user.uid, (data, hasPendingWrites) => {
       // hasPendingWrites: true = our own write going up to Firestore — skip
       if (hasPendingWrites) return;
+      const prevTrips = getTrips();
       // Skip if data matches what we already have (prevents re-renders on our own confirms)
-      if (_tripsSignature(data?.trips) === _tripsSignature(getTrips())) return;
+      if (_tripsSignature(data?.trips) === _tripsSignature(prevTrips)) return;
       setState(data);
       if (currentScreen === 'home') renderHome();
+      // If we had local trips absent from the incoming snapshot, push them
+      // so the other device eventually sees them too.
+      const incomingIds = new Set((data?.trips || []).map(t => t.id));
+      if (prevTrips.some(t => !incomingIds.has(t.id))) {
+        syncToFirestore(getState());
+      }
     });
 
     // Load shared trips and handle any pending invite link (non-blocking).
