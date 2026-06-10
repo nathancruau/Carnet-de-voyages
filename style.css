@@ -269,7 +269,7 @@ body{height:100%;min-height:-webkit-fill-available;font-family:var(--fn);backgro
   overflow:hidden;
   background:var(--c);
 }
-.obs-map-col{flex:1;position:relative;overflow:hidden;min-height:0}
+.obs-map-col{flex:1;position:relative;height:100%;overflow:hidden;min-height:0}
 
 /* Observer carnet 2-column layout (feed + map) — kept for potential reuse */
 .obs-carnet-layout{display:flex;height:100%;overflow:hidden}
@@ -310,6 +310,7 @@ body{height:100%;min-height:-webkit-fill-available;font-family:var(--fn);backgro
 .tl-car-next{right:10px}
 .tl-car-prev:hover,.tl-car-next:hover{background:rgba(0,0,0,.75)}
 @media(max-width:768px){.tl-car-prev,.tl-car-next{display:none}}
+
 
 /* ══════════════════════════════════════════
    TOPBAR
