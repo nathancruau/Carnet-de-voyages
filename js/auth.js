@@ -43,6 +43,9 @@ let _arrayUnionFn, _deleteFieldFn, _deleteDocFn;
 let _lastServerTrips = null;
 let _onSyncError     = null;
 
+export function isFirebaseConfigured() { return _configured; }
+export function getCurrentUser()       { return _user; }
+
 /**
  * Initialise Firebase and call onReady(user, cloudData) once the auth
  * state is known. Called again on every subsequent auth-state change
