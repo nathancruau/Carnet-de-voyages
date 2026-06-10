@@ -29,8 +29,9 @@ let _showRoutes      = false;  // whether itinerary lines are drawn
 let _collapsedGroups = new Set();  // trip ids whose sidebar group is folded
 let _footerExpanded  = false;      // tools/export footer collapsed by default
 let _infoPanelEl     = null;   // info panel DOM element
-let _mergedPinsCache = [];     // current merged pins, kept for dynamic world-copy expansion
-let _activeOffsets   = new Set(); // longitude offsets (multiples of 360) that have markers placed
+let _mergedPinsCache  = [];     // current merged pins, kept for dynamic world-copy expansion
+let _activeOffsets    = new Set(); // longitude offsets (multiples of 360) that have markers placed
+let _lastFilteredPins = [];    // last pin set passed to _redrawMarkers (for zoom-triggered redraw)
 let _gpxTrackLayer   = null;   // active GPX polyline drawn when info panel is open
 
 // Transport mode metadata (mirrors mapcal.js / utils.trCol)
@@ -159,6 +160,56 @@ function _makeMultiIcon(count) {
     iconAnchor:  [14, 14],
     popupAnchor: [0, -20],
   });
+}
+
+/** Cluster icon for geographic groups of nearby destinations. */
+function _makeGeoClusterIcon(count) {
+  const sz = count >= 10 ? 42 : 36;
+  return L.divIcon({
+    className: '',
+    html: `<div style="background:#0d9488;color:#fff;border:3px solid rgba(255,255,255,.9);border-radius:50%;width:${sz}px;height:${sz}px;display:flex;align-items:center;justify-content:center;font-size:${count >= 10 ? 11 : 12}px;font-weight:800;box-shadow:0 2px 12px rgba(13,148,136,.45);cursor:pointer">${count}</div>`,
+    iconSize:   [sz, sz],
+    iconAnchor: [sz / 2, sz / 2],
+    popupAnchor:[0, -sz / 2],
+  });
+}
+
+/**
+ * Group geographically close merged-pins into geo-clusters based on screen-pixel
+ * distance at the current zoom level. Returns the same `mergedPins` array with
+ * some entries replaced by cluster objects { lat, lng, entries[], isGeoCluster, clusterPoints[] }.
+ * Disabled above zoom 9 — individual pins are shown at high zoom.
+ */
+function _geoCluster(mergedPins, map, threshold = 52) {
+  if (!map || map.getZoom() >= 9 || mergedPins.length < 2) return mergedPins;
+  const pts      = mergedPins.map(mp => map.latLngToContainerPoint([mp.lat, mp.lng]));
+  const assigned = new Uint8Array(mergedPins.length);
+  const result   = [];
+  for (let i = 0; i < mergedPins.length; i++) {
+    if (assigned[i]) continue;
+    assigned[i] = 1;
+    const members = [i];
+    for (let j = i + 1; j < mergedPins.length; j++) {
+      if (!assigned[j] && pts[i].distanceTo(pts[j]) <= threshold) {
+        assigned[j] = 1;
+        members.push(j);
+      }
+    }
+    if (members.length === 1) {
+      result.push(mergedPins[i]);
+    } else {
+      const allEntries = members.flatMap(idx => mergedPins[idx].entries);
+      const latC = members.reduce((s, idx) => s + mergedPins[idx].lat, 0) / members.length;
+      const lngC = members.reduce((s, idx) => s + mergedPins[idx].lng, 0) / members.length;
+      result.push({
+        lat: latC, lng: lngC,
+        entries: allEntries,
+        isGeoCluster: true,
+        clusterPoints: members.map(idx => mergedPins[idx]),
+      });
+    }
+  }
+  return result;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -592,15 +643,29 @@ function _addOffsetMarkers(offset) {
   if (!_map || _activeOffsets.has(offset)) return;
   _activeOffsets.add(offset);
   for (const mp of _mergedPinsCache) {
-    const isMulti = mp.entries.length > 1;
-    const primary = mp.entries[0];
-    const color   = _colorForFlag(primary.entry?.dayFlag || primary.trip.flag);
-    const emoji   = isMulti ? null : (_pinTypeMap()[primary.entry?.pinType] || null);
-    const icon    = isMulti ? _makeMultiIcon(mp.entries.length) : _makeIcon(color, 14, emoji);
+    let icon;
+    if (mp.isGeoCluster) {
+      icon = _makeGeoClusterIcon(mp.entries.length);
+    } else {
+      const isMulti = mp.entries.length > 1;
+      const primary = mp.entries[0];
+      const color   = _colorForFlag(primary.entry?.dayFlag || primary.trip.flag);
+      const emoji   = isMulti ? null : (_pinTypeMap()[primary.entry?.pinType] || null);
+      icon = isMulti ? _makeMultiIcon(mp.entries.length) : _makeIcon(color, 14, emoji);
+    }
     const marker  = L.marker([mp.lat, mp.lng + offset], { icon });
-    marker.on('click', () => _mmShowMergedInfo(mp));
+    marker.on('click', () => {
+      if (mp.isGeoCluster) {
+        _map.fitBounds(
+          L.latLngBounds(mp.clusterPoints.map(p => [p.lat, p.lng])),
+          { padding: [60, 60], maxZoom: 11 }
+        );
+      } else {
+        _mmShowMergedInfo(mp);
+      }
+    });
     marker.addTo(_map);
-    _markers.push({ marker, trip: primary.trip, entry: primary.entry });
+    _markers.push({ marker, trip: mp.entries[0].trip, entry: mp.entries[0].entry });
   }
 }
 
@@ -621,29 +686,30 @@ function _ensureMarkersForViewport() {
 
 // ── Redraw markers on the map ──────────────────────────────────────────────────
 
-function _redrawMarkers(pins) {
+function _redrawMarkers(pins, fitView = true) {
   if (!_map) return;
+  _lastFilteredPins = pins;
 
   for (const { marker } of _markers) marker.remove();
   _markers        = [];
   _activeOffsets  = new Set();
-  _mergedPinsCache = _mergedPins(pins);
+  _mergedPinsCache = _geoCluster(_mergedPins(pins), _map);
 
-  const bounds = _mergedPinsCache.map(mp => [mp.lat, mp.lng]);
+  const rawBounds = _mergedPins(pins).map(mp => [mp.lat, mp.lng]);
 
   // Seed the canonical copy + whatever the current viewport needs
   _addOffsetMarkers(0);
   _ensureMarkersForViewport();
 
-  // Fit map view
-  if (bounds.length > 0) {
-    if (bounds.length === 1) {
-      _map.setView(bounds[0], 10);
+  // Fit map view (only on initial draw, not on zoom-triggered redraws)
+  if (fitView && rawBounds.length > 0) {
+    if (rawBounds.length === 1) {
+      _map.setView(rawBounds[0], 10);
     } else {
       try {
-        _map.fitBounds(bounds, { padding: [48, 48], maxZoom: 12 });
+        _map.fitBounds(rawBounds, { padding: [48, 48], maxZoom: 12 });
       } catch (_) {
-        _map.setView(bounds[0], 8);
+        _map.setView(rawBounds[0], 8);
       }
     }
   }
@@ -1179,6 +1245,8 @@ export function renderMyMap() {
 
     // Lazily add marker copies for every world-copy the user pans into
     _map.on('moveend', _ensureMarkersForViewport);
+    // Re-cluster when zoom changes (clusters expand/collapse based on screen density)
+    _map.on('zoomend', () => { if (_lastFilteredPins.length) _redrawMarkers(_lastFilteredPins, false); });
 
     _redrawMarkers(pins);
     _redrawRoutes(); // async

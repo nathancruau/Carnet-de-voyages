@@ -166,6 +166,7 @@ const _handlers = new WeakMap();
 
 let _journalMap              = null;
 let _journalMarkers          = {};
+let _journalClusterMarkers   = [];   // cluster bubble markers (cleared on redraw)
 let _journalRouteLayers      = [];
 let _journalGpxLayers        = [];
 let _journalTripId           = null;
@@ -185,10 +186,11 @@ export function destroyJournalMap() {
     try { _journalMap.remove(); } catch (_) { /* already removed */ }
     _journalMap = null;
   }
-  _journalMarkers     = {};
-  _journalRouteLayers = [];
-  _journalGpxLayers   = [];
-  _journalTripId      = null;
+  _journalMarkers        = {};
+  _journalClusterMarkers = [];
+  _journalRouteLayers    = [];
+  _journalGpxLayers      = [];
+  _journalTripId         = null;
 }
 
 // ── Route helpers (mirrors mapcal logic) ──────────────────────────────────────
@@ -883,6 +885,49 @@ function _entryCard(trip, e) {
     </div>`;
 }
 
+// ── Journal Map clustering ────────────────────────────────────────────────────
+
+function _makeJournalClusterIcon(count) {
+  const sz = count >= 10 ? 40 : 34;
+  return L.divIcon({
+    className: '',
+    html: `<div style="background:#0d9488;color:#fff;border:3px solid rgba(255,255,255,.9);border-radius:50%;width:${sz}px;height:${sz}px;display:flex;align-items:center;justify-content:center;font-size:${count >= 10 ? 11 : 12}px;font-weight:800;box-shadow:0 2px 10px rgba(13,148,136,.45);cursor:pointer">${count}</div>`,
+    iconSize:   [sz, sz],
+    iconAnchor: [sz / 2, sz / 2],
+  });
+}
+
+/**
+ * Groups pinData entries within `threshold` screen pixels at current zoom.
+ * Returns array where close entries are replaced by a single cluster object.
+ * Disabled at zoom >= 11 — individual pins show at high zoom.
+ */
+function _clusterJournalPins(pinData, map, threshold = 48) {
+  if (!map || map.getZoom() >= 11 || pinData.length < 2) return pinData;
+  const pts      = pinData.map(p => map.latLngToContainerPoint([p.lat, p.lng]));
+  const assigned = new Uint8Array(pinData.length);
+  const result   = [];
+  for (let i = 0; i < pinData.length; i++) {
+    if (assigned[i]) continue;
+    assigned[i] = 1;
+    const members = [i];
+    for (let j = i + 1; j < pinData.length; j++) {
+      if (!assigned[j] && pts[i].distanceTo(pts[j]) <= threshold) {
+        assigned[j] = 1;
+        members.push(j);
+      }
+    }
+    if (members.length === 1) {
+      result.push(pinData[i]);
+    } else {
+      const latC = members.reduce((s, idx) => s + pinData[idx].lat, 0) / members.length;
+      const lngC = members.reduce((s, idx) => s + pinData[idx].lng, 0) / members.length;
+      result.push({ isCluster: true, count: members.length, lat: latC, lng: lngC, clusterPins: members.map(idx => pinData[idx]) });
+    }
+  }
+  return result;
+}
+
 // ── Journal Map ───────────────────────────────────────────────────────────────
 
 function _initJournalMap(tripId) {
@@ -931,6 +976,7 @@ function _initJournalMap(tripId) {
     });
 
     _journalMap.on('moveend', _ensureJournalWorldCopies);
+    _journalMap.on('zoomend', () => { if (_journalTripId) _refreshJournalPins(_journalTripId); });
 
     const lang = getLanguage();
     const tileUrl = lang === 'en'
@@ -967,6 +1013,8 @@ function _refreshJournalPins(tripId) {
 
   Object.values(_journalMarkers).forEach(m => { try { _journalMap.removeLayer(m); } catch (_) {} });
   _journalMarkers = {};
+  _journalClusterMarkers.forEach(m => { try { _journalMap.removeLayer(m); } catch (_) {} });
+  _journalClusterMarkers = [];
   _journalGpxLayers.forEach(l => { try { _journalMap.removeLayer(l); } catch (_) {} });
   _journalGpxLayers = [];
   _journalWorldCopyMarkers.forEach(m => { try { _journalMap.removeLayer(m); } catch (_) {} });
@@ -974,45 +1022,33 @@ function _refreshJournalPins(tripId) {
   _journalWorldCopyOffsets.clear();
 
   const etMap = _etMap();
-  const allPinLatLngs = [];
+  const rawPins = [];         // pre-cluster pin data
+  const allPinLatLngs = [];   // for fitBounds (uses raw positions, not cluster centroids)
 
+  // Phase 1 — collect valid pins and GPX traces
   for (const day of (trip.days || [])) {
     (day.items || []).forEach((item, itemIdx) => {
-      // Observer: only show validated pins; use day coordinates as fallback
       if (_observerMode && !item.journalData?.validated) return;
       const lat = item.lat ?? (_observerMode ? day.lat : null);
       const lng = item.lng ?? (_observerMode ? day.lng : null);
       if (lat == null || lng == null) return;
 
-      const jd        = item.journalData;
-      const validated = jd?.validated;
-      const emoji     = etMap[item.type]?.emoji || '📍';
-      const bgColor   = validated ? '#16a34a' : '#0891b2';
-
-      const icon = L.divIcon({
-        className: '',
-        html: `<div style="background:${bgColor};border:2px solid #fff;border-radius:50%;width:30px;height:30px;display:flex;align-items:center;justify-content:center;font-size:16px;box-shadow:0 1px 6px rgba(0,0,0,.4);cursor:pointer">${emoji}</div>`,
-        iconSize:   [30, 30],
-        iconAnchor: [15, 15],
-        popupAnchor:[0, -18],
+      const validated = item.journalData?.validated;
+      rawPins.push({
+        lat, lng,
+        emoji:    etMap[item.type]?.emoji || '📍',
+        bgColor:  validated ? '#16a34a' : '#0891b2',
+        item, day, itemIdx,
       });
-
-      const marker = L.marker([lat, lng], { icon });
-      const _itemId = item.id;
-      marker.on('click', () => {
-        if (_observerMode && _itemId) _scrollObserverToItem(_itemId);
-        else _openJournalItemPanel(tripId, day.id, itemIdx);
-      });
-      marker.addTo(_journalMap);
-      _journalMarkers[item.id] = marker;
       allPinLatLngs.push([lat, lng]);
 
-      // Draw GPX trace from synced gpxPoints (available to observers too)
+      // GPX traces are drawn directly (not clustered)
       if (item.gpxPoints && item.gpxPoints.length >= 2) {
         const latlngs = item.gpxPoints.map(p => [p.lat, p.lng]);
         const line = L.polyline(latlngs, { color: item.color || '#0891b2', weight: 3, opacity: 0.75 });
+        const _id = item.id;
         line.on('click', () => {
-          if (_observerMode && _itemId) _scrollObserverToItem(_itemId);
+          if (_observerMode && _id) _scrollObserverToItem(_id);
           else _openJournalItemPanel(tripId, day.id, itemIdx);
         });
         line.addTo(_journalMap);
@@ -1020,6 +1056,36 @@ function _refreshJournalPins(tripId) {
         for (const ll of latlngs) allPinLatLngs.push(ll);
       }
     });
+  }
+
+  // Phase 2 — cluster
+  const clusters = _clusterJournalPins(rawPins, _journalMap);
+
+  // Phase 3 — place markers
+  for (const c of clusters) {
+    if (c.isCluster) {
+      const m = L.marker([c.lat, c.lng], { icon: _makeJournalClusterIcon(c.count) });
+      m.on('click', () =>
+        _journalMap.fitBounds(L.latLngBounds(c.clusterPins.map(p => [p.lat, p.lng])), { padding: [50, 50], maxZoom: 13 })
+      );
+      m.addTo(_journalMap);
+      _journalClusterMarkers.push(m);
+    } else {
+      const { lat, lng, emoji, bgColor, item, day, itemIdx } = c;
+      const icon = L.divIcon({
+        className: '',
+        html: `<div style="background:${bgColor};border:2px solid #fff;border-radius:50%;width:30px;height:30px;display:flex;align-items:center;justify-content:center;font-size:16px;box-shadow:0 1px 6px rgba(0,0,0,.4);cursor:pointer">${emoji}</div>`,
+        iconSize: [30, 30], iconAnchor: [15, 15], popupAnchor: [0, -18],
+      });
+      const marker = L.marker([lat, lng], { icon });
+      const _id = item.id;
+      marker.on('click', () => {
+        if (_observerMode && _id) _scrollObserverToItem(_id);
+        else _openJournalItemPanel(tripId, day.id, itemIdx);
+      });
+      marker.addTo(_journalMap);
+      _journalMarkers[item.id] = marker;
+    }
   }
 
   if (allPinLatLngs.length === 1) {
