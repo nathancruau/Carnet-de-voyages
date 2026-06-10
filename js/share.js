@@ -40,6 +40,23 @@ const _sharedDocData  = new Map(); // tripId → latest full Firestore doc
 let   _sharedTripIds  = [];
 let   _presenceInterval = null;    // heartbeat timer
 
+// ── Observer role cache (localStorage) ───────────────────────────────────────
+// Lets isCurrentUserObserver() return synchronously on first render, before
+// _sharedDocData is populated by the async Firestore load.
+
+function _obsRoleCacheKey(uid) { return `_obsroles_${uid}`; }
+
+function _obsGetCachedIds(uid) {
+  try { return new Set(JSON.parse(localStorage.getItem(_obsRoleCacheKey(uid)) || '[]')); }
+  catch(_) { return new Set(); }
+}
+
+function _obsUpdateCache(uid, tripId, isObserver) {
+  const ids = _obsGetCachedIds(uid);
+  isObserver ? ids.add(tripId) : ids.delete(tripId);
+  localStorage.setItem(_obsRoleCacheKey(uid), JSON.stringify([...ids]));
+}
+
 // ── Helpers ─────────────────────────────────────────────────────────────────────
 
 const _esc = s => String(s || '')
@@ -69,7 +86,9 @@ export function isCurrentUserObserver(tripId) {
   const user = getCurrentUser();
   if (!user) return false;
   const doc = _sharedDocData.get(tripId);
-  return doc?.members?.[user.uid]?.role === 'observer';
+  if (doc) return doc.members?.[user.uid]?.role === 'observer';
+  // Synchronous fallback while the Firestore doc is still loading
+  return _obsGetCachedIds(user.uid).has(tripId);
 }
 
 /**
@@ -349,6 +368,9 @@ async function _loadAndListen(tripId) {
     saveSharedTrip(tripId, localTrip).catch(() => {});
   }
   _sharedDocData.set(tripId, doc);
+
+  // Persist observer role so isCurrentUserObserver() resolves synchronously on next load
+  if (user?.uid) _obsUpdateCache(user.uid, tripId, myRole === 'observer');
 
   // Mark current user as present
   if (user) {

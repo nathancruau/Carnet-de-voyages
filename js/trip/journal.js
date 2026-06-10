@@ -312,6 +312,35 @@ export async function renderJournal(tripId, isObserver = false, forceView = null
   }
   if (forceView) _journalView = forceView;
 
+  // ── Lightweight refresh for observer timeline ─────────────────────────────
+  // When the same trip's data updates in real-time (new validated items),
+  // refresh only the timeline content and map pins — don't destroy/recreate the map.
+  if (isObserver && _journalView === 'timeline' && _journalMap && tripId === _journalTripId) {
+    try {
+      const container = _journalMap.getContainer();
+      if (document.contains(container)) {
+        const trip = getTrip(tripId);
+        if (!trip) return;
+        if (isTripShared(tripId) && !_shareMod) {
+          try { _shareMod = await import('../share.js'); } catch (_) {}
+        }
+        const sharedDoc  = isTripShared(tripId) ? _shareMod?.getSharedDocData?.(tripId) : null;
+        const currentUid = getCurrentUser()?.uid || null;
+        const tlScroll   = document.getElementById('tl-scroll');
+        if (tlScroll) {
+          tlScroll.innerHTML = _buildTimelineHtml(trip, tripId, isObserver, sharedDoc, currentUid);
+          _initCarousels(panel);
+        }
+        _refreshJournalPins(tripId);
+        const handler = e => _handleClick(e, tripId);
+        if (_handlers.has(panel)) panel.removeEventListener('click', _handlers.get(panel));
+        _handlers.set(panel, handler);
+        panel.addEventListener('click', handler);
+        return;
+      }
+    } catch (_) {}
+  }
+
   if (_journalMap) destroyJournalMap();
 
   const trip = getTrip(tripId);
