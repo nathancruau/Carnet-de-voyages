@@ -97,7 +97,7 @@ export async function switchTab(tabId) {
   });
 
   // Desktop: mapcal needs position:fixed for Leaflet. Mobile: body-scroll with explicit map height.
-  const _isMapTab   = tabId === 'mapcal' && window.innerWidth > 768;
+  const _isMapTab   = (tabId === 'mapcal' || (tabId === 'journal-timeline' && _isObserver)) && window.innerWidth > 768;
   const _isFixedTab = _isMapTab;
   const app = document.getElementById('screen-app');
   app?.classList.toggle('tab-map-active',   _isMapTab);
