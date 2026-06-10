@@ -18,7 +18,7 @@ Quatre endroits à synchroniser, toujours le même numéro N :
 | `sw.js` | `const SHELL_CACHE = 'cv-shell-N'` |
 | `store.js` | `export const APP_VERSION = 'N'` |
 
-Version actuelle : **119**
+Version actuelle : **120**
 
 ---
 
@@ -228,3 +228,4 @@ uid()          // ID court aléatoire
 | v117 | Menu ⋯ par voyage + export ZIP/PDF + import multi-format | `js/export.js` (nouveau) ; `importAnyZip` dans `import.js` ; modal export multi-sélection dans `home.js` |
 | v118 | Types d'activités étendus (15 types) + UI paramètres simplifiée | `DEFAULT_EVENT_TYPES` étendu ; migration forward ; boutons Ajouter/Supprimer retirés des paramètres |
 | v119 | Menu ⋯ : Modifier/Partager/Supprimer ; export PDF/Word personnalisé ; modal export corrigée | `_openTripMenu` étendu ; `_openPdfExportModal` + `exportTripCustom` avec thèmes/sections/couverture ; `.exp-trip-row` layout fix |
+| v120 | Mode observateur amélioré | Carte observateur supprimée ; 2 onglets Carnet+Timeline ; carte de voyage en lecture seule ; stats excluent les observations ; notifications enrichies avec noms et événement ; supression commentaires/likes par propriétaires |

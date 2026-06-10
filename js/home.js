@@ -21,7 +21,7 @@ import { importFile, importAnyZip } from './import.js';
 import { tripToPlanning, downloadTripPlanning, downloadTripAll, downloadTripsZip, exportTripCustom } from './export.js';
 import { getCurrentUser, logout, syncToFirestore, isFirebaseConfigured } from './auth.js';
 import { requestNotificationPermission, notificationPermissionGranted } from './notifications.js';
-import { openShareModal, leaveSharedTrip, removeSharedTripMember, isCurrentUserObserver } from './share.js';
+import { openShareModal, leaveSharedTrip, removeSharedTripMember, isCurrentUserObserver, getSharedDocData } from './share.js';
 
 // ── Module state ───────────────────────────────────────────────────────────────
 
@@ -982,6 +982,64 @@ function _sortieCardHtml(trip) {
   `;
 }
 
+// ── Observed (shared) trip card — read-only for the observer ──────────────────
+
+function _observedTripCardHtml(trip) {
+  let imgHtml;
+  if (trip.photo) {
+    imgHtml = `
+      <img class="tc-img" src="${_esc(trip.photo)}" alt=""
+           loading="lazy"
+           onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+      <div class="tc-img-ph" style="background:${trip.color || '#0d9488'};display:none">${trip.flag || '🌍'}</div>
+    `;
+  } else {
+    imgHtml = `<div class="tc-img-ph" style="background:${trip.color || '#0d9488'}">${trip.flag || '🌍'}</div>`;
+  }
+
+  let dateStr = 'Dates non définies';
+  if (trip.startDate && trip.endDate) {
+    dateStr = `${fmtDateShort(trip.startDate)} → ${fmtDate(trip.endDate)}`;
+  } else if (trip.startDate) {
+    dateStr = `Dès ${fmtDate(trip.startDate)}`;
+  }
+
+  // Find owner names from shared doc
+  let ownerHtml = '';
+  const sharedDoc = getSharedDocData(trip.id);
+  if (sharedDoc?.members) {
+    const owners = Object.values(sharedDoc.members)
+      .filter(m => m.role === 'owner' || m.role === 'member')
+      .map(m => m.companionName).filter(Boolean);
+    if (owners.length > 0) {
+      const names = owners.length === 1 ? owners[0]
+        : owners.slice(0, -1).join(', ') + ' et ' + owners[owners.length - 1];
+      ownerHtml = `<div class="tc-owner">✈️ ${_esc(names)}</div>`;
+    }
+  }
+
+  return `
+    <div class="trip-card obs-trip-card" data-action="open-trip" data-trip-id="${trip.id}">
+      <div style="position:relative">${imgHtml}</div>
+      <div class="tc-body">
+        <div class="tc-header">
+          <div>${typeBadge(trip.type)}</div>
+          <div style="display:flex;align-items:center;gap:6px">
+            <span class="obs-card-badge">👁 Observation</span>
+            <button class="tc-edit-btn obs-leave-card-btn"
+                    data-action="leave-trip"
+                    data-trip-id="${trip.id}"
+                    title="Quitter ce voyage">✕ Quitter</button>
+          </div>
+        </div>
+        <div class="tc-title">${trip.flag || '🌍'} ${_esc(trip.name || 'Voyage')}</div>
+        <div class="tc-dates">${dateStr}</div>
+        ${ownerHtml}
+      </div>
+    </div>
+  `;
+}
+
 // ── Trip card HTML ─────────────────────────────────────────────────────────────
 
 function _tripCardHtml(trip) {
@@ -1271,7 +1329,7 @@ export function renderHome(filter = _currentFilter) {
           <div style="font-size:12px">Rejoignez un voyage en tant qu'observateur<br>avec le lien d'invitation du voyageur.</div>
         </div>` : `
         <div class="trips-grid" id="trips-grid">
-          ${observingTrips.map(_tripCardHtml).join('')}
+          ${observingTrips.map(_observedTripCardHtml).join('')}
         </div>`}`;
   } else {
     secContent = `
@@ -1328,7 +1386,7 @@ function _renderStats() {
   const wrap = document.getElementById('home-wrap');
   if (!wrap) return;
   const allTrips  = getTrips();
-  const doneTrips = allTrips.filter(t => t.status === 'done');
+  const doneTrips = allTrips.filter(t => t.status === 'done' && !isCurrentUserObserver(t.id));
   const filtered  = _statsTypeFilter === 'all' ? doneTrips : doneTrips.filter(t => t.type === _statsTypeFilter);
   _statsLastFiltered = filtered;
 
@@ -1713,6 +1771,18 @@ function _attachListeners(wrap) {
         const newStatus = (trip.status || 'done') === 'done' ? 'planning' : 'done';
         updateTrip(tripId, { status: newStatus });
         renderHome(_currentFilter);
+        break;
+      }
+
+      case 'leave-trip': {
+        e.stopPropagation();
+        const tripId = target.dataset.tripId;
+        const trip   = getTrips().find(t => t.id === tripId);
+        const name   = trip?.name || 'ce voyage';
+        if (!confirm(`Quitter "${name}" ? Vous ne recevrez plus ses mises à jour.`)) break;
+        leaveSharedTrip(tripId).catch(() => {});
+        renderHome(_currentFilter);
+        notify(`Vous avez quitté "${name}".`, '👁');
         break;
       }
 

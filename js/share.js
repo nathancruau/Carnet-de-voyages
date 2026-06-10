@@ -76,7 +76,7 @@ export function isCurrentUserObserver(tripId) {
  * Called when a traveler validates a journal day.
  * Writes lastPublished to Firestore so observers receive a real-time notification.
  */
-export async function publishDay(tripId, dayNum, dayTitle) {
+export async function publishDay(tripId, dayNum, dayTitle, itemText = '') {
   const user = getCurrentUser();
   if (!user) return;
   const sharedDoc = _sharedDocData.get(tripId);
@@ -87,7 +87,8 @@ export async function publishDay(tripId, dayNum, dayTitle) {
   const dayLabel = dayTitle ? `Jour ${dayNum} · ${dayTitle}` : `Jour ${dayNum}`;
   await updateLastPublished(tripId, {
     dayNum,
-    dayTitle: dayTitle || '',
+    dayTitle:  dayTitle  || '',
+    itemText:  itemText  || '',
     actorName,
     tripName,
     dayLabel,
@@ -168,7 +169,10 @@ export async function deleteObserverComment(tripId, commentId) {
   if (!sharedDoc) return;
 
   const comment = sharedDoc.observerComments?.[commentId];
-  if (!comment || comment.uid !== user.uid) return;
+  if (!comment) return;
+  const myRole = sharedDoc.members?.[user.uid]?.role;
+  const canDel = comment.uid === user.uid || myRole === 'owner' || myRole === 'member';
+  if (!canDel) return;
 
   // Optimistic local update
   const observerComments = { ...(sharedDoc.observerComments || {}) };
@@ -178,6 +182,28 @@ export async function deleteObserverComment(tripId, commentId) {
 
   try {
     await deleteSharedTripField(tripId, `observerComments.${commentId}`);
+  } catch (_) {}
+}
+
+/**
+ * Remove a specific UID's reaction on an item.
+ * Observer can remove their own; owner/member can remove any.
+ */
+export async function deleteObserverReaction(tripId, itemId, targetUid) {
+  const user = getCurrentUser();
+  if (!user) return;
+  const sharedDoc = _sharedDocData.get(tripId);
+  if (!sharedDoc) return;
+  const myRole = sharedDoc.members?.[user.uid]?.role;
+  if (user.uid !== targetUid && myRole !== 'owner' && myRole !== 'member') return;
+
+  const reactions = JSON.parse(JSON.stringify(sharedDoc.reactions || {}));
+  if (reactions[itemId]) delete reactions[itemId][targetUid];
+  _sharedDocData.set(tripId, { ...sharedDoc, reactions });
+  _refreshJournalIfVisible(tripId);
+
+  try {
+    await deleteSharedTripField(tripId, `reactions.${itemId}.${targetUid}`);
   } catch (_) {}
 }
 
@@ -400,7 +426,7 @@ function _onNetworkUpdate(tripId, data, hasPendingWrites) {
       const user   = getCurrentUser();
       const myRole = data.members?.[user?.uid]?.role;
       if (myRole === 'observer') {
-        _showPublishNotification(data.lastPublished);
+        _showPublishNotification(data.lastPublished, data.members);
       }
     }
   }
@@ -423,13 +449,31 @@ function _onNetworkUpdate(tripId, data, hasPendingWrites) {
   }
 }
 
-function _showPublishNotification(pub) {
-  const { actorName, tripName, dayLabel } = pub || {};
-  const msg = `${actorName || 'Un voyageur'} a publié ${dayLabel || 'un jour'} de "${tripName || 'son voyage'}"`;
-  notify(msg, '📖');
+function _showPublishNotification(pub, members) {
+  const { actorName, tripName, dayNum, dayTitle, itemText } = pub || {};
+
+  // Build list of all trip collaborators (owner + members)
+  const memberNames = Object.values(members || {})
+    .filter(m => m.role === 'owner' || m.role === 'member')
+    .map(m => m.companionName).filter(Boolean);
+
+  let authorPart;
+  if (memberNames.length === 0) {
+    authorPart = actorName || 'Un voyageur';
+  } else if (memberNames.length === 1) {
+    authorPart = memberNames[0];
+  } else {
+    authorPart = memberNames.slice(0, -1).join(', ') + ' et ' + memberNames[memberNames.length - 1];
+  }
+  const verb     = memberNames.length > 1 ? 'ont' : 'a';
+  const evtPart  = itemText ? `l'événement "${itemText}"` : 'un événement';
+  const dayPart  = dayTitle ? `Jour ${dayNum} · ${dayTitle}` : `Jour ${dayNum}`;
+  const msg      = `${authorPart} ${verb} publié ${evtPart} du ${dayPart} de leur voyage "${tripName || 'ce voyage'}"`;
+
+  notify(msg, '📡');
   const s = getSettings();
   if (s?.notifications?.enabled && s.notifications.observerPublish !== false && Notification?.permission === 'granted') {
-    try { new Notification('Carnet de Voyages', { body: msg, icon: '/favicon.ico' }); } catch (_) {}
+    try { new Notification('Carnet de Voyages', { body: msg, icon: '/icons/icon-192.png' }); } catch (_) {}
   }
 }
 

@@ -284,7 +284,7 @@ export function rerenderJournal(tripId) {
   renderJournal(tripId, _observerMode);
 }
 
-export async function renderJournal(tripId, isObserver = false) {
+export async function renderJournal(tripId, isObserver = false, forceView = null) {
   _observerMode = isObserver;
   const panel = document.getElementById('panel-journal');
   if (!panel) return;
@@ -296,6 +296,7 @@ export async function renderJournal(tripId, isObserver = false) {
     _journalView     = 'map';
     _journalMobTab   = 'carte';
   }
+  if (forceView) _journalView = forceView;
 
   if (_journalMap) destroyJournalMap();
 
@@ -385,35 +386,23 @@ export async function renderJournal(tripId, isObserver = false) {
 function _renderObserverView(panel, trip, tripId) {
   const days = trip.days || [];
   const validatedItems = [];
-
   for (const day of days) {
     for (const item of (day.items || [])) {
-      if (item.journalData?.validated) {
-        validatedItems.push({ day, item });
-      }
+      if (item.journalData?.validated) validatedItems.push({ day, item });
     }
   }
-
   const hasItems = validatedItems.length > 0;
 
   panel.innerHTML = `
-    <div class="mapcal">
-      <div class="left-panel" style="width:320px;min-width:260px;max-width:320px;display:flex;flex-direction:column">
-        ${_viewToggleHtml('map')}
-        <div style="padding:8px 14px 4px;flex-shrink:0">
-          <h3 style="font-family:var(--sf);font-size:15px;font-weight:700;color:var(--ink);margin:0">📔 Carnet de voyage</h3>
-          <p style="font-size:11px;color:var(--ink4);margin-top:2px">Mis à jour en direct par les voyageurs</p>
-        </div>
-        <div class="days-scroll" id="observer-feed" style="flex:1;overflow-y:auto;padding:6px 8px">
-          ${hasItems ? _buildObserverFeedHtml(validatedItems, tripId) : _buildObserverEmptyHtml()}
-        </div>
+    <div style="display:flex;flex-direction:column;height:100%;overflow:hidden">
+      <div style="padding:10px 14px 8px;flex-shrink:0;border-bottom:1px solid var(--c3)">
+        <h3 style="font-family:var(--sf);font-size:15px;font-weight:700;color:var(--ink);margin:0">📔 Carnet de voyage</h3>
+        <p style="font-size:11px;color:var(--ink4);margin-top:2px">Publications des voyageurs · mis à jour en direct</p>
       </div>
-      <div class="map-col" style="flex:1;position:relative">
-        <div id="journal-map" style="width:100%;height:100%"></div>
+      <div id="observer-feed" style="flex:1;overflow-y:auto;padding:8px 12px">
+        ${hasItems ? _buildObserverFeedHtml(validatedItems, tripId) : _buildObserverEmptyHtml()}
       </div>
     </div>`;
-
-  _initJournalMap(tripId);
 }
 
 function _buildObserverEmptyHtml() {
@@ -604,12 +593,26 @@ function _tlItemHtml(day, item, itemIdx, isObserver, tripId, sharedDoc, currentU
   // Reactions & comments — only on validated items of shared trips
   let interactionsHtml = '';
   if (validated && sharedDoc) {
-    const itemReactions  = sharedDoc.reactions?.[item.id] || {};
-    const allComments    = sharedDoc.observerComments || {};
-    const itemComments   = Object.values(allComments).filter(c => c.itemId === item.id);
-    const heartCount     = Object.values(itemReactions).filter(e => e === '❤️').length;
-    const commentCount   = itemComments.length;
-    const myReacted      = currentUid ? itemReactions[currentUid] === '❤️' : false;
+    const itemReactions   = sharedDoc.reactions?.[item.id] || {};
+    const allComments     = sharedDoc.observerComments || {};
+    const itemComments    = Object.values(allComments).filter(c => c.itemId === item.id);
+    const heartCount      = Object.values(itemReactions).filter(e => e === '❤️').length;
+    const commentCount    = itemComments.length;
+    const myReacted       = currentUid ? itemReactions[currentUid] === '❤️' : false;
+    const isOwnerOrMember = currentUid && (sharedDoc.members?.[currentUid]?.role === 'owner' || sharedDoc.members?.[currentUid]?.role === 'member');
+
+    // Build reactor chips (for owners: each has a remove button)
+    let reactorChips = '';
+    if (heartCount > 0) {
+      const reactors = Object.entries(itemReactions).filter(([, v]) => v === '❤️');
+      reactorChips = reactors.map(([uid]) => {
+        const name = sharedDoc.members?.[uid]?.companionName || '?';
+        const delBtn = isOwnerOrMember
+          ? `<button class="tl-reactor-del" data-action="remove-reaction" data-item-id="${_esc(item.id)}" data-target-uid="${_esc(uid)}" title="Retirer">×</button>`
+          : '';
+        return `<span class="tl-reactor-chip${uid === currentUid ? ' mine' : ''}">❤️ ${_esc(name)}${delBtn}</span>`;
+      }).join('');
+    }
 
     interactionsHtml = `
       <div class="tl-interactions">
@@ -617,6 +620,7 @@ function _tlItemHtml(day, item, itemIdx, isObserver, tripId, sharedDoc, currentU
                 data-action="toggle-reaction" data-item-id="${_esc(item.id)}">
           ❤️${heartCount > 0 ? `<span class="tl-react-count">${heartCount}</span>` : ''}
         </button>
+        ${reactorChips ? `<div class="tl-reactor-list">${reactorChips}</div>` : ''}
         <button class="tl-comment-open-btn"
                 data-action="open-comments"
                 data-item-id="${_esc(item.id)}"
@@ -1003,6 +1007,15 @@ function _handleClick(e, tripId) {
     return;
   }
 
+  if (action === 'remove-reaction') {
+    const itemId    = btn.dataset.itemId;
+    const targetUid = btn.dataset.targetUid;
+    if (_shareMod && itemId && targetUid) {
+      _shareMod.deleteObserverReaction?.(tripId, itemId, targetUid).catch(() => {});
+    }
+    return;
+  }
+
   if (action === 'open-comments') {
     const itemId   = btn.dataset.itemId;
     const itemText = btn.dataset.itemText;
@@ -1030,7 +1043,8 @@ function _openCommentsModal(tripId, itemId, itemText) {
       const dateLabel = new Date(c.ts).toLocaleString('fr-FR', {
         day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
       });
-      const canDelete = c.uid === currentUid;
+      const myRole    = sharedDoc.members?.[currentUid]?.role;
+      const canDelete = c.uid === currentUid || myRole === 'owner' || myRole === 'member';
       return `
         <div class="tl-comment-item">
           <div class="tl-comment-header">
@@ -1478,9 +1492,10 @@ function _openValidateModal(tripId, dayId, itemIdx) {
 
     // Notify observers if this is a shared trip
     if (isTripShared(tripId)) {
-      const day = days[dayIdx];
+      const day      = days[dayIdx];
+      const itemText = items[itemIdx]?.text || '';
       import('../share.js').then(({ publishDay }) => {
-        publishDay(tripId, day.num, day.title || '');
+        publishDay(tripId, day.num, day.title || '', itemText);
       }).catch(() => {});
     }
 

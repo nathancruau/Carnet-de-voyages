@@ -234,6 +234,32 @@ body{height:100%;min-height:-webkit-fill-available;font-family:var(--fn);backgro
 .exp-trip-lbl{font-size:13px;font-weight:600;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .exp-trip-meta{font-size:11px;color:var(--ink4)}
 
+/* ── Observer trip card ─────────────────────────────────────────── */
+.obs-trip-card .tc-img-ph { opacity:.85; }
+.obs-card-badge{
+  font-size:10px;font-weight:700;padding:2px 8px;border-radius:999px;
+  background:#e0f2fe;color:#0284c7;border:1px solid #bae6fd;white-space:nowrap;
+}
+.obs-leave-card-btn{
+  font-size:10px;padding:2px 8px;border-radius:999px;
+  background:#fee2e2;color:#e85d3e;border:1px solid #fca5a5;cursor:pointer;
+  white-space:nowrap;font-weight:700;
+}
+.tc-owner{font-size:11px;color:var(--ink3);margin-top:4px;font-style:italic}
+
+/* ── Timeline reactor chips ─────────────────────────────────────── */
+.tl-reactor-list{display:flex;flex-wrap:wrap;gap:4px;margin:4px 0 2px}
+.tl-reactor-chip{
+  display:inline-flex;align-items:center;gap:3px;font-size:11px;font-weight:600;
+  padding:2px 7px;border-radius:999px;background:var(--c2);border:1px solid var(--c3);color:var(--ink2);
+}
+.tl-reactor-chip.mine{background:#fce7f3;border-color:#fbcfe8;color:#be185d}
+.tl-reactor-del{
+  background:none;border:none;cursor:pointer;color:var(--ink4);font-size:12px;
+  padding:0 0 0 2px;line-height:1;
+}
+.tl-reactor-del:hover{color:var(--coral)}
+
 /* ══════════════════════════════════════════
    TOPBAR
 ══════════════════════════════════════════ */

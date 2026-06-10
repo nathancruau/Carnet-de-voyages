@@ -90,9 +90,10 @@ export async function switchTab(tabId) {
     t.classList.toggle('active', t.dataset.tab === tabId);
   });
 
-  // Show / hide panels
+  // Show / hide panels — journal-timeline reuses panel-journal
+  const _panelId = tabId === 'journal-timeline' ? 'journal' : tabId;
   document.querySelectorAll('.panel').forEach(p => {
-    p.classList.toggle('active', p.id === `panel-${tabId}`);
+    p.classList.toggle('active', p.id === `panel-${_panelId}`);
   });
 
   // Desktop: mapcal needs position:fixed for Leaflet. Mobile: body-scroll with explicit map height.
@@ -123,7 +124,7 @@ export async function switchTab(tabId) {
   await _renderActiveTab(tabId, _tripId, _isObserver);
 
   // Acknowledge unread badges when observer explicitly navigates TO the journal tab
-  if (tabId === 'journal' && prevTab !== 'journal' && _isObserver) {
+  if ((tabId === 'journal' || tabId === 'journal-timeline') && prevTab !== tabId && _isObserver) {
     try {
       const { ackJournalSeen } = await import('./journal.js');
       ackJournalSeen(_tripId);
@@ -210,21 +211,49 @@ function _renderObserverTopbar(trip) {
       <span class="trip-tag">${_esc(trip.flag || '')} ${_esc(trip.name || 'Voyage')}</span>
       <div class="topbar-right">
         <span class="dates-tag">${startLabel} – ${endLabel}</span>
-        <span class="observer-badge">👁 Observateur</span>
+        <span class="observer-badge">👁 Observation</span>
+        <button class="bc obs-leave-btn" id="obs-leave-btn" style="font-size:11px;padding:4px 10px">Quitter ce voyage</button>
       </div>
     </div>
     <div class="topbar-row2">
       <div class="nav-tabs">
-        <div class="nav-tab active" data-tab="journal">📔 Carnet de voyage</div>
+        <div class="nav-tab active" data-tab="journal">📔 Carnet</div>
+        <div class="nav-tab" data-tab="journal-timeline">📅 Timeline</div>
       </div>
+      <div id="obs-owner-info" style="font-size:11px;color:var(--ink4);padding:0 10px;display:flex;align-items:center;gap:4px;flex-shrink:0"></div>
     </div>
   `;
 
   topbar.querySelector('#back-home-btn').addEventListener('click', () => window.goHome?.());
+
+  topbar.querySelector('#obs-leave-btn')?.addEventListener('click', async () => {
+    if (!confirm('Quitter ce voyage partagé ? Vous ne recevrez plus ses mises à jour.')) return;
+    try {
+      const { leaveSharedTrip } = await import('../share.js');
+      await leaveSharedTrip(_tripId);
+    } catch (_) {}
+    window.goHome?.();
+  });
+
   topbar.addEventListener('click', e => {
     const tab = e.target.closest('.nav-tab');
     if (tab && tab.dataset.tab) switchTab(tab.dataset.tab);
   });
+
+  // Async: fill owner info from shared doc
+  import('../share.js').then(({ getSharedDocData }) => {
+    const doc = getSharedDocData(_tripId);
+    if (!doc?.members) return;
+    const owners = Object.values(doc.members)
+      .filter(m => m.role === 'owner' || m.role === 'member')
+      .map(m => m.companionName).filter(Boolean);
+    const el = document.getElementById('obs-owner-info');
+    if (el && owners.length > 0) {
+      const names = owners.length === 1 ? owners[0]
+        : owners.slice(0, -1).join(', ') + ' et ' + owners[owners.length - 1];
+      el.innerHTML = `<span style="opacity:.7">Voyage de</span> <b>${_esc(names)}</b>`;
+    }
+  }).catch(() => {});
 }
 
 function _renderObserverPanels() {
@@ -427,9 +456,9 @@ async function _renderActiveTab(tabId, tripId, isObserver = false) {
     if (tabId === 'mapcal') {
       const { renderMapCal } = await import('./mapcal.js');
       renderMapCal(tripId);
-    } else if (tabId === 'journal') {
+    } else if (tabId === 'journal' || tabId === 'journal-timeline') {
       const { renderJournal } = await import('./journal.js');
-      renderJournal(tripId, isObserver);
+      renderJournal(tripId, isObserver, tabId === 'journal-timeline' ? 'timeline' : null);
     } else if (tabId === 'budget') {
       const { renderBudget } = await import('./budget.js');
       renderBudget(tripId);
