@@ -70,9 +70,13 @@ export async function openTrip(id) {
  * Destroy the Leaflet map instance when leaving the trip screen.
  */
 export async function destroyTripMap() {
-  const mapcalMod = await import('./mapcal.js').catch(() => null);
+  const [mapcalMod, journalMod, sortieMod] = await Promise.all([
+    import('./mapcal.js').catch(() => null),
+    import('./journal.js').catch(() => null),
+    import('./sortie.js').catch(() => null),
+  ]);
   mapcalMod?.destroyMap();
-  const sortieMod = await import('./sortie.js').catch(() => null);
+  journalMod?.destroyJournalMap();
   sortieMod?.destroySortieMap();
 }
 
