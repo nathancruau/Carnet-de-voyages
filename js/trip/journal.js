@@ -121,6 +121,9 @@ function _gpxSlideInner(item) {
 
 function _carouselHtml(slides, carId) {
   if (slides.length === 0) return '';
+  const arrows = slides.length > 1 ? `
+    <button class="tl-car-prev" data-car-nav="prev" data-car-id="${_esc(carId)}" aria-label="Précédente">❮</button>
+    <button class="tl-car-next" data-car-nav="next" data-car-id="${_esc(carId)}" aria-label="Suivante">❯</button>` : '';
   const dots = slides.length > 1
     ? `<div class="tl-car-dots">${slides.map((_, i) =>
         `<div class="tl-dot${i === 0 ? ' active' : ''}"></div>`).join('')}</div>`
@@ -129,18 +132,29 @@ function _carouselHtml(slides, carId) {
     <div class="tl-car-track" data-car-track="${_esc(carId)}">
       ${slides.map(s => `<div class="tl-car-slide">${s}</div>`).join('')}
     </div>
+    ${arrows}
     ${dots}
   </div>`;
 }
 
 function _initCarousels(el) {
   el.querySelectorAll('[data-car-track]').forEach(track => {
-    const dots = track.closest('[data-car-id]')?.querySelectorAll('.tl-dot');
-    if (!dots || dots.length < 2) return;
-    track.addEventListener('scroll', () => {
+    const carEl = track.closest('[data-car-id]');
+    const dots  = carEl?.querySelectorAll('.tl-dot');
+    const updateDots = () => {
+      if (!dots || dots.length < 2) return;
       const idx = Math.round(track.scrollLeft / track.clientWidth);
       dots.forEach((d, i) => d.classList.toggle('active', i === idx));
-    }, { passive: true });
+    };
+    track.addEventListener('scroll', updateDots, { passive: true });
+    carEl?.querySelectorAll('[data-car-nav]').forEach(btn => {
+      btn.addEventListener('click', e => {
+        e.stopPropagation();
+        const dir = btn.dataset.carNav === 'prev' ? -1 : 1;
+        const idx = Math.round(track.scrollLeft / track.clientWidth);
+        track.scrollTo({ left: (idx + dir) * track.clientWidth, behavior: 'smooth' });
+      });
+    });
   });
 }
 
@@ -391,18 +405,28 @@ function _renderObserverView(panel, trip, tripId) {
       if (item.journalData?.validated) validatedItems.push({ day, item });
     }
   }
-  const hasItems = validatedItems.length > 0;
+  const hasItems   = validatedItems.length > 0;
+  const sharedDoc  = isTripShared(tripId) ? _shareMod?.getSharedDocData?.(tripId) : null;
+  const currentUid = getCurrentUser()?.uid || null;
 
   panel.innerHTML = `
-    <div style="display:flex;flex-direction:column;height:100%;overflow:hidden">
-      <div style="padding:10px 14px 8px;flex-shrink:0;border-bottom:1px solid var(--c3)">
-        <h3 style="font-family:var(--sf);font-size:15px;font-weight:700;color:var(--ink);margin:0">📔 Carnet de voyage</h3>
-        <p style="font-size:11px;color:var(--ink4);margin-top:2px">Publications des voyageurs · mis à jour en direct</p>
+    <div class="obs-carnet-layout">
+      <div class="obs-feed-col">
+        <div style="padding:10px 14px 8px;flex-shrink:0;border-bottom:1px solid var(--c3)">
+          <h3 style="font-family:var(--sf);font-size:15px;font-weight:700;color:var(--ink);margin:0">📔 Carnet de voyage</h3>
+          <p style="font-size:11px;color:var(--ink4);margin-top:2px">Publications des voyageurs · mis à jour en direct</p>
+        </div>
+        <div id="observer-feed" style="flex:1;overflow-y:auto;padding:8px 12px">
+          ${hasItems ? _buildObserverFeedHtml(validatedItems, tripId, sharedDoc, currentUid) : _buildObserverEmptyHtml()}
+        </div>
       </div>
-      <div id="observer-feed" style="flex:1;overflow-y:auto;padding:8px 12px">
-        ${hasItems ? _buildObserverFeedHtml(validatedItems, tripId) : _buildObserverEmptyHtml()}
+      <div class="obs-map-col">
+        <div id="journal-map" style="width:100%;height:100%"></div>
       </div>
     </div>`;
+
+  _initJournalMap(tripId);
+
 }
 
 function _buildObserverEmptyHtml() {
@@ -414,7 +438,7 @@ function _buildObserverEmptyHtml() {
     </div>`;
 }
 
-function _buildObserverFeedHtml(validatedItems, tripId) {
+function _buildObserverFeedHtml(validatedItems, tripId, sharedDoc, currentUid) {
   // Group by day
   const groups = new Map();
   for (const { day, item } of validatedItems) {
@@ -424,7 +448,7 @@ function _buildObserverFeedHtml(validatedItems, tripId) {
 
   let html = '';
   for (const [, { day, items }] of groups) {
-    const dayLabel  = `Jour ${day.num}${day.title ? ' · ' + day.title : ''}`;
+    const dayLabel    = `Jour ${day.num}${day.title ? ' · ' + day.title : ''}`;
     const hasNewInDay = items.some(it => _obsIsNew(it, tripId));
     html += `<div class="jn-day-group">
       <div class="jn-day-label">
@@ -437,6 +461,30 @@ function _buildObserverFeedHtml(validatedItems, tripId) {
       const typeIcon = _eventTypeIcon(item.type);
       const photos   = jd.photos || [];
       const isNew    = _obsIsNew(item, tripId);
+
+      // Interactions (likes + comments)
+      let interactionsHtml = '';
+      if (sharedDoc && item.id) {
+        const itemReactions = sharedDoc.reactions?.[item.id] || {};
+        const allComments   = sharedDoc.observerComments || {};
+        const itemComments  = Object.values(allComments).filter(c => c.itemId === item.id);
+        const heartCount    = Object.values(itemReactions).filter(v => v === '❤️').length;
+        const commentCount  = itemComments.length;
+        const myReacted     = currentUid ? itemReactions[currentUid] === '❤️' : false;
+        interactionsHtml = `
+          <div class="tl-interactions">
+            <button class="tl-react-btn${myReacted ? ' reacted' : ''}"
+                    data-action="toggle-reaction" data-item-id="${_esc(item.id)}">
+              ❤️${heartCount > 0 ? `<span class="tl-react-count">${heartCount}</span>` : ''}
+            </button>
+            <button class="tl-comment-open-btn"
+                    data-action="open-comments"
+                    data-item-id="${_esc(item.id)}"
+                    data-item-text="${_esc(item.text || '')}">
+              💬${commentCount > 0 ? `<span class="tl-react-count">${commentCount}</span>` : ''}
+            </button>
+          </div>`;
+      }
 
       html += `
         <div class="obs-entry${isNew ? ' obs-entry-new' : ''}">
@@ -457,6 +505,7 @@ function _buildObserverFeedHtml(validatedItems, tripId) {
           ${photos.length > 0 ? `<div class="obs-photos">${photos.map(src =>
             `<img src="${_esc(src)}" class="obs-photo" onclick="window.open(this.src,'_blank')">`
           ).join('')}</div>` : ''}
+          ${interactionsHtml}
         </div>`;
     }
     html += `</div>`;
@@ -477,16 +526,35 @@ function _viewToggleHtml(activeView) {
 // ── Timeline view ─────────────────────────────────────────────────────────────
 
 function _renderTimelineView(panel, trip, tripId, isObserver) {
-  const sharedDoc    = isTripShared(tripId) ? _shareMod?.getSharedDocData?.(tripId) : null;
-  const currentUid   = getCurrentUser()?.uid || null;
-  panel.innerHTML = `
-    <div class="tl-wrap">
-      ${_viewToggleHtml('timeline')}
-      <div class="tl-scroll" id="tl-scroll">
-        ${_buildTimelineHtml(trip, tripId, isObserver, sharedDoc, currentUid)}
-      </div>
-    </div>`;
-  _initCarousels(panel);
+  const sharedDoc  = isTripShared(tripId) ? _shareMod?.getSharedDocData?.(tripId) : null;
+  const currentUid = getCurrentUser()?.uid || null;
+
+  if (isObserver) {
+    panel.innerHTML = `
+      <div class="obs-tl-layout">
+        <div class="obs-tl-col">
+          <div class="tl-wrap" style="height:100%;display:flex;flex-direction:column">
+            <div class="tl-scroll" id="tl-scroll" style="flex:1;overflow-y:auto">
+              ${_buildTimelineHtml(trip, tripId, isObserver, sharedDoc, currentUid)}
+            </div>
+          </div>
+        </div>
+        <div class="obs-map-col">
+          <div id="journal-map" style="width:100%;height:100%"></div>
+        </div>
+      </div>`;
+    _initCarousels(panel);
+    _initJournalMap(tripId);
+  } else {
+    panel.innerHTML = `
+      <div class="tl-wrap">
+        ${_viewToggleHtml('timeline')}
+        <div class="tl-scroll" id="tl-scroll">
+          ${_buildTimelineHtml(trip, tripId, isObserver, sharedDoc, currentUid)}
+        </div>
+      </div>`;
+    _initCarousels(panel);
+  }
 }
 
 function _buildTimelineHtml(trip, tripId, isObserver, sharedDoc, currentUid) {
@@ -832,6 +900,7 @@ function _initJournalMap(tripId) {
     }).addTo(_journalMap);
 
     _journalMap.invalidateSize();
+    setTimeout(() => { if (_journalMap) _journalMap.invalidateSize(); }, 150);
     _refreshJournalPins(tripId);
     _drawJournalRoutes(tripId);
   });
