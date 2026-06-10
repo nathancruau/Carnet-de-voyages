@@ -1303,7 +1303,7 @@ export function renderHome(filter = _currentFilter) {
       </div>
       <div class="home-sec" style="padding-top:12px">
         <h2 style="font-family:var(--sf);font-size:18px;font-weight:700;margin-bottom:14px">📡 En direct</h2>
-        ${_buildLiveFeedHtml(observingTrips)}
+        <div class="live-feed-wrap">${_buildLiveFeedHtml(observingTrips)}</div>
       </div>`;
     if (!_listenerAttached) { _attachListeners(wrap); _listenerAttached = true; }
     _initHomeCarousels(wrap);
@@ -1316,7 +1316,7 @@ export function renderHome(filter = _currentFilter) {
       <div class="home-sec-hd">
         ${tabSwitcher}
       </div>
-      ${_buildLiveFeedHtml(observingTrips)}`;
+      <div class="live-feed-wrap">${_buildLiveFeedHtml(observingTrips)}</div>`;
   } else if (_homeLibTab === 'observing') {
     secContent = `
       <div class="home-sec-hd">
@@ -2414,6 +2414,71 @@ export function openEditTripModal(id = null, presetType = null) {
 // Expose on window so sortie.js detail view can call it without circular imports
 window._openEditTripModal = openEditTripModal;
 
+// ── Crop modal ────────────────────────────────────────────────────────────────
+
+function _openCropModal(imgSrc, onCrop) {
+  showModal(`
+    <button class="mc" onclick="closeModal()">✕</button>
+    <h3 class="modal-title">Recadrer la photo</h3>
+    <p style="font-size:12px;color:var(--ink4);margin-bottom:10px">Faites glisser l'image pour choisir la zone visible (format 16:9).</p>
+    <div id="crop-frame" style="position:relative;width:100%;aspect-ratio:16/9;overflow:hidden;background:#111;border-radius:10px;cursor:grab;touch-action:none;margin-bottom:12px">
+      <img id="crop-img" src="${_esc(imgSrc)}" draggable="false"
+           style="position:absolute;max-width:none;max-height:none;user-select:none;pointer-events:none;top:0;left:0">
+    </div>
+    <button id="crop-ok" style="width:100%;background:var(--teal);color:#fff;border:none;border-radius:10px;padding:11px;font-size:14px;font-weight:700;cursor:pointer">✓ Valider ce cadrage</button>
+  `);
+
+  const frame = document.getElementById('crop-frame');
+  const img   = document.getElementById('crop-img');
+  let ox = 0, oy = 0, dragging = false, sx = 0, sy = 0;
+
+  function clamp() {
+    const fw = frame.clientWidth, fh = frame.clientHeight;
+    const iw = img.clientWidth,   ih = img.clientHeight;
+    ox = Math.min(0, Math.max(fw - iw, ox));
+    oy = Math.min(0, Math.max(fh - ih, oy));
+    img.style.left = ox + 'px';
+    img.style.top  = oy + 'px';
+  }
+
+  img.addEventListener('load', () => {
+    const fw = frame.clientWidth, fh = frame.clientHeight;
+    const scale = Math.max(fw / img.naturalWidth, fh / img.naturalHeight);
+    img.style.width  = Math.round(img.naturalWidth  * scale) + 'px';
+    img.style.height = Math.round(img.naturalHeight * scale) + 'px';
+    // Center initially
+    ox = (fw - img.clientWidth)  / 2;
+    oy = (fh - img.clientHeight) / 2;
+    clamp();
+  }, { once: true });
+
+  frame.addEventListener('pointerdown', e => {
+    dragging = true; sx = e.clientX - ox; sy = e.clientY - oy;
+    frame.style.cursor = 'grabbing';
+    frame.setPointerCapture(e.pointerId);
+  });
+  frame.addEventListener('pointermove', e => {
+    if (!dragging) return;
+    ox = e.clientX - sx; oy = e.clientY - sy;
+    clamp();
+  });
+  frame.addEventListener('pointerup', () => { dragging = false; frame.style.cursor = 'grab'; });
+
+  document.getElementById('crop-ok')?.addEventListener('click', () => {
+    const fw = frame.clientWidth, fh = frame.clientHeight;
+    const scale = img.clientWidth / img.naturalWidth;
+    const canvas = document.createElement('canvas');
+    canvas.width  = 1200;
+    canvas.height = Math.round(1200 * fh / fw);
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(img,
+      -ox / scale, -oy / scale, fw / scale, fh / scale,
+      0, 0, canvas.width, canvas.height);
+    closeModal();
+    onCrop(canvas.toDataURL('image/jpeg', 0.88));
+  });
+}
+
 // ── Modal: wire up listeners ───────────────────────────────────────────────────
 
 function _initModalListeners(trip) {
@@ -2481,17 +2546,32 @@ function _initModalListeners(trip) {
   }
 
   // Photo file input
+  // Photo file input → open crop dialog after reading
   document.getElementById('m-photo-file')?.addEventListener('change', ev => {
     const file = ev.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
     reader.onload = e => {
-      _photoBase64 = e.target.result;
-      const preview = document.getElementById('m-photo-preview');
-      if (preview) {
-        preview.src          = _photoBase64;
-        preview.style.display = 'block';
-      }
+      _openCropModal(e.target.result, cropped => {
+        _photoBase64 = cropped;
+        const preview = document.getElementById('m-photo-preview');
+        if (preview) { preview.src = _photoBase64; preview.style.display = 'block'; }
+        // Show a "Recadrer" button next to preview
+        let btn = document.getElementById('m-crop-btn');
+        if (!btn) {
+          btn = document.createElement('button');
+          btn.id = 'm-crop-btn';
+          btn.type = 'button';
+          btn.textContent = '✂ Recadrer';
+          btn.style.cssText = 'margin-top:6px;font-size:11px;padding:4px 10px;border-radius:6px;background:var(--c2);border:1px solid var(--c3);cursor:pointer;color:var(--ink2);font-weight:600';
+          document.getElementById('m-photo-preview')?.insertAdjacentElement('afterend', btn);
+        }
+        btn.onclick = () => _openCropModal(_photoBase64, cropped2 => {
+          _photoBase64 = cropped2;
+          const prev = document.getElementById('m-photo-preview');
+          if (prev) prev.src = _photoBase64;
+        });
+      });
     };
     reader.readAsDataURL(file);
   });

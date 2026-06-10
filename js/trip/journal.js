@@ -121,6 +121,9 @@ function _gpxSlideInner(item) {
 
 function _carouselHtml(slides, carId) {
   if (slides.length === 0) return '';
+  const arrows = slides.length > 1 ? `
+    <button class="tl-car-prev" data-car-nav="prev" data-car-id="${_esc(carId)}" aria-label="Précédente">❮</button>
+    <button class="tl-car-next" data-car-nav="next" data-car-id="${_esc(carId)}" aria-label="Suivante">❯</button>` : '';
   const dots = slides.length > 1
     ? `<div class="tl-car-dots">${slides.map((_, i) =>
         `<div class="tl-dot${i === 0 ? ' active' : ''}"></div>`).join('')}</div>`
@@ -129,18 +132,29 @@ function _carouselHtml(slides, carId) {
     <div class="tl-car-track" data-car-track="${_esc(carId)}">
       ${slides.map(s => `<div class="tl-car-slide">${s}</div>`).join('')}
     </div>
+    ${arrows}
     ${dots}
   </div>`;
 }
 
 function _initCarousels(el) {
   el.querySelectorAll('[data-car-track]').forEach(track => {
-    const dots = track.closest('[data-car-id]')?.querySelectorAll('.tl-dot');
-    if (!dots || dots.length < 2) return;
-    track.addEventListener('scroll', () => {
+    const carEl = track.closest('[data-car-id]');
+    const dots  = carEl?.querySelectorAll('.tl-dot');
+    const updateDots = () => {
+      if (!dots || dots.length < 2) return;
       const idx = Math.round(track.scrollLeft / track.clientWidth);
       dots.forEach((d, i) => d.classList.toggle('active', i === idx));
-    }, { passive: true });
+    };
+    track.addEventListener('scroll', updateDots, { passive: true });
+    carEl?.querySelectorAll('[data-car-nav]').forEach(btn => {
+      btn.addEventListener('click', e => {
+        e.stopPropagation();
+        const dir = btn.dataset.carNav === 'prev' ? -1 : 1;
+        const idx = Math.round(track.scrollLeft / track.clientWidth);
+        track.scrollTo({ left: (idx + dir) * track.clientWidth, behavior: 'smooth' });
+      });
+    });
   });
 }
 
@@ -413,13 +427,6 @@ function _renderObserverView(panel, trip, tripId) {
 
   _initJournalMap(tripId);
 
-  const feed = panel.querySelector('#observer-feed');
-  if (feed && _shareMod) {
-    if (_handlers.has(feed)) feed.removeEventListener('click', _handlers.get(feed));
-    const h = e => _handleClick(e, tripId);
-    _handlers.set(feed, h);
-    feed.addEventListener('click', h);
-  }
 }
 
 function _buildObserverEmptyHtml() {
@@ -519,16 +526,35 @@ function _viewToggleHtml(activeView) {
 // ── Timeline view ─────────────────────────────────────────────────────────────
 
 function _renderTimelineView(panel, trip, tripId, isObserver) {
-  const sharedDoc    = isTripShared(tripId) ? _shareMod?.getSharedDocData?.(tripId) : null;
-  const currentUid   = getCurrentUser()?.uid || null;
-  panel.innerHTML = `
-    <div class="tl-wrap">
-      ${!isObserver ? _viewToggleHtml('timeline') : ''}
-      <div class="tl-scroll${isObserver ? ' obs-tl-scroll' : ''}" id="tl-scroll">
-        ${_buildTimelineHtml(trip, tripId, isObserver, sharedDoc, currentUid)}
-      </div>
-    </div>`;
-  _initCarousels(panel);
+  const sharedDoc  = isTripShared(tripId) ? _shareMod?.getSharedDocData?.(tripId) : null;
+  const currentUid = getCurrentUser()?.uid || null;
+
+  if (isObserver) {
+    panel.innerHTML = `
+      <div class="obs-tl-layout">
+        <div class="obs-tl-col">
+          <div class="tl-wrap" style="height:100%;display:flex;flex-direction:column">
+            <div class="tl-scroll" id="tl-scroll" style="flex:1;overflow-y:auto">
+              ${_buildTimelineHtml(trip, tripId, isObserver, sharedDoc, currentUid)}
+            </div>
+          </div>
+        </div>
+        <div class="obs-map-col">
+          <div id="journal-map" style="width:100%;height:100%"></div>
+        </div>
+      </div>`;
+    _initCarousels(panel);
+    _initJournalMap(tripId);
+  } else {
+    panel.innerHTML = `
+      <div class="tl-wrap">
+        ${_viewToggleHtml('timeline')}
+        <div class="tl-scroll" id="tl-scroll">
+          ${_buildTimelineHtml(trip, tripId, isObserver, sharedDoc, currentUid)}
+        </div>
+      </div>`;
+    _initCarousels(panel);
+  }
 }
 
 function _buildTimelineHtml(trip, tripId, isObserver, sharedDoc, currentUid) {
