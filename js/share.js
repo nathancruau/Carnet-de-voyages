@@ -336,9 +336,13 @@ async function _loadAndListen(tripId) {
   if (!doc?.trip) return;
 
   markTripShared(tripId);
-  // Only replace local data if cloud version is at least as recent (prevents overwriting unsaved edits)
+  const user      = getCurrentUser();
+  const myRole    = doc.members?.[user?.uid]?.role;
   const localTrip = getTrip(tripId);
-  if (!localTrip || (doc.trip.updatedAt || 0) >= (localTrip.updatedAt || 0)) {
+  if (myRole === 'observer') {
+    // Observers can't edit — always take the cloud version
+    replaceTripFromNetwork(tripId, doc.trip);
+  } else if (!localTrip || (doc.trip.updatedAt || 0) >= (localTrip.updatedAt || 0)) {
     replaceTripFromNetwork(tripId, doc.trip);
   } else {
     // Local version is newer — push it to Firestore instead of overwriting
@@ -347,7 +351,6 @@ async function _loadAndListen(tripId) {
   _sharedDocData.set(tripId, doc);
 
   // Mark current user as present
-  const user = getCurrentUser();
   if (user) {
     const member = doc.members?.[user.uid];
     updatePresence(tripId, member?.companionId || null, member?.companionName || user.displayName)

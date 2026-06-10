@@ -481,7 +481,7 @@ function _renderTimelineView(panel, trip, tripId, isObserver) {
   const currentUid   = getCurrentUser()?.uid || null;
   panel.innerHTML = `
     <div class="tl-wrap">
-      ${_viewToggleHtml('timeline')}
+      ${!isObserver ? _viewToggleHtml('timeline') : ''}
       <div class="tl-scroll" id="tl-scroll">
         ${_buildTimelineHtml(trip, tripId, isObserver, sharedDoc, currentUid)}
       </div>

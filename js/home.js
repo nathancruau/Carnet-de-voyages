@@ -1026,7 +1026,7 @@ function _observedTripCardHtml(trip) {
           <div>${typeBadge(trip.type)}</div>
           <div style="display:flex;align-items:center;gap:6px">
             <span class="obs-card-badge">👁 Observation</span>
-            <button class="tc-edit-btn obs-leave-card-btn"
+            <button class="obs-leave-card-btn"
                     data-action="leave-trip"
                     data-trip-id="${trip.id}"
                     title="Quitter ce voyage">✕ Quitter</button>
