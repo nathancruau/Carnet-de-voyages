@@ -1178,6 +1178,9 @@ function _liveGpxSlide(item) {
 
 function _liveCarouselHtml(slides, carId) {
   if (slides.length === 0) return '';
+  const arrows = slides.length > 1 ? `
+    <button class="tl-car-prev" data-car-nav="prev" data-car-id="${_esc(carId)}" aria-label="Précédente">❮</button>
+    <button class="tl-car-next" data-car-nav="next" data-car-id="${_esc(carId)}" aria-label="Suivante">❯</button>` : '';
   const dots = slides.length > 1
     ? `<div class="tl-car-dots">${slides.map((_, i) =>
         `<div class="tl-dot${i === 0 ? ' active' : ''}"></div>`).join('')}</div>`
@@ -1186,18 +1189,29 @@ function _liveCarouselHtml(slides, carId) {
     <div class="tl-car-track" data-car-track="${_esc(carId)}">
       ${slides.map(s => `<div class="tl-car-slide">${s}</div>`).join('')}
     </div>
+    ${arrows}
     ${dots}
   </div>`;
 }
 
 function _initHomeCarousels(el) {
   el.querySelectorAll('[data-car-track]').forEach(track => {
-    const dots = track.closest('[data-car-id]')?.querySelectorAll('.tl-dot');
-    if (!dots || dots.length < 2) return;
-    track.addEventListener('scroll', () => {
+    const carEl = track.closest('[data-car-id]');
+    const dots  = carEl?.querySelectorAll('.tl-dot');
+    const updateDots = () => {
+      if (!dots || dots.length < 2) return;
       const idx = Math.round(track.scrollLeft / track.clientWidth);
       dots.forEach((d, i) => d.classList.toggle('active', i === idx));
-    }, { passive: true });
+    };
+    track.addEventListener('scroll', updateDots, { passive: true });
+    carEl?.querySelectorAll('[data-car-nav]').forEach(btn => {
+      btn.addEventListener('click', e => {
+        e.stopPropagation();
+        const dir = btn.dataset.carNav === 'prev' ? -1 : 1;
+        const idx = Math.round(track.scrollLeft / track.clientWidth);
+        track.scrollTo({ left: (idx + dir) * track.clientWidth, behavior: 'smooth' });
+      });
+    });
   });
 }
 

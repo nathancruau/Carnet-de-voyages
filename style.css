@@ -267,8 +267,9 @@ body{height:100%;min-height:-webkit-fill-available;font-family:var(--fn);backgro
   display:flex;flex-direction:column;
   border-right:1px solid var(--c3);
   overflow:hidden;
+  background:var(--c);
 }
-.obs-map-col{flex:1;position:relative;height:100%}
+.obs-map-col{flex:1;position:relative;overflow:hidden;min-height:0}
 
 /* Observer carnet 2-column layout (feed + map) — kept for potential reuse */
 .obs-carnet-layout{display:flex;height:100%;overflow:hidden}
