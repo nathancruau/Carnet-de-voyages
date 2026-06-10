@@ -458,7 +458,9 @@ async function _renderActiveTab(tabId, tripId, isObserver = false) {
       renderMapCal(tripId);
     } else if (tabId === 'journal' || tabId === 'journal-timeline') {
       const { renderJournal } = await import('./journal.js');
-      renderJournal(tripId, isObserver, tabId === 'journal-timeline' ? 'timeline' : null);
+      // For observers, always pass an explicit forceView so switching tabs resets the view
+      const forceView = tabId === 'journal-timeline' ? 'timeline' : (isObserver ? 'map' : null);
+      renderJournal(tripId, isObserver, forceView);
     } else if (tabId === 'budget') {
       const { renderBudget } = await import('./budget.js');
       renderBudget(tripId);
