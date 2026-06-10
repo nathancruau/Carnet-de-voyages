@@ -6,7 +6,7 @@
    - Firebase   : network-only (handles its own offline via IndexedDB)
    ============================================================ */
 
-const SHELL_CACHE = 'cv-shell-129';
+const SHELL_CACHE = 'cv-shell-130';
 const TILE_CACHE  = 'cv-tiles-1';
 
 const SHELL_URLS = [
@@ -51,14 +51,24 @@ self.addEventListener('install', e => {
   );
 });
 
-// Activate: delete old shell caches
+// Activate: delete old shell caches, then tell all open tabs to reload
+// so they immediately get the fresh files instead of serving stale cached content.
 self.addEventListener('activate', e => {
   e.waitUntil(
-    caches.keys()
-      .then(keys => Promise.all(
-        keys.filter(k => k !== SHELL_CACHE && k !== TILE_CACHE).map(k => caches.delete(k))
-      ))
-      .then(() => self.clients.claim())
+    caches.keys().then(keys => {
+      const staleShells = keys.filter(k => k.startsWith('cv-shell-') && k !== SHELL_CACHE);
+      const wasUpdate   = staleShells.length > 0;
+      return Promise.all(keys.filter(k => k !== SHELL_CACHE && k !== TILE_CACHE).map(k => caches.delete(k)))
+        .then(() => self.clients.claim())
+        .then(() => {
+          if (!wasUpdate) return;
+          // This was a version update — notify every open window to reload
+          // so they switch from stale cached files to the freshly installed ones.
+          return self.clients.matchAll({ type: 'window' }).then(clients =>
+            clients.forEach(c => c.postMessage({ type: 'SW_UPDATED' }))
+          );
+        });
+    })
   );
 });
 
@@ -97,14 +107,26 @@ async function _cacheFirst(req) {
 
 async function _staleWhileRevalidate(req) {
   const cache  = await caches.open(SHELL_CACHE);
-  // Match exact URL first, then fall back ignoring query string (handles ?v=XX cache-busting)
   const cached = await cache.match(req) || await cache.match(req, { ignoreSearch: true });
-  // Always revalidate in background; cache under the exact versioned URL
-  const update = fetch(req).then(fresh => {
+
+  // Discard broken cached entries (e.g. partial downloads, opaque errors)
+  // so they don't crash the page — fall through to network below.
+  if (cached && !cached.ok) {
+    cache.delete(req);
+  } else if (cached) {
+    // Serve stale immediately; revalidate silently in background
+    fetch(req).then(fresh => { if (fresh.ok) cache.put(req, fresh.clone()); }).catch(() => null);
+    return cached;
+  }
+
+  // No usable cache — fetch from network (first visit, or broken entry cleared above)
+  try {
+    const fresh = await fetch(req);
     if (fresh.ok) cache.put(req, fresh.clone());
     return fresh;
-  }).catch(() => null);
-  return cached || (await update);
+  } catch (_) {
+    return new Response('', { status: 503, statusText: 'Offline' });
+  }
 }
 
 // ── Pre-cache tiles for a bounding box (sent via postMessage) ─────────────────

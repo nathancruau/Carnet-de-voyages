@@ -29,7 +29,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,600;0,700;1,400;1,600;1,700&family=Nunito:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="style.css?v=129" />
+<link rel="stylesheet" href="style.css?v=130" />
   <script>
     (function(){try{
       var d=JSON.parse(localStorage.getItem('carnet_voyages_v1')||'{}');
@@ -44,6 +44,14 @@
     document.body && document.body.style.setProperty('background', '#065f55', 'important');
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('/sw.js').catch(() => {});
+      // When the service worker activates a new version it broadcasts SW_UPDATED.
+      // Reload immediately so the page runs the fresh files instead of stale cache.
+      navigator.serviceWorker.addEventListener('message', function(e) {
+        if (e.data && e.data.type === 'SW_UPDATED') {
+          // Small delay to let the SW finish claiming before we reload
+          setTimeout(function() { location.reload(); }, 400);
+        }
+      });
     }
     // iOS 10+ ignores user-scalable=no.
     // Leaflet uses touchmove (not gesture events) for map pan/zoom, so gesturestart/change/end
@@ -182,6 +190,6 @@
       if (bar) bar.style.display = 'none';
     }
   </script>
-<script type="module" src="js/app.js?v=129"></script>
+<script type="module" src="js/app.js?v=130"></script>
 </body>
 </html>
