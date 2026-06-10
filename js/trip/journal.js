@@ -450,7 +450,7 @@ function _renderObserverView(panel, trip, tripId) {
         </div>
       </div>
       <div class="obs-map-col">
-        <div id="journal-map" style="width:100%;height:100%"></div>
+        <div id="journal-map" style="position:absolute;inset:0"></div>
       </div>
     </div>`;
 
@@ -569,7 +569,7 @@ function _renderTimelineView(panel, trip, tripId, isObserver) {
           </div>
         </div>
         <div class="obs-map-col">
-          <div id="journal-map" style="width:100%;height:100%"></div>
+          <div id="journal-map" style="position:absolute;inset:0"></div>
         </div>
       </div>`;
     _initCarousels(panel);

@@ -1283,16 +1283,13 @@ function _buildLiveFeedHtml(observingTrips) {
     });
     const carousel = _liveCarouselHtml(slides, 'lv_' + (item.id || idx));
 
-    // Traveler names: owner first from sharedDoc.members, then other members
+    // Traveler names: combine Firebase member names + trip companion names (deduplicated)
     const sharedDoc  = getSharedDocData(trip.id);
     const currentUid = getCurrentUser()?.uid || null;
-    const _members   = Object.values(sharedDoc?.members || {});
-    const _ownerName = _members.find(m => m.role === 'owner')?.companionName;
-    const _memberNames = _members.filter(m => m.role === 'member').map(m => m.companionName).filter(Boolean);
-    const _allNames  = [_ownerName, ..._memberNames].filter(Boolean);
-    const travelerNames = _allNames.length > 0
-      ? _allNames.slice(0, 3).join(', ')
-      : (trip.companions?.slice(0, 3).map(c => c.name).filter(Boolean).join(', ') || null);
+    const _membersNames   = Object.values(sharedDoc?.members || {}).map(m => m.companionName).filter(Boolean);
+    const _companionNames = (trip.companions || []).map(c => c.name).filter(Boolean);
+    const _allNamesSet    = new Set([..._membersNames, ..._companionNames]);
+    const travelerNames   = _allNamesSet.size > 0 ? [..._allNamesSet].slice(0, 4).join(', ') : null;
 
     // Interactions (likes + comments) for this post
     let interactionsHtml = '';
@@ -1455,6 +1452,7 @@ export function renderHome(filter = _currentFilter) {
 
   const myTrips        = sorted.filter(t => !isCurrentUserObserver(t.id));
   const observingTrips = allTrips.filter(t => isCurrentUserObserver(t.id));
+  const heroTrips      = allTrips.filter(t => !isCurrentUserObserver(t.id));
 
   // Inline tab switcher — lives inside home-sec-hd so it adds no extra row
   const unreadLive = _lvUnreadCount(observingTrips);
@@ -1521,7 +1519,7 @@ export function renderHome(filter = _currentFilter) {
   }
 
   wrap.innerHTML = `
-    ${_heroHtml(allTrips)}
+    ${_heroHtml(heroTrips)}
     <div class="home-sec">${secContent}</div>
     <button class="home-fab" id="home-fab" title="Ajouter un voyage">＋</button>
     <div class="home-fab-menu panel-fab-menu" id="home-fab-menu">
@@ -1561,12 +1559,13 @@ function _renderStats() {
   const wrap = document.getElementById('home-wrap');
   if (!wrap) return;
   const allTrips  = getTrips();
-  const doneTrips = allTrips.filter(t => t.status === 'done' && !isCurrentUserObserver(t.id));
+  const heroTrips = allTrips.filter(t => !isCurrentUserObserver(t.id));
+  const doneTrips = heroTrips.filter(t => t.status === 'done');
   const filtered  = _statsTypeFilter === 'all' ? doneTrips : doneTrips.filter(t => t.type === _statsTypeFilter);
   _statsLastFiltered = filtered;
 
   wrap.innerHTML = `
-    ${_heroHtml(allTrips)}
+    ${_heroHtml(heroTrips)}
     <div class="home-sec">
       <div class="home-sec-hd">
         <h2>Statistiques</h2>
