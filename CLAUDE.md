@@ -18,7 +18,7 @@ Quatre endroits à synchroniser, toujours le même numéro N :
 | `sw.js` | `const SHELL_CACHE = 'cv-shell-N'` |
 | `store.js` | `export const APP_VERSION = 'N'` |
 
-Version actuelle : **118**
+Version actuelle : **119**
 
 ---
 
@@ -226,3 +226,5 @@ uid()          // ID court aléatoire
 | v115 | Stats catégories/compagnons + auto-save settings | `catExpenses`/`compMap` dans `_statsViewHtml` ; `change` délégué sur `.mbox` remplace le bouton Enregistrer |
 | v116 | Import ZIP Polarsteps avec photos | `importPolarstepsZip` dans `import.js` (JSZip CDN, compression canvas, `journalData.validated=true` sur tous les PINs) |
 | v117 | Menu ⋯ par voyage + export ZIP/PDF + import multi-format | `js/export.js` (nouveau) ; `importAnyZip` dans `import.js` ; modal export multi-sélection dans `home.js` |
+| v118 | Types d'activités étendus (15 types) + UI paramètres simplifiée | `DEFAULT_EVENT_TYPES` étendu ; migration forward ; boutons Ajouter/Supprimer retirés des paramètres |
+| v119 | Menu ⋯ : Modifier/Partager/Supprimer ; export PDF/Word personnalisé ; modal export corrigée | `_openTripMenu` étendu ; `_openPdfExportModal` + `exportTripCustom` avec thèmes/sections/couverture ; `.exp-trip-row` layout fix |

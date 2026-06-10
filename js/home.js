@@ -18,7 +18,7 @@ import {
 } from './utils.js';
 // navigateToTrip / goMyMap accessed via window globals (set by app.js) to avoid circular import
 import { importFile, importAnyZip } from './import.js';
-import { tripToPlanning, downloadTripPlanning, downloadTripAll, downloadTripsZip, exportTripPdf } from './export.js';
+import { tripToPlanning, downloadTripPlanning, downloadTripAll, downloadTripsZip, exportTripCustom } from './export.js';
 import { getCurrentUser, logout, syncToFirestore, isFirebaseConfigured } from './auth.js';
 import { requestNotificationPermission, notificationPermissionGranted } from './notifications.js';
 import { openShareModal, leaveSharedTrip, removeSharedTripMember, isCurrentUserObserver } from './share.js';
@@ -2302,8 +2302,6 @@ function _buildModalHtml(trip) {
     </div>
 
     <div class="ma">
-      ${isEdit ? `<button class="bd" id="m-delete">🗑 Supprimer</button>` : ''}
-      ${isEdit ? `<button class="bc" id="m-export">⬇ Exporter</button>` : ''}
       <button class="bc" id="m-cancel">Annuler</button>
       <button class="bs" id="m-save">${isEdit ? 'Enregistrer' : 'Créer le voyage'}</button>
     </div>
@@ -2516,29 +2514,8 @@ function _initModalListeners(trip) {
   // Save
   document.getElementById('m-save')?.addEventListener('click', _handleSave);
 
-  // Delete
-  document.getElementById('m-delete')?.addEventListener('click', _handleDelete);
-
   // Cancel
   document.getElementById('m-cancel')?.addEventListener('click', closeModal);
-
-  // Export single trip — full JSON (all data)
-  document.getElementById('m-export')?.addEventListener('click', () => {
-    const t = getTrips().find(tr => tr.id === _editingId);
-    if (!t) return;
-    const safeName = (t.name || 'voyage').replace(/[^a-zA-Z0-9À-ɏ_-]/g, '-');
-    const json = JSON.stringify(t, null, 2);
-    const blob = new Blob([json], { type: 'application/json;charset=utf-8' });
-    const url  = URL.createObjectURL(blob);
-    const a    = document.createElement('a');
-    a.href     = url;
-    a.download = `voyage-${safeName}.json`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-    notify('Voyage exporté (JSON complet)', '⬇');
-  });
 }
 
 function _refreshCompList() {
@@ -2800,16 +2777,19 @@ function _openTripMenu(tripId, btn) {
   const menu = document.createElement('div');
   menu.className = 'tc-dropdown';
   menu.innerHTML = `
+    <button data-tm="edit">✎ Modifier</button>
+    <button data-tm="share">🔗 Partager</button>
     <button data-tm="duplicate">⧉ Dupliquer</button>
     <button data-tm="export-planning">📋 Exporter Planning</button>
     <button data-tm="export-all">📦 Exporter Tout</button>
-    <button data-tm="export-pdf">🖨 Exporter PDF</button>
+    <button data-tm="export-pdf">🖨 Exporter / Imprimer</button>
+    <button data-tm="delete" style="color:var(--coral)">🗑 Supprimer</button>
   `;
   document.body.appendChild(menu);
   _openTripMenuEl = menu;
 
   const rect = btn.getBoundingClientRect();
-  const mw   = 192;
+  const mw   = 210;
   let left   = rect.right - mw;
   if (left < 8) left = 8;
   if (left + mw > window.innerWidth - 8) left = window.innerWidth - mw - 8;
@@ -2822,6 +2802,12 @@ function _openTripMenu(tripId, btn) {
     const trip = getTrip(tripId);
     if (!trip) return;
     switch (btn2.dataset.tm) {
+      case 'edit':
+        openEditTripModal(tripId);
+        break;
+      case 'share':
+        openShareModal(tripId);
+        break;
       case 'duplicate':
         _duplicateTrip(trip);
         break;
@@ -2833,12 +2819,143 @@ function _openTripMenu(tripId, btn) {
         try { await downloadTripAll(trip); } catch (err) { notify(err.message, '⚠'); }
         break;
       case 'export-pdf':
-        exportTripPdf(trip);
+        _openPdfExportModal(trip);
         break;
+      case 'delete': {
+        const name = trip.name || 'ce voyage';
+        if (!confirm(`Supprimer "${name}" ? Cette action est irréversible.`)) break;
+        leaveSharedTrip(tripId);
+        deleteTrip(tripId);
+        renderHome(_currentFilter);
+        notify(`"${name}" supprimé.`, '🗑');
+        break;
+      }
     }
   });
 
+  // Close on any scroll (once)
+  const onScroll = () => _closeTripMenu();
+  window.addEventListener('scroll', onScroll, { once: true, capture: true, passive: true });
+
   setTimeout(() => document.addEventListener('click', _closeTripMenu, { once: true }), 0);
+}
+
+// ── PDF / Word export customization modal ─────────────────────────────────────
+
+function _openPdfExportModal(trip) {
+  let _fmt     = 'pdf';
+  let _theme   = 'classic';
+
+  const themes = [
+    { key: 'classic', label: '🎨 Classique', color: '#0d9488' },
+    { key: 'nature',  label: '🌿 Nature',    color: '#16a34a' },
+    { key: 'warm',    label: '🌅 Chaleureux', color: '#d97706' },
+    { key: 'marine',  label: '🌊 Marin',      color: '#0284c7' },
+  ];
+
+  const themePills = () => themes.map(t => {
+    const sel = t.key === _theme;
+    return `<button class="tp${sel ? ' sel' : ''}"
+      style="${sel ? `background:${t.color};border-color:${t.color};color:#fff` : ''}"
+      data-pdf-theme="${t.key}">${t.label}</button>`;
+  }).join('');
+
+  showModal(`
+    <button class="mc" onclick="closeModal()">✕</button>
+    <h3>🖨 Exporter le carnet</h3>
+
+    <div class="fg">
+      <label>Format de sortie</label>
+      <div class="t-row" id="pdf-fmt">
+        <button class="tp sel" data-pdf-fmt="pdf"
+          style="background:#0d9488;border-color:#0d9488;color:#fff">📄 PDF (impression)</button>
+        <button class="tp" data-pdf-fmt="word">📝 Word (.doc)</button>
+      </div>
+    </div>
+
+    <div class="fg">
+      <label>Sections à inclure</label>
+      <div style="display:flex;flex-direction:column;gap:4px;margin-top:4px">
+        <label class="s-toggle-row"><span>📅 Planning &amp; Carnet</span><input type="checkbox" data-pdf-sec="planning" checked></label>
+        <label class="s-toggle-row"><span>💳 Dépenses</span><input type="checkbox" data-pdf-sec="expenses" checked></label>
+        <label class="s-toggle-row"><span>💶 Budget prévisionnel</span><input type="checkbox" data-pdf-sec="budget" checked></label>
+        <label class="s-toggle-row"><span>🧳 Bagages</span><input type="checkbox" data-pdf-sec="packing" checked></label>
+        <label class="s-toggle-row"><span>👥 Compagnons</span><input type="checkbox" data-pdf-sec="companions" checked></label>
+      </div>
+    </div>
+
+    <div class="fg">
+      <label>Thème visuel</label>
+      <div class="t-row" id="pdf-themes">${themePills()}</div>
+    </div>
+
+    <div class="fg">
+      <label>Mise en page</label>
+      <div style="display:flex;flex-direction:column;gap:4px;margin-top:4px">
+        <label class="s-toggle-row"><span>📖 Page de couverture</span><input type="checkbox" id="pdf-cover" checked></label>
+        <label class="s-toggle-row"><span>📑 Table des matières</span><input type="checkbox" id="pdf-toc"></label>
+        <label class="s-toggle-row"><span>🎨 Fond décoratif (couverture)</span><input type="checkbox" id="pdf-decor"></label>
+        <label class="s-toggle-row"><span>🖼 Photos plein-largeur</span><input type="checkbox" id="pdf-fullphotos"></label>
+      </div>
+    </div>
+
+    <div class="fg">
+      <label>Anecdote / citation en couverture <span style="font-weight:400;color:var(--ink4);font-size:10px">(optionnel)</span></label>
+      <textarea id="pdf-anecdote" rows="2"
+        placeholder="Une phrase mémorable de ce voyage…"
+        style="width:100%;resize:vertical"></textarea>
+    </div>
+
+    <div class="ma">
+      <button class="bc" onclick="closeModal()">Annuler</button>
+      <button class="bs" id="pdf-go">✦ Générer</button>
+    </div>`);
+
+  // Format switch
+  document.getElementById('pdf-fmt')?.addEventListener('click', e => {
+    const b = e.target.closest('[data-pdf-fmt]');
+    if (!b) return;
+    _fmt = b.dataset.pdfFmt;
+    document.querySelectorAll('#pdf-fmt [data-pdf-fmt]').forEach(x => {
+      const s = x.dataset.pdfFmt === _fmt;
+      x.classList.toggle('sel', s);
+      x.style.background  = s ? '#0d9488' : '';
+      x.style.borderColor = s ? '#0d9488' : '';
+      x.style.color       = s ? '#fff' : '';
+    });
+  });
+
+  // Theme switch
+  document.getElementById('pdf-themes')?.addEventListener('click', e => {
+    const b = e.target.closest('[data-pdf-theme]');
+    if (!b) return;
+    _theme = b.dataset.pdfTheme;
+    document.querySelectorAll('#pdf-themes [data-pdf-theme]').forEach(x => {
+      const t   = themes.find(t => t.key === x.dataset.pdfTheme);
+      const sel = x.dataset.pdfTheme === _theme;
+      x.classList.toggle('sel', sel);
+      x.style.background  = sel ? t?.color : '';
+      x.style.borderColor = sel ? t?.color : '';
+      x.style.color       = sel ? '#fff' : '';
+    });
+  });
+
+  // Generate
+  document.getElementById('pdf-go')?.addEventListener('click', () => {
+    const sections = [];
+    document.querySelectorAll('[data-pdf-sec]').forEach(cb => { if (cb.checked) sections.push(cb.dataset.pdfSec); });
+    closeModal();
+    exportTripCustom(trip, {
+      format:     _fmt,
+      sections,
+      theme:      _theme,
+      cover:      document.getElementById('pdf-cover')?.checked      ?? true,
+      toc:        document.getElementById('pdf-toc')?.checked        ?? false,
+      decorBg:    document.getElementById('pdf-decor')?.checked      ?? false,
+      fullPhotos: document.getElementById('pdf-fullphotos')?.checked ?? false,
+      anecdote:   (document.getElementById('pdf-anecdote')?.value    || '').trim(),
+    });
+  });
 }
 
 function _duplicateTrip(trip) {
@@ -2864,11 +2981,13 @@ function _duplicateTrip(trip) {
 function _openExportModal() {
   const trips    = getTrips();
   const listHtml = trips.map(t => `
-    <label class="exp-trip-row">
+    <div class="exp-trip-row">
       <input type="checkbox" class="exp-cb" value="${t.id}" checked>
-      <span class="exp-trip-lbl">${t.flag || '🌍'} ${_esc(t.name || 'Voyage')}</span>
-      <span class="exp-trip-meta">${t.startDate ? t.startDate.slice(0, 7) : ''}</span>
-    </label>`).join('');
+      <div class="exp-trip-info">
+        <span class="exp-trip-lbl">${t.flag || '🌍'} ${_esc(t.name || 'Voyage')}</span>
+        ${t.startDate ? `<span class="exp-trip-meta">${t.startDate.slice(0, 7)}</span>` : ''}
+      </div>
+    </div>`).join('');
 
   showModal(`
     <button class="mc" onclick="closeModal()">✕</button>
