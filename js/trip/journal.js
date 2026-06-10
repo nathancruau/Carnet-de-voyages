@@ -193,18 +193,31 @@ export function destroyJournalMap() {
 
 // ── Route helpers (mirrors mapcal logic) ──────────────────────────────────────
 
-function _jCollectWaypoints(trip) {
+function _jCollectWaypoints(trip, observerMode = false) {
   const wps = [];
   for (const day of (trip.days || [])) {
-    const itemPins = (day.items || []).filter(it => it.lat != null && it.lng != null);
-    if (itemPins.length > 0) {
-      for (const item of itemPins) {
+    if (observerMode) {
+      // Observer: only connect validated pins (with day-coord fallback, same as _refreshJournalPins)
+      for (const item of (day.items || [])) {
+        if (!item.journalData?.validated) continue;
+        const lat = item.lat ?? day.lat;
+        const lng = item.lng ?? day.lng;
+        if (lat == null || lng == null) continue;
         let mode = item.routeMode || 'car';
         if (item.type === 'drive' && item.transport) mode = item.transport;
-        wps.push({ lat: item.lat, lng: item.lng, mode });
+        wps.push({ lat, lng, mode });
       }
-    } else if (day.lat != null && day.lng != null) {
-      wps.push({ lat: day.lat, lng: day.lng, mode: day.routeMode || 'car' });
+    } else {
+      const itemPins = (day.items || []).filter(it => it.lat != null && it.lng != null);
+      if (itemPins.length > 0) {
+        for (const item of itemPins) {
+          let mode = item.routeMode || 'car';
+          if (item.type === 'drive' && item.transport) mode = item.transport;
+          wps.push({ lat: item.lat, lng: item.lng, mode });
+        }
+      } else if (day.lat != null && day.lng != null) {
+        wps.push({ lat: day.lat, lng: day.lng, mode: day.routeMode || 'car' });
+      }
     }
   }
   return wps;
@@ -226,7 +239,7 @@ async function _drawJournalRoutes(tripId) {
   _journalRouteLayers.forEach(l => { try { _journalMap.removeLayer(l); } catch (_) {} });
   _journalRouteLayers = [];
 
-  const wps = _jCollectWaypoints(trip);
+  const wps = _jCollectWaypoints(trip, _observerMode);
   if (wps.length < 2) return;
 
   for (let i = 0; i < wps.length - 1; i++) {
@@ -516,7 +529,7 @@ function _buildObserverFeedHtml(validatedItems, tripId, sharedDoc, currentUid) {
       }
 
       html += `
-        <div class="obs-entry${isNew ? ' obs-entry-new' : ''}">
+        <div class="obs-entry${isNew ? ' obs-entry-new' : ''}" data-feed-item-id="${_esc(item.id || '')}"
           <div class="obs-entry-hd">
             <span style="font-size:16px">${typeIcon}</span>
             <div style="flex:1;min-width:0">
@@ -728,7 +741,7 @@ function _tlItemHtml(day, item, itemIdx, isObserver, tripId, sharedDoc, currentU
   }
 
   return `
-    <div class="tl-item${validated ? ' validated' : ''}">
+    <div class="tl-item${validated ? ' validated' : ''}" data-feed-item-id="${_esc(item.id || '')}">
       <div class="tl-item-card${validated ? ' validated' : ''}${isNew ? ' tl-item-new' : ''}">
         <div class="tl-item-hd">
           <span class="tl-item-icon">${typeIcon}</span>
@@ -935,6 +948,18 @@ function _initJournalMap(tripId) {
   });
 }
 
+function _scrollObserverToItem(itemId) {
+  const feed = document.getElementById('observer-feed') || document.getElementById('tl-scroll');
+  if (!feed) return;
+  const el = feed.querySelector(`[data-feed-item-id="${CSS.escape(itemId)}"]`);
+  if (!el) return;
+  el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  el.style.outline = '2px solid var(--teal)';
+  el.style.borderRadius = '10px';
+  el.style.transition = 'outline .15s';
+  setTimeout(() => { el.style.outline = ''; el.style.transition = ''; el.style.borderRadius = ''; }, 1600);
+}
+
 function _refreshJournalPins(tripId) {
   if (!_journalMap) return;
   const trip = getTrip(tripId);
@@ -973,7 +998,11 @@ function _refreshJournalPins(tripId) {
       });
 
       const marker = L.marker([lat, lng], { icon });
-      marker.on('click', () => _openJournalItemPanel(tripId, day.id, itemIdx));
+      const _itemId = item.id;
+      marker.on('click', () => {
+        if (_observerMode && _itemId) _scrollObserverToItem(_itemId);
+        else _openJournalItemPanel(tripId, day.id, itemIdx);
+      });
       marker.addTo(_journalMap);
       _journalMarkers[item.id] = marker;
       allPinLatLngs.push([lat, lng]);
@@ -982,7 +1011,10 @@ function _refreshJournalPins(tripId) {
       if (item.gpxPoints && item.gpxPoints.length >= 2) {
         const latlngs = item.gpxPoints.map(p => [p.lat, p.lng]);
         const line = L.polyline(latlngs, { color: item.color || '#0891b2', weight: 3, opacity: 0.75 });
-        line.on('click', () => _openJournalItemPanel(tripId, day.id, itemIdx));
+        line.on('click', () => {
+          if (_observerMode && _itemId) _scrollObserverToItem(_itemId);
+          else _openJournalItemPanel(tripId, day.id, itemIdx);
+        });
         line.addTo(_journalMap);
         _journalGpxLayers.push(line);
         for (const ll of latlngs) allPinLatLngs.push(ll);

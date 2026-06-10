@@ -1286,7 +1286,7 @@ function _buildLiveFeedHtml(observingTrips) {
     // Traveler names: combine Firebase member names + trip companion names (deduplicated)
     const sharedDoc  = getSharedDocData(trip.id);
     const currentUid = getCurrentUser()?.uid || null;
-    const _membersNames   = Object.values(sharedDoc?.members || {}).map(m => m.companionName).filter(Boolean);
+    const _membersNames   = Object.values(sharedDoc?.members || {}).filter(m => m.role !== 'observer').map(m => m.companionName).filter(Boolean);
     const _companionNames = (trip.companions || []).map(c => c.name).filter(Boolean);
     const _allNamesSet    = new Set([..._membersNames, ..._companionNames]);
     const travelerNames   = _allNamesSet.size > 0 ? [..._allNamesSet].slice(0, 4).join(', ') : null;
