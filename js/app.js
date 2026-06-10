@@ -7,7 +7,7 @@ import { renderHome } from './home.js';
 import { renderMyMap, destroyMyMap } from './mymap.js';
 import { openTrip, destroyTripMap } from './trip/trip.js';
 import { closeModal } from './utils.js';
-import { initAuth, loginWithGoogle, syncToFirestore, isFirebaseConfigured } from './auth.js';
+import { initAuth, loginWithGoogle, syncToFirestore, isFirebaseConfigured, listenUserDoc } from './auth.js';
 import { initSharedTrips, handlePendingInvite } from './share.js';
 import { checkDepartureNotifications } from './notifications.js';
 
@@ -27,6 +27,13 @@ export let currentTripId = null;
 
 // Stored so we can remove and re-add on each auth cycle without leaking
 let _darkModeMediaListener = null;
+let _userDocUnsub = null; // unsubscribe fn for the users/{uid} real-time listener
+
+// Quick signature of trips (id + updatedAt) used to skip redundant re-renders
+// when our own write echoes back through the onSnapshot listener.
+function _tripsSignature(trips) {
+  return (trips || []).map(t => `${t.id}:${t.updatedAt || 0}`).sort().join('|');
+}
 
 // ── Screen management ──────────────────────────────────────────────────────────
 
@@ -134,6 +141,7 @@ function _onAuthReady(user, cloudData) {
   }
 
   if (!user) {
+    if (_userDocUnsub) { _userDocUnsub(); _userDocUnsub = null; }
     _renderLogin();
     showScreen('login');
     return;
@@ -173,6 +181,19 @@ function _onAuthReady(user, cloudData) {
     } else {
       _darkModeMediaListener = null;
     }
+
+    // Real-time listener on users/{uid}: keeps all open tabs and devices in sync.
+    // When another device pushes a state update, we merge it in immediately so that
+    // device never overwrites Firestore with stale data (the root cause of data loss).
+    if (_userDocUnsub) { _userDocUnsub(); _userDocUnsub = null; }
+    _userDocUnsub = listenUserDoc(user.uid, (data, hasPendingWrites) => {
+      // hasPendingWrites: true = our own write going up to Firestore — skip
+      if (hasPendingWrites) return;
+      // Skip if data matches what we already have (prevents re-renders on our own confirms)
+      if (_tripsSignature(data?.trips) === _tripsSignature(getTrips())) return;
+      setState(data);
+      if (currentScreen === 'home') renderHome();
+    });
 
     // Load shared trips and handle any pending invite link (non-blocking).
     // Re-render home after loading so observer trips are classified correctly.

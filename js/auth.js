@@ -203,6 +203,19 @@ export function listenSharedTrip(tripId, callback) {
   });
 }
 
+/**
+ * Subscribe to real-time updates on the current user's personal document.
+ * Used to keep multiple tabs / devices in sync: when another device pushes
+ * a state update, the listener fires here and we can merge it in.
+ * @returns {Function} unsubscribe function
+ */
+export function listenUserDoc(uid, callback) {
+  if (!_db || !_onSnapshotFn || !_docFn || !uid) return () => {};
+  return _onSnapshotFn(_docFn(_db, 'users', uid), snap => {
+    if (snap.exists()) callback(snap.data(), snap.metadata.hasPendingWrites);
+  });
+}
+
 /** Load a shared trip document once (no listener). */
 export async function loadSharedTrip(tripId) {
   if (!_db || !_getDocFn || !_docFn) return null;
