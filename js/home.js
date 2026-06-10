@@ -21,7 +21,7 @@ import { importFile, importAnyZip } from './import.js';
 import { tripToPlanning, downloadTripPlanning, downloadTripAll, downloadTripsZip, exportTripCustom } from './export.js';
 import { getCurrentUser, logout, syncToFirestore, isFirebaseConfigured } from './auth.js';
 import { requestNotificationPermission, notificationPermissionGranted } from './notifications.js';
-import { openShareModal, leaveSharedTrip, removeSharedTripMember, isCurrentUserObserver, getSharedDocData, addObserverReaction, deleteObserverReaction, addObserverComment, deleteObserverComment } from './share.js';
+import { openShareModal, leaveSharedTrip, deleteOwnerSharedTrip, removeSharedTripMember, isCurrentUserObserver, getSharedDocData, addObserverReaction, deleteObserverReaction, addObserverComment, deleteObserverComment } from './share.js';
 
 // ── Module state ───────────────────────────────────────────────────────────────
 
@@ -3188,7 +3188,12 @@ function _openTripMenu(tripId, btn) {
   let left   = rect.right - mw;
   if (left < 8) left = 8;
   if (left + mw > window.innerWidth - 8) left = window.innerWidth - mw - 8;
+  // Tentative position below — flip above if it would overflow viewport bottom
   menu.style.cssText = `position:fixed;top:${rect.bottom + 4}px;left:${left}px;z-index:99999;min-width:${mw}px`;
+  const mh = menu.getBoundingClientRect().height;
+  if (rect.bottom + 4 + mh > window.innerHeight - 8) {
+    menu.style.top = Math.max(8, rect.top - mh - 4) + 'px';
+  }
 
   menu.addEventListener('click', async e2 => {
     const btn2 = e2.target.closest('[data-tm]');
@@ -3219,7 +3224,12 @@ function _openTripMenu(tripId, btn) {
       case 'delete': {
         const name = trip.name || 'ce voyage';
         if (!confirm(`Supprimer "${name}" ? Cette action est irréversible.`)) break;
-        leaveSharedTrip(tripId);
+        // If shared, notify all members/observers before cleaning up locally
+        if (isTripShared(tripId)) {
+          deleteOwnerSharedTrip(tripId).catch(() => {});
+        } else {
+          leaveSharedTrip(tripId);
+        }
         deleteTrip(tripId);
         renderHome(_currentFilter);
         notify(`"${name}" supprimé.`, '🗑');

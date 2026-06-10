@@ -2,7 +2,7 @@
    CARNET DE VOYAGES — App Entry Point & Router
    ============================================================ */
 
-import { loadData, getState, setState, setSyncCallback, getSettings, getTrips } from './store.js';
+import { loadData, getState, setState, setSyncCallback, getSettings, getTrips, hasPendingLocalChanges } from './store.js';
 import { renderHome } from './home.js';
 import { renderMyMap, destroyMyMap } from './mymap.js';
 import { openTrip, destroyTripMap } from './trip/trip.js';
@@ -211,6 +211,39 @@ function _onAuthReady(user, cloudData) {
     if (errEl) errEl.textContent = 'Erreur lors du chargement. Réessayez.';
   }
 }
+
+// ── Service-worker update — safe reload ────────────────────────────────────────
+// Waits until no modal is open AND no debounced Firestore write is pending,
+// so users never lose in-progress edits when a new version is deployed.
+
+function _isModalOpen() {
+  return !!(
+    document.getElementById('modal-overlay')?.classList.contains('ov-visible') ||
+    document.querySelector('.mobile-sheet')
+  );
+}
+
+function _scheduleSwReload() {
+  window._swUpdatePending = false; // disarm fallback in index.html
+  let waited = 0;
+  const MAX_WAIT = 30000; // give up after 30 s and reload regardless
+  function attempt() {
+    if ((!hasPendingLocalChanges() && !_isModalOpen()) || waited >= MAX_WAIT) {
+      location.reload();
+    } else {
+      waited += 500;
+      setTimeout(attempt, 500);
+    }
+  }
+  attempt();
+}
+
+// Handle flag set before this module loaded (SW message arrived during HTML parse)
+if (window._swUpdatePending) _scheduleSwReload();
+// Handle future SW messages (e.g. update while app is already running)
+navigator.serviceWorker?.addEventListener('message', e => {
+  if (e.data?.type === 'SW_UPDATED') _scheduleSwReload();
+});
 
 // ── Offline indicator ──────────────────────────────────────────────────────────
 

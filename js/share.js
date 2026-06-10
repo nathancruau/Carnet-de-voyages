@@ -23,12 +23,13 @@ import {
   addComment, updatePresence, clearPresence, addActivityEntry,
   removeMemberFromSharedTrip,
   updateSharedTripFields, deleteSharedTripField,
+  deleteSharedTripDoc,
 } from './auth.js';
 import {
   getTrip, markTripShared, unmarkTripShared, isTripShared,
   replaceTripFromNetwork, setSharedSyncCallback,
   getSharedTripIds, setSharedTripIds, getSettings,
-  hasPendingLocalChanges,
+  hasPendingLocalChanges, deleteTrip,
 } from './store.js';
 import { notifyCollaboratorChange } from './notifications.js';
 import { showModal, closeModal, notify } from './utils.js';
@@ -298,6 +299,26 @@ export async function deleteDayComment(tripId, dayId, commentId) {
 // ── Initialisation ──────────────────────────────────────────────────────────────
 
 /**
+ * Called by the OWNER when permanently deleting a shared trip.
+ * Writes deleted:true so all connected members/observers see it instantly,
+ * then hard-deletes the document after a short delay.
+ */
+export async function deleteOwnerSharedTrip(tripId) {
+  const user    = getCurrentUser();
+  const doc     = _sharedDocData.get(tripId);
+  const isOwner = doc?.members?.[user?.uid]?.role === 'owner';
+
+  if (isOwner) {
+    // Flag first so connected clients react before the doc disappears
+    await updateSharedTripFields(tripId, { deleted: true }).catch(() => {});
+    // Hard-delete after 3 s (enough time for Firestore to propagate the flag)
+    setTimeout(() => deleteSharedTripDoc(tripId), 3000);
+  }
+
+  await leaveSharedTrip(tripId);
+}
+
+/**
  * Stop listening to a shared trip and remove it from the user's sharedTripIds.
  * Called when the user deletes a trip locally — the Firestore doc is kept intact
  * so other collaborators are unaffected.
@@ -415,7 +436,21 @@ function _onLocalSharedTripEdit(tripId, tripData, action = 'a modifié le voyage
 function _onNetworkUpdate(tripId, data, hasPendingWrites) {
   // Drop events that arrive after the user left/deleted the trip.
   if (!_listeners.has(tripId)) return;
-  if (!data?.trip) return;
+
+  // Document deleted or marked deleted by owner → auto-remove for all members/observers
+  if (!data || data.deleted) {
+    const user    = getCurrentUser();
+    const isOwner = _sharedDocData.get(tripId)?.members?.[user?.uid]?.role === 'owner';
+    if (!isOwner) {
+      leaveSharedTrip(tripId);
+      deleteTrip(tripId);
+      notify('Ce voyage partagé a été supprimé par son propriétaire.', '🗑');
+      if (typeof window.goHome === 'function') window.goHome();
+    }
+    return;
+  }
+
+  if (!data.trip) return;
 
   const prevData = _sharedDocData.get(tripId);
 

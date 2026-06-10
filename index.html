@@ -29,7 +29,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,600;0,700;1,400;1,600;1,700&family=Nunito:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="style.css?v=132" />
+<link rel="stylesheet" href="style.css?v=133" />
   <script>
     (function(){try{
       var d=JSON.parse(localStorage.getItem('carnet_voyages_v1')||'{}');
@@ -45,11 +45,12 @@
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('/sw.js').catch(() => {});
       // When the service worker activates a new version it broadcasts SW_UPDATED.
-      // Reload immediately so the page runs the fresh files instead of stale cache.
+      // app.js handles the reload (waits for pending edits + open modals to finish).
+      // Fallback: reload after 10 s if app.js hasn't taken over yet.
       navigator.serviceWorker.addEventListener('message', function(e) {
         if (e.data && e.data.type === 'SW_UPDATED') {
-          // Small delay to let the SW finish claiming before we reload
-          setTimeout(function() { location.reload(); }, 400);
+          window._swUpdatePending = true;
+          setTimeout(function() { if (window._swUpdatePending) location.reload(); }, 10000);
         }
       });
     }
@@ -190,6 +191,6 @@
       if (bar) bar.style.display = 'none';
     }
   </script>
-<script type="module" src="js/app.js?v=132"></script>
+<script type="module" src="js/app.js?v=133"></script>
 </body>
 </html>

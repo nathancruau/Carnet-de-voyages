@@ -35,7 +35,7 @@ let _user = null;
 
 let _docFn, _getDocFn, _setDocFn, _updateDocFn, _onSnapshotFn, _signOutFn, _GoogleProvider;
 let _signInRedirectFn, _getRedirectResultFn;
-let _arrayUnionFn, _deleteFieldFn;
+let _arrayUnionFn, _deleteFieldFn, _deleteDocFn;
 
 export function isFirebaseConfigured() { return _configured; }
 export function getCurrentUser()       { return _user; }
@@ -74,6 +74,7 @@ export async function initAuth(onReady) {
     _getRedirectResultFn = authMod.getRedirectResult;
     _arrayUnionFn        = dbMod.arrayUnion;
     _deleteFieldFn       = dbMod.deleteField;
+    _deleteDocFn         = dbMod.deleteDoc;
 
     // Enable Firestore offline persistence (IndexedDB) so reads/writes work
     // without network and sync automatically when connection returns.
@@ -194,13 +195,21 @@ export async function saveSharedTrip(tripId, tripData) {
 
 /**
  * Subscribe to real-time updates on a shared trip.
+ * Calls callback(data, hasPendingWrites) when the doc changes.
+ * Calls callback(null, false) when the doc is deleted (owner removed it).
  * @returns {Function} unsubscribe function
  */
 export function listenSharedTrip(tripId, callback) {
   if (!_db || !_onSnapshotFn || !_docFn) return () => {};
   return _onSnapshotFn(_docFn(_db, 'shared_trips', tripId), snap => {
-    if (snap.exists()) callback(snap.data(), snap.metadata.hasPendingWrites);
+    callback(snap.exists() ? snap.data() : null, snap.metadata.hasPendingWrites);
   });
+}
+
+/** Hard-delete the shared_trips/{tripId} document (called by owner after marking deleted). */
+export async function deleteSharedTripDoc(tripId) {
+  if (!_db || !_deleteDocFn || !_docFn) return;
+  try { await _deleteDocFn(_docFn(_db, 'shared_trips', tripId)); } catch (_) {}
 }
 
 /**
