@@ -2621,7 +2621,7 @@ function _openCropModal(imgSrc, onCrop) {
     <h3 class="modal-title">Recadrer la photo</h3>
     <p style="font-size:12px;color:var(--ink4);margin-bottom:10px">Faites glisser l'image pour choisir la zone visible (format 16:9).</p>
     <div id="crop-frame" style="position:relative;width:100%;aspect-ratio:16/9;overflow:hidden;background:#111;border-radius:10px;cursor:grab;touch-action:none;margin-bottom:12px">
-      <img id="crop-img" src="${_esc(imgSrc)}" crossorigin="anonymous" draggable="false"
+      <img id="crop-img" src="${_esc(imgSrc)}" draggable="false"
            style="position:absolute;max-width:none;max-height:none;user-select:none;pointer-events:none;top:0;left:0">
     </div>
     <button id="crop-ok" style="width:100%;background:var(--teal);color:#fff;border:none;border-radius:10px;padding:11px;font-size:14px;font-weight:700;cursor:pointer">✓ Valider ce cadrage</button>
@@ -2664,23 +2664,42 @@ function _openCropModal(imgSrc, onCrop) {
   frame.addEventListener('pointerup', () => { dragging = false; frame.style.cursor = 'grab'; });
 
   document.getElementById('crop-ok')?.addEventListener('click', () => {
-    const fw = frame.clientWidth, fh = frame.clientHeight;
+    const fw    = frame.clientWidth, fh = frame.clientHeight;
     const scale = img.clientWidth / img.naturalWidth;
-    const canvas = document.createElement('canvas');
-    canvas.width  = 1200;
-    canvas.height = Math.round(1200 * fh / fw);
-    const ctx = canvas.getContext('2d');
-    ctx.drawImage(img,
-      -ox / scale, -oy / scale, fw / scale, fh / scale,
-      0, 0, canvas.width, canvas.height);
-    try {
-      const dataUrl = canvas.toDataURL('image/jpeg', 0.88);
-      closeModal();
-      onCrop(dataUrl);
-    } catch (_) {
-      closeModal();
-      notify('Recadrage impossible pour cette URL (restriction CORS). Téléchargez d\'abord l\'image.', '⚠️');
+    const sx2   = -ox / scale, sy2 = -oy / scale;
+    const sw    = fw / scale,  sh  = fh / scale;
+
+    function _drawAndExport(source) {
+      const canvas = document.createElement('canvas');
+      canvas.width  = 1200;
+      canvas.height = Math.round(1200 * fh / fw);
+      canvas.getContext('2d').drawImage(source, sx2, sy2, sw, sh, 0, 0, canvas.width, canvas.height);
+      try {
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.88);
+        closeModal();
+        onCrop(dataUrl);
+      } catch (_) {
+        closeModal();
+        notify('Recadrage impossible pour cette URL (restriction CORS). Téléchargez d\'abord l\'image.', '⚠️');
+      }
     }
+
+    // For data URLs (base64) draw directly — no CORS issue
+    if (imgSrc.startsWith('data:')) {
+      _drawAndExport(img);
+      return;
+    }
+
+    // For external URLs, reload with crossOrigin to allow canvas export
+    const corsImg = new Image();
+    corsImg.crossOrigin = 'anonymous';
+    corsImg.onload  = () => _drawAndExport(corsImg);
+    corsImg.onerror = () => {
+      // CORS load failed — draw the already-loaded display img (may taint canvas)
+      _drawAndExport(img);
+    };
+    // Cache-bust to force a fresh CORS-enabled request (avoids opaque cached response)
+    corsImg.src = imgSrc + (imgSrc.includes('?') ? '&' : '?') + '_cv=' + Date.now();
   });
 }
 
