@@ -53,7 +53,7 @@ export async function openTrip(id) {
   if (_isObserver) {
     _renderObserverTopbar(trip);
     _renderObserverPanels();
-    await switchTab('journal');
+    await switchTab('journal-timeline');
     return;
   }
 
@@ -97,7 +97,7 @@ export async function switchTab(tabId) {
   });
 
   // Desktop: mapcal needs position:fixed for Leaflet. Mobile: body-scroll with explicit map height.
-  const _isMapTab   = tabId === 'mapcal' && window.innerWidth > 768;
+  const _isMapTab   = (tabId === 'mapcal' || (tabId === 'journal-timeline' && _isObserver)) && window.innerWidth > 768;
   const _isFixedTab = _isMapTab;
   const app = document.getElementById('screen-app');
   app?.classList.toggle('tab-map-active',   _isMapTab);
@@ -215,12 +215,8 @@ function _renderObserverTopbar(trip) {
         <button class="bc obs-leave-btn" id="obs-leave-btn" style="font-size:11px;padding:4px 10px">Quitter ce voyage</button>
       </div>
     </div>
-    <div class="topbar-row2">
-      <div class="nav-tabs">
-        <div class="nav-tab active" data-tab="journal">📔 Carnet</div>
-        <div class="nav-tab" data-tab="journal-timeline">📅 Timeline</div>
-      </div>
-      <div id="obs-owner-info" style="font-size:11px;color:var(--ink4);padding:0 10px;display:flex;align-items:center;gap:4px;flex-shrink:0"></div>
+    <div class="topbar-row2" style="padding:4px 16px 6px;display:flex;align-items:center;gap:8px;min-height:0">
+      <div id="obs-owner-info" style="font-size:11px;color:var(--ink4);display:flex;align-items:center;gap:4px"></div>
     </div>
   `;
 
@@ -233,11 +229,6 @@ function _renderObserverTopbar(trip) {
       await leaveSharedTrip(_tripId);
     } catch (_) {}
     window.goHome?.();
-  });
-
-  topbar.addEventListener('click', e => {
-    const tab = e.target.closest('.nav-tab');
-    if (tab && tab.dataset.tab) switchTab(tab.dataset.tab);
   });
 
   // Async: fill owner info from shared doc

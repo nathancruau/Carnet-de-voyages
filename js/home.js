@@ -21,7 +21,7 @@ import { importFile, importAnyZip } from './import.js';
 import { tripToPlanning, downloadTripPlanning, downloadTripAll, downloadTripsZip, exportTripCustom } from './export.js';
 import { getCurrentUser, logout, syncToFirestore, isFirebaseConfigured } from './auth.js';
 import { requestNotificationPermission, notificationPermissionGranted } from './notifications.js';
-import { openShareModal, leaveSharedTrip, removeSharedTripMember, isCurrentUserObserver, getSharedDocData } from './share.js';
+import { openShareModal, leaveSharedTrip, removeSharedTripMember, isCurrentUserObserver, getSharedDocData, addObserverReaction, deleteObserverReaction, addObserverComment, deleteObserverComment } from './share.js';
 
 // ── Module state ───────────────────────────────────────────────────────────────
 
@@ -1243,6 +1243,48 @@ function _buildLiveFeedHtml(observingTrips) {
     });
     const carousel = _liveCarouselHtml(slides, 'lv_' + (item.id || idx));
 
+    // Interactions (likes + comments) for this post
+    const sharedDoc  = getSharedDocData(trip.id);
+    const currentUid = getCurrentUser()?.uid || null;
+    let interactionsHtml = '';
+    if (sharedDoc && item.id) {
+      const itemReactions   = sharedDoc.reactions?.[item.id] || {};
+      const allComments     = sharedDoc.observerComments || {};
+      const itemComments    = Object.values(allComments).filter(c => c.itemId === item.id);
+      const heartCount      = Object.values(itemReactions).filter(e => e === '❤️').length;
+      const commentCount    = itemComments.length;
+      const myReacted       = currentUid ? itemReactions[currentUid] === '❤️' : false;
+      const isOwnerOrMember = currentUid && (sharedDoc.members?.[currentUid]?.role === 'owner' || sharedDoc.members?.[currentUid]?.role === 'member');
+
+      let reactorChips = '';
+      if (heartCount > 0) {
+        const reactors = Object.entries(itemReactions).filter(([, v]) => v === '❤️');
+        reactorChips = reactors.map(([uid]) => {
+          const name   = sharedDoc.members?.[uid]?.companionName || '?';
+          const delBtn = isOwnerOrMember
+            ? `<button class="tl-reactor-del" data-action="lv-remove-reaction" data-trip-id="${_esc(trip.id)}" data-item-id="${_esc(item.id)}" data-target-uid="${_esc(uid)}" title="Retirer">×</button>`
+            : '';
+          return `<span class="tl-reactor-chip${uid === currentUid ? ' mine' : ''}">❤️ ${_esc(name)}${delBtn}</span>`;
+        }).join('');
+      }
+
+      interactionsHtml = `
+        <div class="tl-interactions" style="padding:6px 14px 10px">
+          <button class="tl-react-btn${myReacted ? ' reacted' : ''}"
+                  data-action="lv-toggle-reaction" data-trip-id="${_esc(trip.id)}" data-item-id="${_esc(item.id)}">
+            ❤️${heartCount > 0 ? `<span class="tl-react-count">${heartCount}</span>` : ''}
+          </button>
+          ${reactorChips ? `<div class="tl-reactor-list">${reactorChips}</div>` : ''}
+          <button class="tl-comment-open-btn"
+                  data-action="lv-open-comments"
+                  data-trip-id="${_esc(trip.id)}"
+                  data-item-id="${_esc(item.id)}"
+                  data-item-text="${_esc(item.text || '')}">
+            💬${commentCount > 0 ? `<span class="tl-react-count">${commentCount}</span>` : ''}
+          </button>
+        </div>`;
+    }
+
     return `<div class="live-post">
       <div class="live-post-hd">
         <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:5px">
@@ -1254,8 +1296,90 @@ function _buildLiveFeedHtml(observingTrips) {
       </div>
       ${carousel}
       ${jd.notes ? `<div class="live-post-notes">${_esc(jd.notes).replace(/\n/g,'<br>')}</div>` : ''}
+      ${interactionsHtml}
     </div>`;
   }).join('');
+}
+
+function _openLiveCommentsModal(tripId, itemId, itemText) {
+  const sharedDoc    = getSharedDocData(tripId);
+  if (!sharedDoc) return;
+  const currentUid   = getCurrentUser()?.uid;
+  const allComments  = sharedDoc.observerComments || {};
+  const itemComments = Object.entries(allComments)
+    .filter(([, c]) => c.itemId === itemId)
+    .sort(([, a], [, b]) => (a.ts || '').localeCompare(b.ts || ''));
+
+  function _buildList() {
+    if (itemComments.length === 0) {
+      return `<div style="font-size:12px;color:var(--ink4);padding:8px 0;text-align:center">Aucun commentaire pour le moment</div>`;
+    }
+    return itemComments.map(([cid, c]) => {
+      const dateLabel = new Date(c.ts).toLocaleString('fr-FR', {
+        day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
+      });
+      const myRole    = sharedDoc.members?.[currentUid]?.role;
+      const canDelete = c.uid === currentUid || myRole === 'owner' || myRole === 'member';
+      return `
+        <div class="tl-comment-item">
+          <div class="tl-comment-header">
+            <span class="tl-comment-author">${_esc(c.name)}</span>
+            <span class="tl-comment-date">${dateLabel}</span>
+            ${canDelete ? `<button class="tl-comment-del" data-action="lv-delete-comment" data-trip-id="${_esc(tripId)}" data-cid="${_esc(cid)}" title="Supprimer">🗑</button>` : ''}
+          </div>
+          <div class="tl-comment-text">${_esc(c.text)}</div>
+        </div>`;
+    }).join('');
+  }
+
+  showModal(`
+    <button class="mc" onclick="closeModal()">✕</button>
+    <h3 style="font-family:var(--sf);font-size:15px;font-weight:700;margin-bottom:4px">💬 Commentaires</h3>
+    <div style="font-size:12px;color:var(--ink3);margin-bottom:12px;padding:6px 10px;background:var(--c2);border-radius:7px;border:1px solid var(--c3)">${_esc(itemText || '—')}</div>
+    <div id="lv-cmt-list" style="max-height:220px;overflow-y:auto;margin-bottom:4px">${_buildList()}</div>
+    <div style="display:flex;gap:8px;margin-top:10px">
+      <input type="text" id="lv-cmt-input" placeholder="Votre commentaire…"
+             style="flex:1;padding:7px 10px;border:1.5px solid var(--c3);border-radius:7px;font-size:12px;background:var(--c);color:var(--ink)"
+             maxlength="300">
+      <button id="lv-cmt-send" class="bs" style="padding:7px 14px;font-size:12px;flex-shrink:0">Envoyer</button>
+    </div>
+    <div class="ma" style="margin-top:10px">
+      <button class="bc" onclick="closeModal()">Fermer</button>
+    </div>`);
+
+  const sendBtn = document.getElementById('lv-cmt-send');
+  const input   = document.getElementById('lv-cmt-input');
+
+  async function _doSend() {
+    const text = input?.value?.trim();
+    if (!text) return;
+    try {
+      await addObserverComment(tripId, itemId, text);
+      if (input) input.value = '';
+      const list = document.getElementById('lv-cmt-list');
+      const newList = document.createElement('div');
+      newList.innerHTML = _buildList();
+      if (list) list.replaceWith(newList);
+      newList.id = 'lv-cmt-list';
+    } catch (e) {
+      notify('Erreur lors de l\'envoi', '⚠️');
+    }
+  }
+
+  sendBtn?.addEventListener('click', _doSend);
+  input?.addEventListener('keydown', e => { if (e.key === 'Enter') _doSend(); });
+
+  document.getElementById('lv-cmt-list')?.addEventListener('click', async e => {
+    const btn = e.target.closest('[data-action="lv-delete-comment"]');
+    if (!btn) return;
+    const cid    = btn.dataset.cid;
+    const tId    = btn.dataset.tripId;
+    if (!cid || !tId) return;
+    try {
+      await deleteObserverComment(tId, cid);
+      btn.closest('.tl-comment-item')?.remove();
+    } catch (_) {}
+  });
 }
 
 // ── Render home ────────────────────────────────────────────────────────────────
@@ -1789,6 +1913,30 @@ function _attachListeners(wrap) {
       case 'trip-menu':
         e.stopPropagation();
         _openTripMenu(target.dataset.tripId, target);
+        break;
+
+      case 'lv-toggle-reaction': {
+        const tripId = target.dataset.tripId;
+        const itemId = target.dataset.itemId;
+        if (tripId && itemId) addObserverReaction(tripId, itemId).catch(() => {});
+        break;
+      }
+
+      case 'lv-remove-reaction': {
+        e.stopPropagation();
+        const tripId    = target.dataset.tripId;
+        const itemId    = target.dataset.itemId;
+        const targetUid = target.dataset.targetUid;
+        if (tripId && itemId && targetUid) deleteObserverReaction(tripId, itemId, targetUid).catch(() => {});
+        break;
+      }
+
+      case 'lv-open-comments':
+        _openLiveCommentsModal(
+          target.dataset.tripId,
+          target.dataset.itemId,
+          target.dataset.itemText
+        );
         break;
     }
   });
@@ -2414,6 +2562,77 @@ export function openEditTripModal(id = null, presetType = null) {
 // Expose on window so sortie.js detail view can call it without circular imports
 window._openEditTripModal = openEditTripModal;
 
+// ── Crop modal ────────────────────────────────────────────────────────────────
+
+function _openCropModal(imgSrc, onCrop) {
+  showModal(`
+    <button class="mc" onclick="closeModal()">✕</button>
+    <h3 class="modal-title">Recadrer la photo</h3>
+    <p style="font-size:12px;color:var(--ink4);margin-bottom:10px">Faites glisser l'image pour choisir la zone visible (format 16:9).</p>
+    <div id="crop-frame" style="position:relative;width:100%;aspect-ratio:16/9;overflow:hidden;background:#111;border-radius:10px;cursor:grab;touch-action:none;margin-bottom:12px">
+      <img id="crop-img" src="${_esc(imgSrc)}" crossorigin="anonymous" draggable="false"
+           style="position:absolute;max-width:none;max-height:none;user-select:none;pointer-events:none;top:0;left:0">
+    </div>
+    <button id="crop-ok" style="width:100%;background:var(--teal);color:#fff;border:none;border-radius:10px;padding:11px;font-size:14px;font-weight:700;cursor:pointer">✓ Valider ce cadrage</button>
+  `);
+
+  const frame = document.getElementById('crop-frame');
+  const img   = document.getElementById('crop-img');
+  let ox = 0, oy = 0, dragging = false, sx = 0, sy = 0;
+
+  function clamp() {
+    const fw = frame.clientWidth, fh = frame.clientHeight;
+    const iw = img.clientWidth,   ih = img.clientHeight;
+    ox = Math.min(0, Math.max(fw - iw, ox));
+    oy = Math.min(0, Math.max(fh - ih, oy));
+    img.style.left = ox + 'px';
+    img.style.top  = oy + 'px';
+  }
+
+  img.addEventListener('load', () => {
+    const fw = frame.clientWidth, fh = frame.clientHeight;
+    const scale = Math.max(fw / img.naturalWidth, fh / img.naturalHeight);
+    img.style.width  = Math.round(img.naturalWidth  * scale) + 'px';
+    img.style.height = Math.round(img.naturalHeight * scale) + 'px';
+    // Center initially
+    ox = (fw - img.clientWidth)  / 2;
+    oy = (fh - img.clientHeight) / 2;
+    clamp();
+  }, { once: true });
+
+  frame.addEventListener('pointerdown', e => {
+    dragging = true; sx = e.clientX - ox; sy = e.clientY - oy;
+    frame.style.cursor = 'grabbing';
+    frame.setPointerCapture(e.pointerId);
+  });
+  frame.addEventListener('pointermove', e => {
+    if (!dragging) return;
+    ox = e.clientX - sx; oy = e.clientY - sy;
+    clamp();
+  });
+  frame.addEventListener('pointerup', () => { dragging = false; frame.style.cursor = 'grab'; });
+
+  document.getElementById('crop-ok')?.addEventListener('click', () => {
+    const fw = frame.clientWidth, fh = frame.clientHeight;
+    const scale = img.clientWidth / img.naturalWidth;
+    const canvas = document.createElement('canvas');
+    canvas.width  = 1200;
+    canvas.height = Math.round(1200 * fh / fw);
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(img,
+      -ox / scale, -oy / scale, fw / scale, fh / scale,
+      0, 0, canvas.width, canvas.height);
+    try {
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.88);
+      closeModal();
+      onCrop(dataUrl);
+    } catch (_) {
+      closeModal();
+      notify('Recadrage impossible pour cette URL (restriction CORS). Téléchargez d\'abord l\'image.', '⚠️');
+    }
+  });
+}
+
 // ── Modal: wire up listeners ───────────────────────────────────────────────────
 
 function _initModalListeners(trip) {
@@ -2463,7 +2682,7 @@ function _initModalListeners(trip) {
     }
   });
 
-  // Photo URL preview
+  // Photo URL preview + URL crop button
   const photoInput   = document.getElementById('m-photo');
   const photoPreview = document.getElementById('m-photo-preview');
   if (photoInput && photoPreview) {
@@ -2474,8 +2693,28 @@ function _initModalListeners(trip) {
         photoPreview.src          = url;
         photoPreview.style.display = 'block';
         photoPreview.onerror      = () => { photoPreview.style.display = 'none'; };
+        // Show/create URL crop button
+        let cropBtn = document.getElementById('m-url-crop-btn');
+        if (!cropBtn) {
+          cropBtn = document.createElement('button');
+          cropBtn.id   = 'm-url-crop-btn';
+          cropBtn.type = 'button';
+          cropBtn.textContent = '✂ Recadrer';
+          cropBtn.style.cssText = 'display:block;margin-top:6px;font-size:11px;padding:4px 10px;border-radius:6px;background:var(--c2);border:1px solid var(--c3);cursor:pointer;color:var(--ink2);font-weight:600';
+          photoPreview.insertAdjacentElement('afterend', cropBtn);
+        }
+        cropBtn.style.display = 'block';
+        cropBtn.onclick = () => {
+          _openCropModal(url, cropped => {
+            _photoBase64 = cropped;
+            photoPreview.src = _photoBase64;
+            photoPreview.style.display = 'block';
+          });
+        };
       } else {
         photoPreview.style.display = 'none';
+        const cropBtn = document.getElementById('m-url-crop-btn');
+        if (cropBtn) cropBtn.style.display = 'none';
       }
     });
   }
@@ -2631,9 +2870,9 @@ function _handleSave() {
   const flag        = (document.getElementById('m-flag')?.value  || '').trim() || '🌍';
   const { start, end } = dpGetDates();
 
-  // Resolve photo value: file mode uses base64, URL mode reads input
+  // Resolve photo: base64 takes priority (from file upload or URL crop)
   let photo;
-  if (_photoMode === 'file' && _photoBase64) {
+  if (_photoBase64) {
     photo = _photoBase64;
   } else {
     photo = (document.getElementById('m-photo')?.value || '').trim();
