@@ -2,7 +2,7 @@
    CARNET DE VOYAGES — App Entry Point & Router
    ============================================================ */
 
-import { loadData, getState, setState, setSyncCallback, getSettings, getTrips, hasPendingLocalChanges } from './store.js';
+import { loadData, getState, setState, setSyncCallback, getSettings, getTrips, hasPendingLocalChanges, getRecentlyDeletedIds } from './store.js';
 import { renderHome } from './home.js';
 import { renderMyMap, destroyMyMap } from './mymap.js';
 import { openTrip, destroyTripMap } from './trip/trip.js';
@@ -160,7 +160,7 @@ function _onAuthReady(user, cloudData) {
       // so every device eventually converges to the same list.
       const cloudIds = new Set((cloudData.trips || []).map(t => t.id));
       if (getTrips().some(t => !cloudIds.has(t.id))) {
-        syncToFirestore(getState());
+        syncToFirestore(getState(), [...getRecentlyDeletedIds()]);
       }
     } else {
       // First login on this device: upload existing local trips to cloud
@@ -205,7 +205,7 @@ function _onAuthReady(user, cloudData) {
       // so the other device eventually sees them too.
       const incomingIds = new Set((data?.trips || []).map(t => t.id));
       if (prevTrips.some(t => !incomingIds.has(t.id))) {
-        syncToFirestore(getState());
+        syncToFirestore(getState(), [...getRecentlyDeletedIds()]);
       }
     });
 

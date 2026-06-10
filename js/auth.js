@@ -172,13 +172,14 @@ export function setSyncErrorCallback(fn) { _onSyncError = fn; }
  * device B (which hasn't received the snapshot yet) overwrites Firestore with
  * its own stale state that doesn't include device A's trip.
  */
-export async function syncToFirestore(localState) {
+export async function syncToFirestore(localState, recentlyDeletedIds = []) {
   if (!_db || !_uid || !_setDocFn || !_docFn) return;
   try {
     let stateToWrite = localState;
     if (_lastServerTrips) {
       const localIds  = new Set((localState.trips || []).map(t => t.id));
-      const missing   = _lastServerTrips.filter(t => !localIds.has(t.id));
+      const deletedSet = new Set(recentlyDeletedIds);
+      const missing   = _lastServerTrips.filter(t => !localIds.has(t.id) && !deletedSet.has(t.id));
       if (missing.length > 0) {
         stateToWrite = { ...localState, trips: [...(localState.trips || []), ...missing] };
       }

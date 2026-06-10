@@ -14,7 +14,7 @@
 
 const STORAGE_KEY = 'carnet_voyages_v1';
 
-export const APP_VERSION = '138';
+export const APP_VERSION = '139';
 
 export const COMP_COLORS = [
   '#0d9488','#7c3aed','#e85d3e','#d97706',
@@ -165,6 +165,7 @@ let state = { trips: [], sharedTripIds: [] };
 
 let _syncCallback       = null;
 let _syncTimer          = null;
+const _recentlyDeletedIds = new Set();
 let _sharedSyncCallback = null; // fn(tripId, tripData) — writes to shared_trips/{tripId}
 const _sharedTripIds    = new Set();
 
@@ -228,7 +229,7 @@ export function setState(cloudData) {
   const cloudTrips = Array.isArray(cloudData.trips)       ? cloudData.trips      : [];
   const localById  = new Map(localTrips.map(t => [t.id, t]));
 
-  const merged = cloudTrips.map(ct => {
+  const merged = cloudTrips.filter(ct => !_recentlyDeletedIds.has(ct.id)).map(ct => {
     const lt = localById.get(ct.id);
     localById.delete(ct.id); // mark as seen
     // Keep local if it is strictly newer (unsaved local edit wins)
@@ -334,9 +335,11 @@ export function saveData() {
     console.warn('Carnet: localStorage full or unavailable — data may not persist', e);
   }
   clearTimeout(_syncTimer);
+  const deletedSnapshot = [..._recentlyDeletedIds];
   _syncTimer = setTimeout(() => {
     _syncTimer = null;
-    if (_syncCallback) _syncCallback(state);
+    _recentlyDeletedIds.clear();
+    if (_syncCallback) _syncCallback(state, deletedSnapshot);
   }, 400);
 }
 
@@ -426,9 +429,12 @@ export function updateTrip(id, updates) {
 }
 
 export function deleteTrip(id) {
+  _recentlyDeletedIds.add(id);
   state.trips = state.trips.filter(t => t.id !== id);
   saveData();
 }
+
+export function getRecentlyDeletedIds() { return new Set(_recentlyDeletedIds); }
 
 /**
  * Return a human-readable day label from an ISO date string.
