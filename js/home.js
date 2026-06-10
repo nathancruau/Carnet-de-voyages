@@ -1956,6 +1956,7 @@ function _attachListeners(wrap) {
         const name   = trip?.name || 'ce voyage';
         if (!confirm(`Quitter "${name}" ? Vous ne recevrez plus ses mises à jour.`)) break;
         leaveSharedTrip(tripId).catch(() => {});
+        deleteTrip(tripId);
         renderHome(_currentFilter);
         notify(`Vous avez quitté "${name}".`, '👁');
         break;

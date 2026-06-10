@@ -316,6 +316,10 @@ export async function leaveSharedTrip(tripId) {
   // Unmark so store.updateTrip no longer pushes edits to the shared doc.
   unmarkTripShared(tripId);
 
+  // Clear observer-role localStorage cache so isCurrentUserObserver() returns false immediately.
+  const user = getCurrentUser();
+  if (user?.uid) _obsUpdateCache(user.uid, tripId, false);
+
   // Remove from local list and persist via store state (syncToFirestore picks it up).
   _sharedTripIds = _sharedTripIds.filter(id => id !== tripId);
   setSharedTripIds(_sharedTripIds);

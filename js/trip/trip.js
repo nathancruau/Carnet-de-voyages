@@ -226,7 +226,9 @@ function _renderObserverTopbar(trip) {
     if (!confirm('Quitter ce voyage partagé ? Vous ne recevrez plus ses mises à jour.')) return;
     try {
       const { leaveSharedTrip } = await import('../share.js');
+      const { deleteTrip }      = await import('../store.js');
       await leaveSharedTrip(_tripId);
+      deleteTrip(_tripId);
     } catch (_) {}
     window.goHome?.();
   });
