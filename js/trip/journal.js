@@ -924,7 +924,11 @@ function _refreshJournalPins(tripId) {
 
   for (const day of (trip.days || [])) {
     (day.items || []).forEach((item, itemIdx) => {
-      if (item.lat == null || item.lng == null) return;
+      // Observer: only show validated pins; use day coordinates as fallback
+      if (_observerMode && !item.journalData?.validated) return;
+      const lat = item.lat ?? (_observerMode ? day.lat : null);
+      const lng = item.lng ?? (_observerMode ? day.lng : null);
+      if (lat == null || lng == null) return;
 
       const jd        = item.journalData;
       const validated = jd?.validated;
@@ -939,11 +943,11 @@ function _refreshJournalPins(tripId) {
         popupAnchor:[0, -18],
       });
 
-      const marker = L.marker([item.lat, item.lng], { icon });
+      const marker = L.marker([lat, lng], { icon });
       marker.on('click', () => _openJournalItemPanel(tripId, day.id, itemIdx));
       marker.addTo(_journalMap);
       _journalMarkers[item.id] = marker;
-      allPinLatLngs.push([item.lat, item.lng]);
+      allPinLatLngs.push([lat, lng]);
 
       // Draw GPX trace from synced gpxPoints (available to observers too)
       if (item.gpxPoints && item.gpxPoints.length >= 2) {

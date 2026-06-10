@@ -1851,6 +1851,7 @@ html,body{background:var(--c)}
 .live-post{background:var(--c);border:1.5px solid var(--c3);border-radius:14px;overflow:hidden;margin-bottom:14px;box-shadow:0 1px 4px rgba(0,0,0,.05)}
 .live-post-hd{padding:10px 14px}
 .live-post-badge{display:inline-flex;align-items:center;gap:5px;padding:3px 10px;border-radius:999px;font-size:11px;font-weight:700;color:#fff;margin-bottom:6px}
+.live-post-travelers{font-size:11px;color:var(--ink4);margin-bottom:3px}
 .live-post-day{font-size:12px;color:var(--ink3);line-height:1.4}
 .live-post-time{font-size:10px;color:var(--ink4);white-space:nowrap;flex-shrink:0}
 .live-post-notes{padding:0 14px 12px;font-size:12px;color:var(--ink3);line-height:1.5}

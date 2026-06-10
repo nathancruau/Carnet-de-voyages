@@ -1217,6 +1217,28 @@ function _initHomeCarousels(el) {
 
 // ── Live feed (En direct) ──────────────────────────────────────────────────────
 
+function _lvLastSeenKey() {
+  const u = getCurrentUser()?.uid;
+  return u ? `_lvLastSeen_${u}` : '_lvLastSeen';
+}
+function _lvMarkSeen() {
+  localStorage.setItem(_lvLastSeenKey(), new Date().toISOString());
+}
+function _lvUnreadCount(observingTrips) {
+  const lastSeen = localStorage.getItem(_lvLastSeenKey());
+  if (!lastSeen) return 0;
+  let count = 0;
+  for (const trip of observingTrips) {
+    for (const day of (trip.days || [])) {
+      for (const item of (day.items || [])) {
+        const ts = item.journalData?.validatedAt;
+        if (item.journalData?.validated && ts && ts > lastSeen) count++;
+      }
+    }
+  }
+  return count;
+}
+
 function _buildLiveFeedHtml(observingTrips) {
   const posts = [];
   for (const trip of observingTrips) {
@@ -1228,7 +1250,11 @@ function _buildLiveFeedHtml(observingTrips) {
       }
     }
   }
-  posts.sort((a, b) => (b.ts || 0) - (a.ts || 0));
+  posts.sort((a, b) => {
+    const ta = a.ts ? new Date(a.ts).getTime() : 0;
+    const tb = b.ts ? new Date(b.ts).getTime() : 0;
+    return tb - ta;
+  });
 
   if (posts.length === 0) {
     return `<div style="text-align:center;padding:50px 20px;color:var(--ink4)">
@@ -1257,9 +1283,14 @@ function _buildLiveFeedHtml(observingTrips) {
     });
     const carousel = _liveCarouselHtml(slides, 'lv_' + (item.id || idx));
 
-    // Interactions (likes + comments) for this post
+    // Traveler names: companions first, fall back to owner from shared doc
     const sharedDoc  = getSharedDocData(trip.id);
     const currentUid = getCurrentUser()?.uid || null;
+    const travelerNames = trip.companions?.length > 0
+      ? trip.companions.slice(0, 3).map(c => c.name).filter(Boolean).join(', ')
+      : (Object.values(sharedDoc?.members || {}).find(m => m.role === 'owner')?.companionName || null);
+
+    // Interactions (likes + comments) for this post
     let interactionsHtml = '';
     if (sharedDoc && item.id) {
       const itemReactions   = sharedDoc.reactions?.[item.id] || {};
@@ -1301,10 +1332,11 @@ function _buildLiveFeedHtml(observingTrips) {
 
     return `<div class="live-post">
       <div class="live-post-hd">
-        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:5px">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:3px">
           <div class="live-post-badge" style="background:${trip.color||'#0d9488'};margin-bottom:0">${trip.flag||'🌍'} <span>${_esc(trip.name)}</span></div>
           ${dateStr ? `<div class="live-post-time">${dateStr}</div>` : ''}
         </div>
+        ${travelerNames ? `<div class="live-post-travelers">🧳 ${_esc(travelerNames)}</div>` : ''}
         <div class="live-post-day">Jour ${day.num}${day.title ? ' · ' + _esc(day.title) : ''}</div>
         ${item.text ? `<div style="font-size:13px;font-weight:600;color:var(--ink);margin-top:3px">${_esc(item.text)}</div>` : ''}
       </div>
@@ -1421,11 +1453,12 @@ export function renderHome(filter = _currentFilter) {
   const observingTrips = allTrips.filter(t => isCurrentUserObserver(t.id));
 
   // Inline tab switcher — lives inside home-sec-hd so it adds no extra row
+  const unreadLive = _lvUnreadCount(observingTrips);
   const tabSwitcher = `
     <div class="hl-tabs hl-tabs-inline">
       <button class="hl-tab${_homeLibTab === 'mine' ? ' active' : ''}" data-action="lib-tab" data-tab="mine">🧳 Mes voyages</button>
-      <button class="hl-tab${_homeLibTab === 'observing' ? ' active' : ''}" data-action="lib-tab" data-tab="observing">🔭 Mes observations${observingTrips.length > 0 ? `<span class="hl-tab-badge">${observingTrips.length}</span>` : ''}</button>
-      <button class="hl-tab${_homeLibTab === 'live' ? ' active' : ''}" data-action="lib-tab" data-tab="live">📡 En direct</button>
+      <button class="hl-tab${_homeLibTab === 'observing' ? ' active' : ''}" data-action="lib-tab" data-tab="observing">🔭 Mes observations</button>
+      <button class="hl-tab${_homeLibTab === 'live' ? ' active' : ''}" data-action="lib-tab" data-tab="live">📡 En direct${unreadLive > 0 ? `<span class="hl-tab-badge">${unreadLive}</span>` : ''}</button>
     </div>`;
 
   const settings = getSettings();
@@ -1890,6 +1923,7 @@ function _attachListeners(wrap) {
 
       case 'lib-tab':
         _homeLibTab = target.dataset.tab;
+        if (target.dataset.tab === 'live') _lvMarkSeen();
         renderHome(_currentFilter);
         break;
 

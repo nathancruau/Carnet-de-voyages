@@ -174,8 +174,12 @@ function _onAuthReady(user, cloudData) {
       _darkModeMediaListener = null;
     }
 
-    // Load shared trips and handle any pending invite link (non-blocking)
-    initSharedTrips(cloudData).then(() => handlePendingInvite(user));
+    // Load shared trips and handle any pending invite link (non-blocking).
+    // Re-render home after loading so observer trips are classified correctly.
+    initSharedTrips(cloudData).then(() => {
+      if (currentScreen === 'home') renderHome();
+      return handlePendingInvite(user);
+    });
   } catch (err) {
     console.error('[app] render failed after login:', err);
     // The login form may not exist yet (spinner is still showing).
