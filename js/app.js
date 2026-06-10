@@ -6,7 +6,7 @@ import { loadData, getState, setState, setSyncCallback, getSettings, getTrips, h
 import { renderHome } from './home.js';
 import { renderMyMap, destroyMyMap } from './mymap.js';
 import { openTrip, destroyTripMap } from './trip/trip.js';
-import { closeModal } from './utils.js';
+import { closeModal, showModal, esc } from './utils.js';
 import { initAuth, loginWithGoogle, syncToFirestore, isFirebaseConfigured, listenUserDoc } from './auth.js';
 import { initSharedTrips, handlePendingInvite } from './share.js';
 import { checkDepartureNotifications } from './notifications.js';
@@ -259,6 +259,53 @@ window.goHome         = goHome;
 window.goMyMap        = goMyMap;
 window.navigateToTrip = navigateToTrip;
 window.closeModal     = closeModal;
+
+// Photo lightbox / carousel — used by inline onclick="" in modals and map popups
+window._openSlides = function(urls, startIdx = 0) {
+  if (!urls?.length) return;
+  const n   = urls.length;
+  let cur   = Math.max(0, Math.min(startIdx, n - 1));
+
+  const slidesHtml = urls.map((url, i) =>
+    `<div class="ph-slide" style="display:${i === cur ? 'flex' : 'none'};justify-content:center;align-items:center">
+       <img src="${esc(url)}" style="max-width:100%;max-height:65vh;object-fit:contain;border-radius:8px;display:block" onerror="this.style.opacity='.25'">
+     </div>`
+  ).join('');
+
+  const navHtml = n > 1
+    ? `<div style="display:flex;justify-content:center;align-items:center;gap:16px;margin-top:10px">
+         <button id="ph-prev" style="background:var(--c2);border:1.5px solid var(--c3);border-radius:50%;width:36px;height:36px;cursor:pointer;font-size:20px;display:flex;align-items:center;justify-content:center">‹</button>
+         <span id="ph-cnt" style="font-size:12px;color:var(--ink3)">${cur + 1} / ${n}</span>
+         <button id="ph-next" style="background:var(--c2);border:1.5px solid var(--c3);border-radius:50%;width:36px;height:36px;cursor:pointer;font-size:20px;display:flex;align-items:center;justify-content:center">›</button>
+       </div>`
+    : '';
+
+  showModal(`
+    <div style="text-align:center">
+      ${slidesHtml}
+      ${navHtml}
+      <div style="margin-top:10px">
+        <button onclick="closeModal()" style="background:var(--c2);border:1.5px solid var(--c3);border-radius:8px;padding:6px 16px;font-size:12px;cursor:pointer;font-weight:600;color:var(--ink3)">Fermer</button>
+      </div>
+    </div>
+  `);
+
+  if (n < 2) return;
+  const update = () => {
+    document.querySelectorAll('.ph-slide').forEach((el, i) => { el.style.display = i === cur ? 'flex' : 'none'; });
+    const cnt = document.getElementById('ph-cnt');
+    if (cnt) cnt.textContent = `${cur + 1} / ${n}`;
+    const prev = document.getElementById('ph-prev');
+    const next = document.getElementById('ph-next');
+    if (prev) prev.style.opacity = cur === 0 ? '.35' : '1';
+    if (next) next.style.opacity = cur === n - 1 ? '.35' : '1';
+  };
+  update();
+  document.getElementById('ph-prev')?.addEventListener('click', () => { if (cur > 0)     { cur--; update(); } });
+  document.getElementById('ph-next')?.addEventListener('click', () => { if (cur < n - 1) { cur++; update(); } });
+};
+
+window._pho = function(url) { window._openSlides([url], 0); };
 
 // Called by share.js after a remote real-time update to refresh the visible screen
 window._rerenderCurrentView = (updatedTripId) => {

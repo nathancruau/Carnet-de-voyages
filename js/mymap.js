@@ -240,11 +240,14 @@ function _mmShowInfo(trip, entry) {
   const color     = _colorForFlag(trip.flag);
   const photos    = entry.photos || [];
 
+  // Store photos for carousel (accessed via onclick in innerHTML)
+  window._mmInfoPhotos = photos.map(p => p.url);
+
   // Hero photo — large banner at the top
   const heroPhoto = photos[0];
   const photoHeroHtml = heroPhoto
     ? `<div style="width:100%;height:130px;overflow:hidden;flex-shrink:0;position:relative;cursor:pointer"
-            onclick="window.open('${_esc(heroPhoto.url)}','_blank')">
+            onclick="window._openSlides && window._openSlides(window._mmInfoPhotos || [], 0)">
          <img src="${_esc(heroPhoto.url)}"
               style="width:100%;height:100%;object-fit:cover"
               onerror="this.parentElement.style.display='none'">
@@ -443,7 +446,7 @@ function _buildAllPins() {
           pinType:    trip.pin.pinType || 'visit',
           dayFlag:    trip.flag || null,   // country flag set during save
           lat, lng,
-          photos:     trip.photo ? [{ url: trip.photo }] : [],
+          photos:     trip.photos?.length ? trip.photos : (trip.photo ? [{ url: trip.photo }] : []),
           content:    trip.pin.description || '',
           weather:    trip.pin.weather || '',
           amount:     trip.pin.cost || 0,

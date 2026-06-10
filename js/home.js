@@ -52,6 +52,7 @@ let _sortieWeather     = null;
 let _sortiePinType     = 'visit';
 let _sortiePhotoMode   = 'url';
 let _sortiePhotoBase64 = null;
+let _sortieExtraPhotos = []; // [{url: base64|url}, ...] — additional carousel photos
 
 const WEATHER_EMOJIS = ['☀️','🌤️','⛅','🌦️','🌧️','⛈️','🌨️','❄️','🌫️','💨','🌈'];
 
@@ -1279,7 +1280,7 @@ function _buildLiveFeedHtml(observingTrips) {
       if (gpx) slides.push(gpx);
     }
     photos.forEach(src => {
-      slides.push(`<img src="${_esc(src)}" loading="lazy" onclick="window.open(this.src,'_blank')">`);
+      slides.push(`<img src="${_esc(src)}" loading="lazy" onclick="window._pho && window._pho(this.src)">`);
     });
     const carousel = _liveCarouselHtml(slides, 'lv_' + (item.id || idx));
 
@@ -2038,12 +2039,31 @@ function _updateSortieCoordDisplay() {
     : 'Aucune position — cliquez sur la carte';
 }
 
+function _renderExtraThumbs() {
+  const container = document.getElementById('sm-extra-thumbs');
+  if (!container) return;
+  container.innerHTML = _sortieExtraPhotos.map((p, i) =>
+    `<div style="position:relative;display:inline-block">
+       <img src="${_esc(p.url)}" style="width:60px;height:60px;object-fit:cover;border-radius:6px;border:1.5px solid var(--c3)">
+       <button type="button" data-rm-extra="${i}"
+         style="position:absolute;top:-5px;right:-5px;background:var(--coral);color:#fff;border:none;border-radius:50%;width:17px;height:17px;font-size:10px;cursor:pointer;line-height:1;padding:0;display:flex;align-items:center;justify-content:center">✕</button>
+     </div>`
+  ).join('');
+  container.querySelectorAll('[data-rm-extra]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      _sortieExtraPhotos.splice(parseInt(btn.dataset.rmExtra), 1);
+      _renderExtraThumbs();
+    });
+  });
+}
+
 function _buildSortieModalHtml(trip) {
   const isEdit      = _editingId !== null;
   const pin         = trip?.pin || {};
   const name        = trip?.name        || '';
   const destination = trip?.destination || '';
-  const photo       = trip?.photo       || '';
+  // Banner photo: prefer photos[0].url for consistency, fall back to trip.photo
+  const photo       = trip?.photos?.[0]?.url ?? trip?.photo ?? '';
 
   // Seed sortie state from existing trip
   _sortieLat         = pin.lat  ?? null;
@@ -2052,6 +2072,7 @@ function _buildSortieModalHtml(trip) {
   _sortiePinType     = pin.pinType || 'visit';
   _sortiePhotoMode   = 'url';
   _sortiePhotoBase64 = null;
+  _sortieExtraPhotos = trip?.photos?.slice(1) || [];
 
   const coordsText  = _sortieLat != null
     ? `${_sortieLat.toFixed(5)}, ${_sortieLng.toFixed(5)}`
@@ -2079,9 +2100,17 @@ function _buildSortieModalHtml(trip) {
   const photoPreview  = urlTabActive ? photo : (_sortiePhotoBase64 || '');
   const showPreview   = urlTabActive ? !!photo : !!_sortiePhotoBase64;
 
+  const extraThumbsHtml = _sortieExtraPhotos.map((p, i) =>
+    `<div style="position:relative;display:inline-block">
+       <img src="${_esc(p.url)}" style="width:60px;height:60px;object-fit:cover;border-radius:6px;border:1.5px solid var(--c3)">
+       <button type="button" data-rm-extra="${i}"
+         style="position:absolute;top:-5px;right:-5px;background:var(--coral);color:#fff;border:none;border-radius:50%;width:17px;height:17px;font-size:10px;cursor:pointer;line-height:1;padding:0;display:flex;align-items:center;justify-content:center">✕</button>
+     </div>`
+  ).join('');
+
   const photoSection = `
     <div class="fg">
-      <label>Photo</label>
+      <label>Photo bannière</label>
       <div style="display:flex;gap:6px;margin-bottom:6px">
         <button type="button" id="spt-url"
           style="background:${urlTabActive ? 'var(--teal)' : 'var(--c2)'};color:${urlTabActive ? '#fff' : 'var(--ink3)'};border:1.5px solid ${urlTabActive ? 'var(--teal)' : 'var(--c3)'};border-radius:7px;padding:5px 12px;font-size:12px;font-weight:700;cursor:pointer">
@@ -2099,6 +2128,11 @@ function _buildSortieModalHtml(trip) {
       <img id="sm-photo-preview" class="ip" src="${_esc(photoPreview)}"
            style="${showPreview ? 'display:block' : 'display:none'}" alt="aperçu"
            onerror="this.style.display='none'">
+    </div>
+    <div class="fg">
+      <label>Photos supplémentaires <span style="font-size:10px;font-weight:400;color:var(--ink4);text-transform:none">— carousel dans Mes Destinations</span></label>
+      <input type="file" id="sm-photos-extra" accept="image/*" multiple style="width:100%;padding:6px 0;font-size:12px;cursor:pointer">
+      <div id="sm-extra-thumbs" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px">${extraThumbsHtml}</div>
     </div>`;
 
   return `
@@ -2127,13 +2161,13 @@ function _buildSortieModalHtml(trip) {
       <div style="font-size:10px;color:var(--ink4);margin-top:4px">📌 <span id="sm-coords">${_esc(coordsText)}</span></div>
     </div>
 
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 14px">
-      <div class="fg">
-        <label>Nom du lieu / destination</label>
-        <input type="text" id="sm-dest" value="${_esc(destination)}"
-               placeholder="Forêt de Fontainebleau…" autocomplete="off">
-      </div>
-      <div></div>
+    <div class="fg">
+      <label>Nom du lieu / destination</label>
+      <input type="text" id="sm-dest" value="${_esc(destination)}"
+             placeholder="Forêt de Fontainebleau…" autocomplete="off">
+    </div>
+
+    <div class="fg-row-2">
       <div class="fg">
         <label>Date</label>
         <input type="date" id="sm-date" value="${_esc(pin.date || '')}" autocomplete="off">
@@ -2154,7 +2188,7 @@ function _buildSortieModalHtml(trip) {
       <textarea id="sm-desc" rows="3" placeholder="Notes sur cette sortie…">${_esc(pin.description || '')}</textarea>
     </div>
 
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 14px">
+    <div class="fg-row-2">
       <div class="fg">
         <label>Météo</label>
         <div class="sw-picker" id="sm-weather-picker">${weatherHtml}</div>
@@ -2269,6 +2303,28 @@ function _initSortieModalListeners(trip) {
     reader.readAsDataURL(file);
   });
 
+  document.getElementById('sm-photos-extra')?.addEventListener('change', async ev => {
+    const files = Array.from(ev.target.files || []);
+    for (const file of files) {
+      const b64 = await new Promise((resolve, reject) => {
+        const r = new FileReader();
+        r.onload  = e => resolve(e.target.result);
+        r.onerror = reject;
+        r.readAsDataURL(file);
+      });
+      _sortieExtraPhotos.push({ url: b64 });
+    }
+    ev.target.value = '';
+    _renderExtraThumbs();
+  });
+
+  document.getElementById('sm-extra-thumbs')?.addEventListener('click', e => {
+    const btn = e.target.closest('[data-rm-extra]');
+    if (!btn) return;
+    _sortieExtraPhotos.splice(parseInt(btn.dataset.rmExtra), 1);
+    _renderExtraThumbs();
+  });
+
   // Save / cancel / delete
   document.getElementById('sm-save')?.addEventListener('click', _handleSortieSave);
   document.getElementById('sm-cancel')?.addEventListener('click', () => { _cleanupSortieModalMap(); closeModal(); });
@@ -2368,6 +2424,11 @@ async function _handleSortieSave() {
     photo = (document.getElementById('sm-photo')?.value || '').trim();
   }
 
+  // Build photos array: banner first, then carousel extras
+  const photos = [];
+  if (photo) photos.push({ url: photo });
+  photos.push(..._sortieExtraPhotos);
+
   _cleanupSortieModalMap();
 
   // Reverse-geocode the pin position to get the country flag emoji
@@ -2405,6 +2466,7 @@ async function _handleSortieSave() {
     name,
     destination,
     photo,
+    photos,
     color:     '#d97706',
     flag,
     type:      'sortie',

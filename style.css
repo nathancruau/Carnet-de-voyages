@@ -1081,6 +1081,8 @@ body{height:100%;min-height:-webkit-fill-available;font-family:var(--fn);backgro
 
 /* Form groups */
 .fg{margin-bottom:11px}
+.fg-row-2{display:grid;grid-template-columns:1fr 1fr;gap:0 14px}
+@media(max-width:480px){.fg-row-2{display:block}}
 .fg > label{display:block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:var(--ink3);margin-bottom:4px}
 .fg input,.fg select,.fg textarea{
   width:100%;background:var(--c);border:1.5px solid var(--c3);

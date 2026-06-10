@@ -465,7 +465,7 @@ function _renderDepenses(trip, participants) {
         <td>
           <div style="font-weight:600;color:var(--ink)">${_esc(exp.desc || '—')}</div>
           ${exp.note ? `<div style="font-size:10px;color:var(--ink4);margin-top:1px">${_esc(exp.note)}</div>` : ''}
-          ${exp.receipt ? `<img src="${_esc(exp.receipt)}" alt="Reçu" title="Voir le reçu" style="max-height:28px;max-width:40px;border-radius:3px;object-fit:cover;margin-top:3px;cursor:pointer;display:block" onclick="window.open(this.src,'_blank')">` : ''}
+          ${exp.receipt ? `<img src="${_esc(exp.receipt)}" alt="Reçu" title="Voir le reçu" style="max-height:28px;max-width:40px;border-radius:3px;object-fit:cover;margin-top:3px;cursor:pointer;display:block" onclick="window._pho && window._pho(this.src)">` : ''}
         </td>
         <td style="font-weight:700">
           ${exp.currency && exp.currency !== 'EUR'

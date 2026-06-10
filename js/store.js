@@ -14,7 +14,7 @@
 
 const STORAGE_KEY = 'carnet_voyages_v1';
 
-export const APP_VERSION = '134';
+export const APP_VERSION = '135';
 
 export const COMP_COLORS = [
   '#0d9488','#7c3aed','#e85d3e','#d97706',
@@ -107,6 +107,7 @@ export const DEFAULT_EVENT_TYPES = [
   { key: 'drive',      emoji: '🚐', label: 'Transport',         color: '#0284c7' },
   { key: 'visit',      emoji: '📍', label: 'Visite',            color: '#16a34a' },
   { key: 'activity',   emoji: '⚡', label: 'Activité',          color: '#d97706' },
+  { key: 'city',       emoji: '🏙️', label: 'Ville',             color: '#0369a1' },
   { key: 'ski',        emoji: '⛷️', label: 'Ski',               color: '#0891b2' },
   { key: 'museum',     emoji: '🏛️', label: 'Musée',             color: '#7c3aed' },
   { key: 'hiking',     emoji: '🥾', label: 'Randonnée',         color: '#16a34a' },

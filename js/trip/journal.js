@@ -547,7 +547,7 @@ function _buildObserverFeedHtml(validatedItems, tripId, sharedDoc, currentUid) {
           ${jd.notes ? `<div class="obs-notes">${_esc(jd.notes).replace(/\n/g, '<br>')}</div>` : ''}
           ${_gpxStatsHtml(item)}
           ${photos.length > 0 ? `<div class="obs-photos">${photos.map(src =>
-            `<img src="${_esc(src)}" class="obs-photo" onclick="window.open(this.src,'_blank')">`
+            `<img src="${_esc(src)}" class="obs-photo" onclick="window._pho && window._pho(this.src)">`
           ).join('')}</div>` : ''}
           ${interactionsHtml}
         </div>`;
@@ -698,7 +698,7 @@ function _tlItemHtml(day, item, itemIdx, isObserver, tripId, sharedDoc, currentU
     if (gpxInner) slides.push(gpxInner);
   }
   photos.forEach(src => {
-    slides.push(`<img src="${_esc(src)}" loading="lazy" onclick="window.open(this.src,'_blank')">`);
+    slides.push(`<img src="${_esc(src)}" loading="lazy" onclick="window._pho && window._pho(this.src)">`);
   });
   const carousel = _carouselHtml(slides, 'tl_' + (item.id || itemIdx));
 
@@ -1324,7 +1324,7 @@ function _openJournalItemPanel(tripId, dayId, itemIdx) {
   const photosHtml = (jd.photos || []).length > 0
     ? `<div style="display:flex;gap:5px;flex-wrap:wrap;margin:6px 0">
         ${(jd.photos || []).map(src =>
-          `<img src="${_esc(src)}" onclick="window.open(this.src,'_blank')"
+          `<img src="${_esc(src)}" onclick="window._pho && window._pho(this.src)"
             style="width:72px;height:56px;object-fit:cover;border-radius:6px;cursor:pointer;border:1px solid var(--c3)">`
         ).join('')}
        </div>`
@@ -1550,7 +1550,7 @@ function _openValidateModal(tripId, dayId, itemIdx) {
     return `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px">` +
       state.photos.map((src, i) =>
         `<div style="position:relative;display:inline-block">
-          <img src="${_esc(src)}" style="width:56px;height:56px;object-fit:cover;border-radius:6px;border:1px solid var(--c3);cursor:pointer" onclick="window.open(this.src,'_blank')">
+          <img src="${_esc(src)}" style="width:56px;height:56px;object-fit:cover;border-radius:6px;border:1px solid var(--c3);cursor:pointer" onclick="window._pho && window._pho(this.src)">
           <button type="button" data-rm-photo="${i}"
             style="position:absolute;top:-4px;right:-4px;background:var(--coral);color:#fff;border:none;border-radius:50%;width:16px;height:16px;font-size:9px;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;line-height:1">✕</button>
         </div>`
