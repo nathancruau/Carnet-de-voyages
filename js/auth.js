@@ -37,8 +37,11 @@ let _docFn, _getDocFn, _getDocFromServerFn, _setDocFn, _updateDocFn, _onSnapshot
 let _signInRedirectFn, _getRedirectResultFn;
 let _arrayUnionFn, _deleteFieldFn, _deleteDocFn;
 
-export function isFirebaseConfigured() { return _configured; }
-export function getCurrentUser()       { return _user; }
+// Last confirmed server trips (fromCache:false snapshot).
+// Used by syncToFirestore to merge before writing so we never silently
+// overwrite trips added by another device in the same write window.
+let _lastServerTrips = null;
+let _onSyncError     = null;
 
 /**
  * Initialise Firebase and call onReady(user, cloudData) once the auth
@@ -124,6 +127,9 @@ export async function initAuth(onReady) {
       _user = fbUser;
       _uid  = newUid;
       const cloudData = fbUser ? await _loadFromFirestore() : null;
+      // Seed the merge cache so syncToFirestore has server trips available
+      // immediately (before the first listenUserDoc event fires).
+      if (cloudData?.trips) _lastServerTrips = cloudData.trips;
       onReady(fbUser, cloudData);
     });
 
@@ -148,17 +154,35 @@ export async function logout() {
   // Do NOT clear _user/_uid here: a pending 400 ms debounce timer may still
   // be counting down, and syncToFirestore guards on _uid. Let signOut() fire
   // onAuthStateChanged which will clear them after Firebase confirms the logout.
+  _lastServerTrips = null;
   await _signOutFn(_auth);
 }
 
-/** Push the full app state to the user's Firestore document. */
-let _onSyncError = null;
 export function setSyncErrorCallback(fn) { _onSyncError = fn; }
 
-export async function syncToFirestore(state) {
+/**
+ * Push the full app state to the user's Firestore document.
+ *
+ * Before writing we merge in any trips present in the last confirmed server
+ * snapshot (_lastServerTrips) that are absent from the local state.
+ * This prevents the race condition where device A syncs a new trip while
+ * device B (which hasn't received the snapshot yet) overwrites Firestore with
+ * its own stale state that doesn't include device A's trip.
+ */
+export async function syncToFirestore(localState) {
   if (!_db || !_uid || !_setDocFn || !_docFn) return;
   try {
-    await _setDocFn(_docFn(_db, 'users', _uid), state, { merge: true });
+    let stateToWrite = localState;
+    if (_lastServerTrips) {
+      const localIds  = new Set((localState.trips || []).map(t => t.id));
+      const missing   = _lastServerTrips.filter(t => !localIds.has(t.id));
+      if (missing.length > 0) {
+        stateToWrite = { ...localState, trips: [...(localState.trips || []), ...missing] };
+      }
+    }
+    await _setDocFn(_docFn(_db, 'users', _uid), stateToWrite, { merge: true });
+    // Keep our cache current with what we just wrote
+    _lastServerTrips = stateToWrite.trips || null;
   } catch (err) {
     console.warn('[auth] Firestore sync failed:', err.message);
     if (_onSyncError) _onSyncError(err);
@@ -236,6 +260,9 @@ export function listenUserDoc(uid, callback) {
       if (!snap.exists()) return;
       // fromCache: true = served from local IndexedDB before server confirmed — skip
       if (snap.metadata.fromCache) return;
+      // Track the latest confirmed server trips so syncToFirestore can merge
+      // before writing and avoid overwriting cross-device additions.
+      _lastServerTrips = snap.data().trips || null;
       callback(snap.data(), snap.metadata.hasPendingWrites);
     },
     err => console.warn('[auth] listenUserDoc error:', err.message),
