@@ -18,6 +18,7 @@ import {
 } from './utils.js';
 // navigateToTrip / goMyMap accessed via window globals (set by app.js) to avoid circular import
 import { importFile, importAnyZip } from './import.js';
+import { parseGpx, computeGpxStats, saveLocalGpxTrack, removeLocalGpxTrack } from './gpx.js';
 import { tripToPlanning, downloadTripPlanning, downloadTripAll, downloadTripsZip, exportTripCustom } from './export.js';
 import { getCurrentUser, logout, syncToFirestore, isFirebaseConfigured } from './auth.js';
 import { requestNotificationPermission, notificationPermissionGranted } from './notifications.js';
@@ -54,6 +55,9 @@ let _sortiePhotoMode   = 'url';
 let _sortiePhotoBase64 = null;
 let _sortieExtraPhotos = []; // [{url: base64|url}, ...] — additional carousel photos
 let _sortieComps       = []; // companions being edited in the sortie modal
+let _sortieGpxTrack   = null;   // GPX track uploaded in the current sortie modal session
+let _sortieGpxStats   = null;   // computed stats for that track
+let _sortieGpxDeleted = false;  // true when user removes an existing GPX during edit
 
 const WEATHER_EMOJIS = ['☀️','🌤️','⛅','🌦️','🌧️','⛈️','🌨️','❄️','🌫️','💨','🌈'];
 
@@ -2084,6 +2088,9 @@ function _buildSortieModalHtml(trip) {
   _sortiePhotoBase64 = null;
   _sortieExtraPhotos = trip?.photos?.slice(1) || [];
   _sortieComps       = (trip?.companions || []).map(c => ({ ...c }));
+  _sortieGpxTrack    = null;
+  _sortieGpxStats    = pin.gpxStats  || null;
+  _sortieGpxDeleted  = false;
 
   const coordsText  = _sortieLat != null
     ? `${_sortieLat.toFixed(5)}, ${_sortieLng.toFixed(5)}`
@@ -2178,15 +2185,9 @@ function _buildSortieModalHtml(trip) {
              placeholder="Forêt de Fontainebleau…" autocomplete="off">
     </div>
 
-    <div class="fg-row-2">
-      <div class="fg">
-        <label>Date de début</label>
-        <input type="date" id="sm-start-date" value="${_esc(pin.date || trip?.startDate || '')}" autocomplete="off">
-      </div>
-      <div class="fg">
-        <label>Date de fin</label>
-        <input type="date" id="sm-end-date" value="${_esc(pin.endDate || trip?.endDate || pin.date || trip?.startDate || '')}" autocomplete="off">
-      </div>
+    <div class="fg">
+      <label>Dates</label>
+      <div id="sm-dp"></div>
     </div>
     <div class="fg">
       <label>Heure de début</label>
@@ -2224,6 +2225,33 @@ function _buildSortieModalHtml(trip) {
     </div>
 
     ${photoSection}
+
+    <div class="fg">
+      <label>Trace GPX <span style="font-size:10px;font-weight:400;color:var(--ink4);text-transform:none">— optionnel</span></label>
+      <div id="sm-gpx-exists" style="display:${pin.gpxTrackId ? 'block' : 'none'}">
+        <div id="sm-gpx-stats-display" style="display:flex;flex-wrap:wrap;gap:4px;padding:8px 10px;background:var(--c2);border:1px solid var(--c3);border-radius:8px;margin-bottom:6px">
+          ${_sortieGpxStats ? (() => {
+              const s = _sortieGpxStats;
+              const dist = s.distanceM >= 1000 ? (s.distanceM/1000).toFixed(1)+' km' : s.distanceM+' m';
+              const h = s.durationSecs ? Math.floor(s.durationSecs/3600) : 0;
+              const m = s.durationSecs ? Math.round((s.durationSecs%3600)/60) : 0;
+              const dur = s.durationSecs ? (h > 0 ? h+'h'+(m+'').padStart(2,'0') : m+' min') : '';
+              return [
+                `📏 ${dist}`,
+                s.elevGain ? `↑ ${s.elevGain} m` : '',
+                s.elevLoss ? `↓ ${s.elevLoss} m` : '',
+                dur        ? `⏱ ${dur}` : '',
+                s.speedAvgKph ? `⚡ ${s.speedAvgKph} km/h` : '',
+              ].filter(Boolean).map(t => `<span style="background:#e0f2fe;color:#0284c7;border:1px solid #7dd3fc;border-radius:5px;padding:2px 7px;font-size:10px;font-weight:700">${t}</span>`).join('');
+            })() : ''}
+        </div>
+        <button type="button" id="sm-gpx-del" style="width:100%;background:none;border:1.5px solid var(--coral);color:var(--coral);border-radius:7px;padding:5px;font-size:11px;font-weight:700;cursor:pointer;font-family:var(--fn)">🗑 Supprimer la trace GPX</button>
+      </div>
+      <div id="sm-gpx-upload" style="display:${pin.gpxTrackId ? 'none' : 'block'}">
+        <input type="file" id="sm-gpx-file" accept=".gpx" style="width:100%;font-size:12px;cursor:pointer;padding:4px 0">
+        <div id="sm-gpx-preview" style="display:none;flex-wrap:wrap;gap:4px;padding:8px 10px;background:var(--c2);border:1px solid var(--c3);border-radius:8px;margin-top:6px"></div>
+      </div>
+    </div>
 
     <div class="ma">
       ${isEdit ? `<button class="bd" id="sm-delete">🗑 Supprimer</button>` : ''}
@@ -2374,6 +2402,52 @@ function _initSortieModalListeners(trip) {
     if (lbl) _startInlineSortieCompRename(parseInt(lbl.dataset.renameComp, 10));
   });
 
+  // Date picker
+  const _pin = trip?.pin || {};
+  dpInit('sm-dp', _pin.date || trip?.startDate || null, _pin.endDate || trip?.endDate || null);
+
+  // GPX file upload
+  document.getElementById('sm-gpx-file')?.addEventListener('change', async e => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const text        = await file.text();
+      const { tracks }  = parseGpx(text);
+      if (!tracks.length || !tracks[0].points.length) { notify('Fichier GPX invalide ou vide', '⚠️'); return; }
+      const points      = tracks[0].points;
+      const stats       = computeGpxStats(points);
+      _sortieGpxTrack   = { id: 'gpx_' + uid(), name: file.name.replace(/\.gpx$/i, ''), color: '#e85d3e', points, importedAt: new Date().toISOString() };
+      _sortieGpxStats   = stats;
+      const preview     = document.getElementById('sm-gpx-preview');
+      if (preview) {
+        const dist = stats.distanceM >= 1000 ? (stats.distanceM/1000).toFixed(1)+' km' : stats.distanceM+' m';
+        const h = stats.durationSecs ? Math.floor(stats.durationSecs/3600) : 0;
+        const m = stats.durationSecs ? Math.round((stats.durationSecs%3600)/60) : 0;
+        preview.innerHTML = [
+          `📏 ${dist}`,
+          stats.elevGain ? `↑ ${stats.elevGain} m` : '',
+          stats.elevLoss ? `↓ ${stats.elevLoss} m` : '',
+          stats.durationSecs ? `⏱ ${h > 0 ? h+'h'+(m+'').padStart(2,'0') : m+' min'}` : '',
+          stats.speedAvgKph  ? `⚡ ${stats.speedAvgKph} km/h` : '',
+        ].filter(Boolean).map(t => `<span style="background:#e0f2fe;color:#0284c7;border:1px solid #7dd3fc;border-radius:5px;padding:2px 7px;font-size:10px;font-weight:700">${t}</span>`).join('');
+        preview.style.display = 'flex';
+      }
+      e.target.style.display = 'none';
+      notify('Trace GPX chargée !', '✅');
+    } catch (_) { notify('Impossible de lire le fichier GPX', '⚠️'); }
+  });
+
+  // Delete existing GPX
+  document.getElementById('sm-gpx-del')?.addEventListener('click', () => {
+    _sortieGpxDeleted = true;
+    _sortieGpxStats   = null;
+    _sortieGpxTrack   = null;
+    const exists = document.getElementById('sm-gpx-exists');
+    const upload = document.getElementById('sm-gpx-upload');
+    if (exists) exists.style.display = 'none';
+    if (upload) upload.style.display = 'block';
+  });
+
   // Save / cancel / delete
   document.getElementById('sm-save')?.addEventListener('click', _handleSortieSave);
   document.getElementById('sm-cancel')?.addEventListener('click', () => { _cleanupSortieModalMap(); closeModal(); });
@@ -2460,9 +2534,9 @@ async function _handleSortieSave() {
     return;
   }
 
-  const startDate   = document.getElementById('sm-start-date')?.value || null;
-  const endDate     = document.getElementById('sm-end-date')?.value   || startDate;
-  const time        = (document.getElementById('sm-time')?.value || '').trim();
+  const { start: startDate, end: rawEnd } = dpGetDates();
+  const endDate = rawEnd || startDate;
+  const time    = (document.getElementById('sm-time')?.value || '').trim();
   const description = (document.getElementById('sm-desc')?.value || '').trim();
   const cost        = parseFloat(document.getElementById('sm-cost')?.value || '0') || 0;
   const destination = (document.getElementById('sm-dest')?.value || '').trim();
@@ -2500,6 +2574,22 @@ async function _handleSortieSave() {
     } catch (_) { /* keep default */ }
   }
 
+  // GPX — resolve final state (new upload / existing / deleted)
+  const _existingPin    = _editingId ? (getTrip(_editingId)?.pin || {}) : {};
+  let finalGpxTrackId   = _existingPin.gpxTrackId  || null;
+  let finalGpxStats     = _existingPin.gpxStats    || null;
+  let finalGpxPoints    = _existingPin.gpxPoints   || null;
+  if (_sortieGpxDeleted) {
+    if (finalGpxTrackId && _editingId) removeLocalGpxTrack(_editingId, finalGpxTrackId);
+    finalGpxTrackId = null; finalGpxStats = null; finalGpxPoints = null;
+  }
+  if (_sortieGpxTrack) {
+    finalGpxTrackId = _sortieGpxTrack.id;
+    finalGpxStats   = _sortieGpxStats;
+    const step      = Math.max(1, Math.floor(_sortieGpxTrack.points.length / 300));
+    finalGpxPoints  = _sortieGpxTrack.points.filter((_, i) => i % step === 0);
+  }
+
   const pin = {
     lat:         _sortieLat,
     lng:         _sortieLng,
@@ -2512,6 +2602,11 @@ async function _handleSortieSave() {
     currency:    'EUR',
   };
   if (endDate && endDate !== startDate) pin.endDate = endDate;
+  if (finalGpxTrackId) {
+    pin.gpxTrackId = finalGpxTrackId;
+    pin.gpxStats   = finalGpxStats;
+    pin.gpxPoints  = finalGpxPoints;
+  }
 
   const data = {
     name,
@@ -2531,9 +2626,11 @@ async function _handleSortieSave() {
 
   if (_editingId) {
     updateTrip(_editingId, data);
+    if (_sortieGpxTrack) saveLocalGpxTrack(_editingId, _sortieGpxTrack);
     notify('Sortie mise à jour !', '✅');
   } else {
-    addTrip(data);
+    const newTrip = addTrip(data);
+    if (_sortieGpxTrack) saveLocalGpxTrack(newTrip.id, _sortieGpxTrack);
     notify('Sortie créée !', '✅');
   }
 
