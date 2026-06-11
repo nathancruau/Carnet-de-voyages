@@ -976,7 +976,7 @@ function _initJournalMap(tripId) {
     });
 
     _journalMap.on('moveend', _ensureJournalWorldCopies);
-    _journalMap.on('zoomend', () => { if (_journalTripId) _refreshJournalPins(_journalTripId); });
+    _journalMap.on('zoomend', () => { if (_journalTripId) _refreshJournalPins(_journalTripId, false); });
 
     const lang = getLanguage();
     const tileUrl = lang === 'en'
@@ -1006,7 +1006,7 @@ function _scrollObserverToItem(itemId) {
   setTimeout(() => { el.style.outline = ''; el.style.transition = ''; el.style.borderRadius = ''; }, 1600);
 }
 
-function _refreshJournalPins(tripId) {
+function _refreshJournalPins(tripId, fitView = true) {
   if (!_journalMap) return;
   const trip = getTrip(tripId);
   if (!trip) return;
@@ -1088,10 +1088,12 @@ function _refreshJournalPins(tripId) {
     }
   }
 
-  if (allPinLatLngs.length === 1) {
-    _journalMap.setView(allPinLatLngs[0], 10, { animate: true });
-  } else if (allPinLatLngs.length > 1) {
-    _journalMap.fitBounds(allPinLatLngs, { padding: [40, 40], maxZoom: 12 });
+  if (fitView) {
+    if (allPinLatLngs.length === 1) {
+      _journalMap.setView(allPinLatLngs[0], 10, { animate: true });
+    } else if (allPinLatLngs.length > 1) {
+      _journalMap.fitBounds(allPinLatLngs, { padding: [40, 40], maxZoom: 12 });
+    }
   }
 
   // Seed ±1 and ±2 world-copy marker sets immediately

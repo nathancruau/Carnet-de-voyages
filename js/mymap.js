@@ -163,11 +163,11 @@ function _makeMultiIcon(count) {
 }
 
 /** Cluster icon for geographic groups of nearby destinations. */
-function _makeGeoClusterIcon(count) {
+function _makeGeoClusterIcon(count, color = '#0d9488') {
   const sz = count >= 10 ? 42 : 36;
   return L.divIcon({
     className: '',
-    html: `<div style="background:#0d9488;color:#fff;border:3px solid rgba(255,255,255,.9);border-radius:50%;width:${sz}px;height:${sz}px;display:flex;align-items:center;justify-content:center;font-size:${count >= 10 ? 11 : 12}px;font-weight:800;box-shadow:0 2px 12px rgba(13,148,136,.45);cursor:pointer">${count}</div>`,
+    html: `<div style="background:${color};color:#fff;border:3px solid rgba(255,255,255,.9);border-radius:50%;width:${sz}px;height:${sz}px;display:flex;align-items:center;justify-content:center;font-size:${count >= 10 ? 11 : 12}px;font-weight:800;box-shadow:0 2px 12px rgba(0,0,0,.25);cursor:pointer">${count}</div>`,
     iconSize:   [sz, sz],
     iconAnchor: [sz / 2, sz / 2],
     popupAnchor:[0, -sz / 2],
@@ -176,13 +176,19 @@ function _makeGeoClusterIcon(count) {
 
 /**
  * Group geographically close merged-pins into geo-clusters based on screen-pixel
- * distance at the current zoom level. Returns the same `mergedPins` array with
- * some entries replaced by cluster objects { lat, lng, entries[], isGeoCluster, clusterPoints[] }.
+ * distance at the current zoom level. Pins from different countries are never merged.
+ * Returns the same `mergedPins` array with some entries replaced by cluster objects
+ * { lat, lng, entries[], isGeoCluster, clusterColor, clusterPoints[] }.
  * Disabled above zoom 9 — individual pins are shown at high zoom.
  */
 function _geoCluster(mergedPins, map, threshold = 52) {
   if (!map || map.getZoom() >= 9 || mergedPins.length < 2) return mergedPins;
-  const pts      = mergedPins.map(mp => map.latLngToContainerPoint([mp.lat, mp.lng]));
+  const pts = mergedPins.map(mp => map.latLngToContainerPoint([mp.lat, mp.lng]));
+  // Country key per merged-pin: used to prevent cross-country clustering
+  const countryOf = mergedPins.map(mp => {
+    const flag = mp.entries[0]?.entry?.dayFlag || mp.entries[0]?.trip?.flag || '';
+    return _isoFromFlag(flag) || flag || '?';
+  });
   const assigned = new Uint8Array(mergedPins.length);
   const result   = [];
   for (let i = 0; i < mergedPins.length; i++) {
@@ -190,7 +196,7 @@ function _geoCluster(mergedPins, map, threshold = 52) {
     assigned[i] = 1;
     const members = [i];
     for (let j = i + 1; j < mergedPins.length; j++) {
-      if (!assigned[j] && pts[i].distanceTo(pts[j]) <= threshold) {
+      if (!assigned[j] && countryOf[i] === countryOf[j] && pts[i].distanceTo(pts[j]) <= threshold) {
         assigned[j] = 1;
         members.push(j);
       }
@@ -201,10 +207,12 @@ function _geoCluster(mergedPins, map, threshold = 52) {
       const allEntries = members.flatMap(idx => mergedPins[idx].entries);
       const latC = members.reduce((s, idx) => s + mergedPins[idx].lat, 0) / members.length;
       const lngC = members.reduce((s, idx) => s + mergedPins[idx].lng, 0) / members.length;
+      const flag = mergedPins[members[0]].entries[0]?.entry?.dayFlag || mergedPins[members[0]].entries[0]?.trip?.flag || '';
       result.push({
         lat: latC, lng: lngC,
         entries: allEntries,
         isGeoCluster: true,
+        clusterColor: _colorForFlag(flag),
         clusterPoints: members.map(idx => mergedPins[idx]),
       });
     }
@@ -648,7 +656,7 @@ function _addOffsetMarkers(offset) {
   for (const mp of _mergedPinsCache) {
     let icon;
     if (mp.isGeoCluster) {
-      icon = _makeGeoClusterIcon(mp.entries.length);
+      icon = _makeGeoClusterIcon(mp.entries.length, mp.clusterColor);
     } else {
       const isMulti = mp.entries.length > 1;
       const primary = mp.entries[0];
