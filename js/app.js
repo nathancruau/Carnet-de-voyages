@@ -155,11 +155,10 @@ function _onAuthReady(user, cloudData) {
       // Read localStorage first so setState can merge local edits that didn't reach Firestore yet
       loadData();
       setState(cloudData);
-      // If localStorage had trips that weren't in the Firestore snapshot
-      // (e.g. a previous sync failed, or the device was offline), push them now
-      // so every device eventually converges to the same list.
-      const cloudIds = new Set((cloudData.trips || []).map(t => t.id));
-      if (getTrips().some(t => !cloudIds.has(t.id))) {
+      // Re-push if local merged state differs from cloud snapshot.
+      // Covers: (1) trips created offline missing from Firestore,
+      // (2) trips edited offline whose local updatedAt is newer than Firestore.
+      if (_tripsSignature(getState().trips) !== _tripsSignature(cloudData.trips)) {
         syncToFirestore(getState(), [...getRecentlyDeletedIds()]);
       }
     } else {
@@ -199,10 +198,10 @@ function _onAuthReady(user, cloudData) {
       if (_tripsSignature(data?.trips) === _tripsSignature(prevTrips)) return;
       setState(data);
       if (currentScreen === 'home') renderHome();
-      // If we had local trips absent from the incoming snapshot, push them
-      // so the other device eventually sees them too.
-      const incomingIds = new Set((data?.trips || []).map(t => t.id));
-      if (prevTrips.some(t => !incomingIds.has(t.id))) {
+      // Re-push if the merged local state still differs from what the server sent.
+      // Covers both missing trips AND locally-newer trips that would otherwise stay
+      // stuck when a concurrent write from another device overwrote a newer local edit.
+      if (_tripsSignature(getState().trips) !== _tripsSignature(data?.trips)) {
         syncToFirestore(getState(), [...getRecentlyDeletedIds()]);
       }
     });
