@@ -2505,13 +2505,13 @@ async function _handleSortieSave() {
     lng:         _sortieLng,
     pinType:     _sortiePinType,
     date:        startDate,
-    endDate:     endDate !== startDate ? endDate : undefined,
     time,
     description,
     weather:     _sortieWeather,
     cost,
     currency:    'EUR',
   };
+  if (endDate && endDate !== startDate) pin.endDate = endDate;
 
   const data = {
     name,
