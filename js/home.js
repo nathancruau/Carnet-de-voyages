@@ -977,6 +977,7 @@ function _sortieCardHtml(trip) {
         <div class="tc-stats" style="margin-top:6px">
           ${pin.weather ? `<span class="tc-s">${pin.weather}</span>` : ''}
           ${pin.cost ? `<span class="tc-s">💶 ${Number(pin.cost).toLocaleString('fr-FR', { minimumFractionDigits: 2 })} EUR</span>` : ''}
+          ${pin.withWhom ? `<span class="tc-s">👥 ${_esc(pin.withWhom)}</span>` : ''}
         </div>
       </div>
     </div>
@@ -2188,6 +2189,12 @@ function _buildSortieModalHtml(trip) {
       <textarea id="sm-desc" rows="3" placeholder="Notes sur cette sortie…">${_esc(pin.description || '')}</textarea>
     </div>
 
+    <div class="fg">
+      <label>Avec qui ?</label>
+      <input type="text" id="sm-with-whom" value="${_esc(pin.withWhom || '')}"
+             placeholder="Alice, Bob…" autocomplete="off">
+    </div>
+
     <div class="fg-row-2">
       <div class="fg">
         <label>Météo</label>
@@ -2414,6 +2421,7 @@ async function _handleSortieSave() {
   const date        = document.getElementById('sm-date')?.value || null;
   const time        = (document.getElementById('sm-time')?.value || '').trim();
   const description = (document.getElementById('sm-desc')?.value || '').trim();
+  const withWhom    = (document.getElementById('sm-with-whom')?.value || '').trim();
   const cost        = parseFloat(document.getElementById('sm-cost')?.value || '0') || 0;
   const destination = (document.getElementById('sm-dest')?.value || '').trim();
 
@@ -2457,6 +2465,7 @@ async function _handleSortieSave() {
     date,
     time,
     description,
+    withWhom,
     weather:     _sortieWeather,
     cost,
     currency:    'EUR',

@@ -193,11 +193,9 @@ function _onAuthReady(user, cloudData) {
     // When another device pushes a state update, we merge it in immediately so that
     // device never overwrites Firestore with stale data (the root cause of data loss).
     if (_userDocUnsub) { _userDocUnsub(); _userDocUnsub = null; }
-    _userDocUnsub = listenUserDoc(user.uid, (data, hasPendingWrites) => {
-      // hasPendingWrites: true = our own write going up to Firestore — skip
-      if (hasPendingWrites) return;
+    _userDocUnsub = listenUserDoc(user.uid, (data) => {
       const prevTrips = getTrips();
-      // Skip if data matches what we already have (prevents re-renders on our own confirms)
+      // Skip if signature matches — covers our own write echoes and duplicate events
       if (_tripsSignature(data?.trips) === _tripsSignature(prevTrips)) return;
       setState(data);
       if (currentScreen === 'home') renderHome();
