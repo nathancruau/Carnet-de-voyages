@@ -184,7 +184,7 @@ export async function syncToFirestore(localState, recentlyDeletedIds = []) {
         stateToWrite = { ...localState, trips: [...(localState.trips || []), ...missing] };
       }
     }
-    await _setDocFn(_docFn(_db, 'users', _uid), stateToWrite, { merge: true });
+    await _setDocFn(_docFn(_db, 'users', _uid), JSON.parse(JSON.stringify(stateToWrite)), { merge: true });
     // Keep our cache current with what we just wrote
     _lastServerTrips = stateToWrite.trips || null;
   } catch (err) {
@@ -221,7 +221,7 @@ export async function saveSharedTrip(tripId, tripData) {
   if (!_db || !_setDocFn || !_docFn) return;
   await _setDocFn(
     _docFn(_db, 'shared_trips', tripId),
-    { trip: tripData, updatedAt: new Date().toISOString() },
+    JSON.parse(JSON.stringify({ trip: tripData, updatedAt: new Date().toISOString() })),
     { merge: true },
   );
 }
