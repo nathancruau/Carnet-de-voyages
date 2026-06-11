@@ -53,6 +53,7 @@ let _sortiePinType     = 'visit';
 let _sortiePhotoMode   = 'url';
 let _sortiePhotoBase64 = null;
 let _sortieExtraPhotos = []; // [{url: base64|url}, ...] — additional carousel photos
+let _sortieComps       = []; // companions being edited in the sortie modal
 
 const WEATHER_EMOJIS = ['☀️','🌤️','⛅','🌦️','🌧️','⛈️','🌨️','❄️','🌫️','💨','🌈'];
 
@@ -977,8 +978,12 @@ function _sortieCardHtml(trip) {
         <div class="tc-stats" style="margin-top:6px">
           ${pin.weather ? `<span class="tc-s">${pin.weather}</span>` : ''}
           ${pin.cost ? `<span class="tc-s">💶 ${Number(pin.cost).toLocaleString('fr-FR', { minimumFractionDigits: 2 })} EUR</span>` : ''}
-          ${pin.withWhom ? `<span class="tc-s">👥 ${_esc(pin.withWhom)}</span>` : ''}
         </div>
+        ${(trip.companions || []).length > 0 ? `
+        <div style="display:flex;align-items:center;gap:3px;margin-top:5px;flex-wrap:wrap">
+          ${(trip.companions).slice(0, 4).map((c, i) => `<div class="comp-avatar" style="background:${c.color || _compColor(i)}" title="${_esc(c.name)}">${_initials(c.name)}</div>`).join('')}
+          ${trip.companions.length > 4 ? `<span style="font-size:10px;color:var(--ink4);font-weight:700">+${trip.companions.length - 4}</span>` : ''}
+        </div>` : ''}
       </div>
     </div>
   `;
@@ -2005,11 +2010,11 @@ function _attachListeners(wrap) {
 
 // ── Modal: companion list HTML ─────────────────────────────────────────────────
 
-function _compsListHtml() {
-  if (_modalComps.length === 0) {
+function _compsListHtml(comps = _modalComps) {
+  if (comps.length === 0) {
     return `<div style="font-size:11px;color:var(--ink4);font-style:italic">Aucun compagnon pour l'instant</div>`;
   }
-  return _modalComps.map((c, i) => {
+  return comps.map((c, i) => {
     const bg = c.color || _compColor(i);
     return `
       <div class="comp-tag" data-comp-idx="${i}">
@@ -2074,6 +2079,7 @@ function _buildSortieModalHtml(trip) {
   _sortiePhotoMode   = 'url';
   _sortiePhotoBase64 = null;
   _sortieExtraPhotos = trip?.photos?.slice(1) || [];
+  _sortieComps       = (trip?.companions || []).map(c => ({ ...c }));
 
   const coordsText  = _sortieLat != null
     ? `${_sortieLat.toFixed(5)}, ${_sortieLng.toFixed(5)}`
@@ -2191,8 +2197,11 @@ function _buildSortieModalHtml(trip) {
 
     <div class="fg">
       <label>Avec qui ?</label>
-      <input type="text" id="sm-with-whom" value="${_esc(pin.withWhom || '')}"
-             placeholder="Alice, Bob…" autocomplete="off">
+      <div class="comp-list" id="sm-comp-list">${_compsListHtml(_sortieComps)}</div>
+      <div class="comp-add-row" style="margin-top:6px">
+        <input type="text" id="sm-comp-input" placeholder="Prénom ou nom…" autocomplete="off">
+        <button class="comp-add-btn" id="sm-comp-add">Ajouter</button>
+      </div>
     </div>
 
     <div class="fg-row-2">
@@ -2332,6 +2341,31 @@ function _initSortieModalListeners(trip) {
     _renderExtraThumbs();
   });
 
+  // Companions
+  const sortieCompInput = document.getElementById('sm-comp-input');
+  const addSortieComp = () => {
+    const name = sortieCompInput?.value.trim();
+    if (!name) return;
+    _sortieComps.push({ id: 'c_' + uid(), name, color: _compColor(_sortieComps.length) });
+    if (sortieCompInput) sortieCompInput.value = '';
+    _refreshSortieCompList();
+    sortieCompInput?.focus();
+  };
+  document.getElementById('sm-comp-add')?.addEventListener('click', addSortieComp);
+  sortieCompInput?.addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); addSortieComp(); }
+  });
+  document.getElementById('sm-comp-list')?.addEventListener('click', e => {
+    const rmBtn = e.target.closest('[data-remove-comp]');
+    if (rmBtn) {
+      _sortieComps.splice(parseInt(rmBtn.dataset.removeComp, 10), 1);
+      _refreshSortieCompList();
+      return;
+    }
+    const lbl = e.target.closest('[data-rename-comp]');
+    if (lbl) _startInlineSortieCompRename(parseInt(lbl.dataset.renameComp, 10));
+  });
+
   // Save / cancel / delete
   document.getElementById('sm-save')?.addEventListener('click', _handleSortieSave);
   document.getElementById('sm-cancel')?.addEventListener('click', () => { _cleanupSortieModalMap(); closeModal(); });
@@ -2421,7 +2455,6 @@ async function _handleSortieSave() {
   const date        = document.getElementById('sm-date')?.value || null;
   const time        = (document.getElementById('sm-time')?.value || '').trim();
   const description = (document.getElementById('sm-desc')?.value || '').trim();
-  const withWhom    = (document.getElementById('sm-with-whom')?.value || '').trim();
   const cost        = parseFloat(document.getElementById('sm-cost')?.value || '0') || 0;
   const destination = (document.getElementById('sm-dest')?.value || '').trim();
 
@@ -2465,7 +2498,6 @@ async function _handleSortieSave() {
     date,
     time,
     description,
-    withWhom,
     weather:     _sortieWeather,
     cost,
     currency:    'EUR',
@@ -2483,7 +2515,7 @@ async function _handleSortieSave() {
     startDate: date,
     endDate:   date,
     pin,
-    companions: [],
+    companions: _sortieComps,
     multiCountry: false,
   };
 
@@ -2986,9 +3018,12 @@ function _initModalListeners(trip) {
 
 function _refreshCompList() {
   const list = document.getElementById('m-comp-list');
-  // Only replace innerHTML — the click listener on the container
-  // was already attached in _initModalListeners and survives innerHTML updates.
   if (list) list.innerHTML = _compsListHtml();
+}
+
+function _refreshSortieCompList() {
+  const list = document.getElementById('sm-comp-list');
+  if (list) list.innerHTML = _compsListHtml(_sortieComps);
 }
 
 function _startInlineCompRename(idx) {
@@ -3010,6 +3045,28 @@ function _startInlineCompRename(idx) {
   input.addEventListener('keydown', e => {
     if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
     if (e.key === 'Escape') { input.removeEventListener('blur', save); _refreshCompList(); }
+  });
+}
+
+function _startInlineSortieCompRename(idx) {
+  const lbl = document.querySelector(`.comp-name-lbl[data-rename-comp="${idx}"]`);
+  if (!lbl) return;
+  const current = _sortieComps[idx]?.name || '';
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.value = current;
+  input.className = 'comp-rename-input';
+  lbl.replaceWith(input);
+  input.focus();
+  input.select();
+  const save = () => {
+    if (_sortieComps[idx]) _sortieComps[idx].name = input.value.trim() || current;
+    _refreshSortieCompList();
+  };
+  input.addEventListener('blur', save);
+  input.addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
+    if (e.key === 'Escape') { input.removeEventListener('blur', save); _refreshSortieCompList(); }
   });
 }
 
