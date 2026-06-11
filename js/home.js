@@ -940,9 +940,13 @@ function _sortieCardHtml(trip) {
   const eventTypes = getEventTypes();
   const et         = eventTypes.find(e => e.key === (pin.pinType || 'visit')) || eventTypes[0];
 
-  const dateStr = pin.date
-    ? new Date(pin.date + 'T12:00:00').toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' })
-    : (trip.startDate ? fmtDate(trip.startDate) : 'Date non définie');
+  const _sd = pin.date || trip.startDate;
+  const _ed = pin.endDate || (trip.endDate !== trip.startDate ? trip.endDate : null);
+  const dateStr = !_sd
+    ? 'Date non définie'
+    : (_ed && _ed !== _sd)
+      ? `${fmtDateShort(_sd)} – ${fmtDate(_ed)}`
+      : new Date(_sd + 'T12:00:00').toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' });
 
   const preview = (pin.description || '').slice(0, 80) + ((pin.description || '').length > 80 ? '…' : '');
 
@@ -2176,13 +2180,17 @@ function _buildSortieModalHtml(trip) {
 
     <div class="fg-row-2">
       <div class="fg">
-        <label>Date</label>
-        <input type="date" id="sm-date" value="${_esc(pin.date || '')}" autocomplete="off">
+        <label>Date de début</label>
+        <input type="date" id="sm-start-date" value="${_esc(pin.date || trip?.startDate || '')}" autocomplete="off">
       </div>
       <div class="fg">
-        <label>Heure</label>
-        <input type="time" id="sm-time" value="${_esc(pin.time || '')}" autocomplete="off">
+        <label>Date de fin</label>
+        <input type="date" id="sm-end-date" value="${_esc(pin.endDate || trip?.endDate || pin.date || trip?.startDate || '')}" autocomplete="off">
       </div>
+    </div>
+    <div class="fg">
+      <label>Heure de début</label>
+      <input type="time" id="sm-time" value="${_esc(pin.time || '')}" autocomplete="off">
     </div>
 
     <div class="fg">
@@ -2452,7 +2460,8 @@ async function _handleSortieSave() {
     return;
   }
 
-  const date        = document.getElementById('sm-date')?.value || null;
+  const startDate   = document.getElementById('sm-start-date')?.value || null;
+  const endDate     = document.getElementById('sm-end-date')?.value   || startDate;
   const time        = (document.getElementById('sm-time')?.value || '').trim();
   const description = (document.getElementById('sm-desc')?.value || '').trim();
   const cost        = parseFloat(document.getElementById('sm-cost')?.value || '0') || 0;
@@ -2495,7 +2504,8 @@ async function _handleSortieSave() {
     lat:         _sortieLat,
     lng:         _sortieLng,
     pinType:     _sortiePinType,
-    date,
+    date:        startDate,
+    endDate:     endDate !== startDate ? endDate : undefined,
     time,
     description,
     weather:     _sortieWeather,
@@ -2512,8 +2522,8 @@ async function _handleSortieSave() {
     flag,
     type:      'sortie',
     status:    'done',
-    startDate: date,
-    endDate:   date,
+    startDate,
+    endDate:   endDate || startDate,
     pin,
     companions: _sortieComps,
     multiCountry: false,
