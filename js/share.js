@@ -228,43 +228,112 @@ export async function deleteObserverReaction(tripId, itemId, targetUid) {
 }
 
 /**
- * Strip large binary payloads before writing a trip to a Firestore shared document.
- * Firestore has a 1 MB per-document limit.
- * Removed:
- *   - base64 photos (data: URIs) — device-local, useless for other devices, huge
- *   - raw gpxPoints arrays — can be thousands of floats; gpxStats are kept for display
+ * Compress a base64 photo to a small JPEG thumbnail for Firestore sharing.
+ * Target: ≤ 400px on longest side, 55% quality ≈ 15–25 KB per image.
+ * Returns the compressed data URL, or null on error.
  */
-function _sanitizeTripForSharing(trip) {
-  const stripB64   = url => (typeof url === 'string' && url.startsWith('data:')) ? null : url;
-  const cleanPhotos = arr => (arr || [])
-    .map(p => ({ ...p, url: stripB64(p.url) }))
-    .filter(p => p.url);
+async function _compressPhotoForSharing(b64) {
+  if (!b64 || !b64.startsWith('data:')) return null;
+  return new Promise(resolve => {
+    const img = new Image();
+    img.onload = () => {
+      try {
+        const MAX = 400;
+        const scale  = Math.min(1, MAX / Math.max(img.width || 1, img.height || 1));
+        const canvas = document.createElement('canvas');
+        canvas.width  = Math.round((img.width  || MAX) * scale);
+        canvas.height = Math.round((img.height || MAX) * scale);
+        canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL('image/jpeg', 0.55));
+      } catch (_) { resolve(null); }
+    };
+    img.onerror = () => resolve(null);
+    img.src = b64;
+  });
+}
+
+/**
+ * Sanitize a trip before writing to a Firestore shared document (1 MB limit).
+ * - Base64 photos (data: URIs) are re-compressed to ≤400 px / 55% quality (~20 KB each).
+ * - Raw gpxPoints arrays are stripped (gpxStats is kept for stat display).
+ */
+async function _sanitizeTripForSharing(trip) {
+  const isB64 = url => typeof url === 'string' && url.startsWith('data:');
+
+  // Collect every base64 URL and compress them all in parallel
+  const tasks = [];    // { set(compressed) } callbacks
+  const inputs = [];   // original b64 strings
+
+  const enqueue = (b64) => {
+    const idx = inputs.length;
+    inputs.push(b64);
+    let _resolve;
+    const p = new Promise(r => { _resolve = r; });
+    tasks.push({ idx, resolve: _resolve });
+    return p; // unused — we batch below
+  };
 
   const t = JSON.parse(JSON.stringify(trip));
 
-  // Top-level banner photo + photos array
-  if (t.photo) t.photo = stripB64(t.photo) || '';
-  t.photos = cleanPhotos(t.photos);
+  // Collect all base64 URLs
+  const urlPlaceholders = [];
 
-  // Sortie pin — remove raw gpxPoints (keep gpxStats for stat display)
+  const scanUrl = (url) => {
+    if (!isB64(url)) return url;
+    const slot = urlPlaceholders.length;
+    urlPlaceholders.push(null); // will be filled after compression
+    inputs.push(url);
+    return `__SLOT_${slot}__`;
+  };
+
+  const scanPhotos = (arr) =>
+    (arr || []).map(p => ({ ...p, url: scanUrl(p.url) })).filter(p => p.url);
+
+  if (t.photo) t.photo = scanUrl(t.photo);
+  t.photos = scanPhotos(t.photos);
   if (t.pin?.gpxPoints) delete t.pin.gpxPoints;
-
-  // Day events — strip base64 photos and raw gpxPoints
   t.days = (t.days || []).map(day => ({
     ...day,
     items: (day.items || []).map(item => {
       const i = { ...item };
-      if (i.photo) i.photo = stripB64(i.photo) || '';
-      i.photos = cleanPhotos(i.photos);
+      if (i.photo) i.photo = scanUrl(i.photo);
+      i.photos = scanPhotos(i.photos);
       delete i.gpxPoints;
       return i;
     }),
   }));
-
-  // Journal entries
   t.journalEntries = (t.journalEntries || []).map(je => ({
     ...je,
-    photos: cleanPhotos(je.photos),
+    photos: scanPhotos(je.photos),
+  }));
+
+  // Compress all base64 inputs in parallel
+  const compressed = await Promise.all(inputs.map(_compressPhotoForSharing));
+
+  // Replace __SLOT_N__ placeholders with compressed URLs (or strip if failed)
+  const replaceSlots = (url) => {
+    if (typeof url !== 'string') return url;
+    const m = url.match(/^__SLOT_(\d+)__$/);
+    if (!m) return url;
+    return compressed[parseInt(m[1])] || '';
+  };
+
+  const fixPhotos = (arr) =>
+    (arr || []).map(p => ({ ...p, url: replaceSlots(p.url) })).filter(p => p.url);
+
+  if (t.photo) t.photo = replaceSlots(t.photo);
+  t.photos = fixPhotos(t.photos);
+  t.days = t.days.map(day => ({
+    ...day,
+    items: day.items.map(item => ({
+      ...item,
+      photo:  item.photo  ? replaceSlots(item.photo) : item.photo,
+      photos: fixPhotos(item.photos),
+    })),
+  }));
+  t.journalEntries = t.journalEntries.map(je => ({
+    ...je,
+    photos: fixPhotos(je.photos),
   }));
 
   return t;
@@ -433,7 +502,7 @@ async function _loadAndListen(tripId) {
     replaceTripFromNetwork(tripId, doc.trip);
   } else {
     // Local version is newer — push it to Firestore instead of overwriting
-    saveSharedTrip(tripId, _sanitizeTripForSharing(localTrip)).catch(() => {});
+    _sanitizeTripForSharing(localTrip).then(s => saveSharedTrip(tripId, s)).catch(() => {});
   }
   _sharedDocData.set(tripId, doc);
 
@@ -470,9 +539,9 @@ function _onLocalSharedTripEdit(tripId, tripData, action = 'a modifié le voyage
     }).catch(() => {});
   }
 
-  saveSharedTrip(tripId, _sanitizeTripForSharing(tripData)).catch(err =>
-    console.warn('[share] failed to push shared trip:', err.message),
-  );
+  _sanitizeTripForSharing(tripData)
+    .then(sanitized => saveSharedTrip(tripId, sanitized))
+    .catch(err => console.warn('[share] failed to push shared trip:', err.message));
 }
 
 /** Firestore listener fires this for every snapshot (local + remote). */
@@ -645,7 +714,7 @@ export async function openShareModal(tripId) {
     // First share: create shared_trips document and start listener
     if (!isTripShared(tripId)) {
       const ownerName = user.displayName || user.email?.split('@')[0] || 'Organisateur';
-      await initSharedTripInFirestore(tripId, _sanitizeTripForSharing(trip), user.uid, ownerName);
+      await initSharedTripInFirestore(tripId, await _sanitizeTripForSharing(trip), user.uid, ownerName);
       markTripShared(tripId);
       setSharedSyncCallback(_onLocalSharedTripEdit);
 
