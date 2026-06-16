@@ -227,6 +227,49 @@ export async function deleteObserverReaction(tripId, itemId, targetUid) {
   } catch (_) {}
 }
 
+/**
+ * Strip large binary payloads before writing a trip to a Firestore shared document.
+ * Firestore has a 1 MB per-document limit.
+ * Removed:
+ *   - base64 photos (data: URIs) — device-local, useless for other devices, huge
+ *   - raw gpxPoints arrays — can be thousands of floats; gpxStats are kept for display
+ */
+function _sanitizeTripForSharing(trip) {
+  const stripB64   = url => (typeof url === 'string' && url.startsWith('data:')) ? null : url;
+  const cleanPhotos = arr => (arr || [])
+    .map(p => ({ ...p, url: stripB64(p.url) }))
+    .filter(p => p.url);
+
+  const t = JSON.parse(JSON.stringify(trip));
+
+  // Top-level banner photo + photos array
+  if (t.photo) t.photo = stripB64(t.photo) || '';
+  t.photos = cleanPhotos(t.photos);
+
+  // Sortie pin — remove raw gpxPoints (keep gpxStats for stat display)
+  if (t.pin?.gpxPoints) delete t.pin.gpxPoints;
+
+  // Day events — strip base64 photos and raw gpxPoints
+  t.days = (t.days || []).map(day => ({
+    ...day,
+    items: (day.items || []).map(item => {
+      const i = { ...item };
+      if (i.photo) i.photo = stripB64(i.photo) || '';
+      i.photos = cleanPhotos(i.photos);
+      delete i.gpxPoints;
+      return i;
+    }),
+  }));
+
+  // Journal entries
+  t.journalEntries = (t.journalEntries || []).map(je => ({
+    ...je,
+    photos: cleanPhotos(je.photos),
+  }));
+
+  return t;
+}
+
 function _refreshJournalIfVisible(tripId) {
   if (typeof window._refreshJournalInteractions === 'function') {
     window._refreshJournalInteractions(tripId);
@@ -390,7 +433,7 @@ async function _loadAndListen(tripId) {
     replaceTripFromNetwork(tripId, doc.trip);
   } else {
     // Local version is newer — push it to Firestore instead of overwriting
-    saveSharedTrip(tripId, localTrip).catch(() => {});
+    saveSharedTrip(tripId, _sanitizeTripForSharing(localTrip)).catch(() => {});
   }
   _sharedDocData.set(tripId, doc);
 
@@ -427,7 +470,7 @@ function _onLocalSharedTripEdit(tripId, tripData, action = 'a modifié le voyage
     }).catch(() => {});
   }
 
-  saveSharedTrip(tripId, tripData).catch(err =>
+  saveSharedTrip(tripId, _sanitizeTripForSharing(tripData)).catch(err =>
     console.warn('[share] failed to push shared trip:', err.message),
   );
 }
@@ -602,7 +645,7 @@ export async function openShareModal(tripId) {
     // First share: create shared_trips document and start listener
     if (!isTripShared(tripId)) {
       const ownerName = user.displayName || user.email?.split('@')[0] || 'Organisateur';
-      await initSharedTripInFirestore(tripId, trip, user.uid, ownerName);
+      await initSharedTripInFirestore(tripId, _sanitizeTripForSharing(trip), user.uid, ownerName);
       markTripShared(tripId);
       setSharedSyncCallback(_onLocalSharedTripEdit);
 
