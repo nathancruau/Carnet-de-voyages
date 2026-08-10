@@ -234,3 +234,4 @@ uid()          // ID court aléatoire
 | v150 | Sheet mobile ajout/édition événement glisse horizontalement | `overscroll-behavior:contain` + `overflow-x:hidden` sur `_showMobileEventSheet` |
 | v150 | Photo non enregistrée à l'édition d'un voyage | `_openCropModal` utilise sa propre overlay (plus `showModal`/`closeModal` partagés) pour ne plus écraser/fermer la modale de création/édition en cours |
 | v150 | Onglets Carte/Timeline du Carnet fusionnés (desktop) | `renderJournal` : timeline à gauche + carte à droite en permanence sur desktop (owner/membre) ; mobile garde 2 onglets Carte/Timeline (suppression de l'onglet Activité, redondant avec la Timeline) |
+| v150 | Partage externe d'une étape du Carnet | `_shareJournalItem` (journal.js) : `navigator.share` (nom du voyage, jour, texte, météo, notes, montant, photos en `File`), fallback presse-papiers si Web Share indisponible. Bouton dans la modale de validation + sur chaque item validé de la timeline |

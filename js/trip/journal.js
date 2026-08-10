@@ -669,6 +669,10 @@ function _tlItemHtml(day, item, itemIdx, isObserver, tripId, sharedDoc, currentU
       ${validated ? '✓' : '+ Documenter'}
     </button>` : '';
 
+  const shareBtn = (!isObserver && validated) ? `
+    <button data-action="share-item" data-day-id="${_esc(day.id)}" data-item-idx="${itemIdx}"
+      class="tl-share-btn" title="Partager">📤</button>` : '';
+
   // Build carousel: GPX card first (if trace), then photos
   const slides = [];
   if (item.gpxStats) {
@@ -728,6 +732,7 @@ function _tlItemHtml(day, item, itemIdx, isObserver, tripId, sharedDoc, currentU
           <span class="tl-item-title">${_esc(item.text || '—')}</span>
           ${item.time ? `<span class="tl-item-time">${_esc(item.time)}</span>` : ''}
           ${isNew ? `<span class="obs-new-badge">Nouveau</span>` : ''}
+          ${shareBtn}
           ${validateBtn}
         </div>
         ${carousel}
@@ -1147,6 +1152,24 @@ function _handleClick(e, tripId) {
     return;
   }
 
+  if (action === 'share-item') {
+    const trip = getTrip(tripId);
+    const day  = trip?.days?.find(d => d.id === btn.dataset.dayId);
+    const item = day?.items?.[parseInt(btn.dataset.itemIdx, 10)];
+    if (!trip || !day || !item) return;
+    const jd = item.journalData || {};
+    _shareJournalItem({
+      tripName:  trip.name || 'Mon voyage',
+      dayLabel:  `Jour ${day.num}${day.title ? ' · ' + day.title : ''}`,
+      itemLabel: `${_eventTypeIcon(item.type)} ${item.text || 'Activité'}`,
+      notes:     jd.notes   || '',
+      weather:   jd.weather || '',
+      amount:    jd.amount  || 0,
+      photos:    jd.photos  || [],
+    });
+    return;
+  }
+
   if (action === 'toggle-reaction') {
     const itemId = btn.dataset.itemId;
     if (_shareMod && itemId) {
@@ -1379,6 +1402,59 @@ function _eventTypeIcon(type) {
   return m[type] || '📍';
 }
 
+// ── External share (Web Share API) ────────────────────────────────────────────
+
+/** Convert a base64 data: URL photo into a File, for navigator.share's `files` option. */
+async function _dataUrlToFile(dataUrl, filename) {
+  const res  = await fetch(dataUrl);
+  const blob = await res.blob();
+  return new File([blob], filename, { type: blob.type || 'image/jpeg' });
+}
+
+/**
+ * Share a journal step outside the app (SMS, WhatsApp, Mail…) via the native
+ * share sheet, with trip name, day, description, notes and photos.
+ * Falls back to copying the text when Web Share isn't available (desktop
+ * browsers mostly) or when the user's device can't share files.
+ */
+async function _shareJournalItem({ tripName, dayLabel, itemLabel, notes, weather, amount, photos = [] }) {
+  const lines = [`✈️ ${tripName} — ${dayLabel}`, itemLabel];
+  if (weather) lines.push(weather);
+  if (notes)   lines.push(notes);
+  if (amount)  lines.push(`💶 ${amount} €`);
+  const text  = lines.join('\n');
+  const title = `${tripName} — ${dayLabel}`;
+
+  let files = [];
+  if (photos.length && navigator.canShare) {
+    try {
+      files = await Promise.all(
+        photos.slice(0, 10).map((src, i) => _dataUrlToFile(src, `photo-${i + 1}.jpg`))
+      );
+      if (!navigator.canShare({ files })) files = [];
+    } catch (_) { files = []; }
+  }
+
+  if (navigator.share) {
+    try {
+      await navigator.share(files.length ? { title, text, files } : { title, text });
+      return;
+    } catch (err) {
+      if (err?.name === 'AbortError') return; // user cancelled the share sheet
+      // Otherwise fall through to the clipboard fallback below
+    }
+  }
+
+  try {
+    await navigator.clipboard.writeText(text);
+    notify(photos.length
+      ? 'Message copié (ajoutez les photos manuellement, non supportées ici)'
+      : 'Message copié dans le presse-papiers', '📋');
+  } catch (_) {
+    notify('Partage non disponible sur ce navigateur', '⚠️');
+  }
+}
+
 // ── Validate activity modal ────────────────────────────────────────────────────
 
 function _openValidateModal(tripId, dayId, itemIdx) {
@@ -1474,6 +1550,12 @@ function _openValidateModal(tripId, dayId, itemIdx) {
       <input type="file" id="vld-photo-file" accept="image/*" multiple style="font-size:12px;color:var(--ink3);margin-top:6px">
     </div>
 
+    <div class="fg">
+      <button type="button" id="vld-share" style="width:100%;background:var(--c2);border:1.5px solid var(--c3);border-radius:8px;padding:9px;font-size:13px;font-weight:700;cursor:pointer;color:var(--ink2);display:flex;align-items:center;justify-content:center;gap:6px;font-family:var(--fn)">
+        📤 Partager cette étape
+      </button>
+    </div>
+
     <div class="ma">
       ${jd.validated ? `<button class="bc" id="vld-devalidate" style="color:var(--coral);border-color:var(--coral)">✕ Dévalider</button>` : ''}
       <button class="bc" onclick="closeModal()">Annuler</button>
@@ -1484,6 +1566,20 @@ function _openValidateModal(tripId, dayId, itemIdx) {
   document.getElementById('vld-devalidate')?.addEventListener('click', () => {
     closeModal();
     _devalidateItem(tripId, dayId, itemIdx);
+  });
+
+  // Partager — uses whatever is currently filled in the form (no need to save first)
+  document.getElementById('vld-share')?.addEventListener('click', () => {
+    const notes  = document.getElementById('vld-notes')?.value?.trim()  || '';
+    const amount = parseFloat(document.getElementById('vld-amount')?.value || '0') || 0;
+    _shareJournalItem({
+      tripName:  trip.name || 'Mon voyage',
+      dayLabel:  `Jour ${day.num}${day.title ? ' · ' + day.title : ''}`,
+      itemLabel: `${_eventTypeIcon(item.type)} ${item.text || 'Activité'}`,
+      notes, amount,
+      weather: state.weather,
+      photos:  state.photos,
+    });
   });
 
   // Weather picker
