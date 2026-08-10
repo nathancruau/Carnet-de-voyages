@@ -1572,6 +1572,12 @@ function _dayItemHtml(day, sharedDocData = null, trip = null) {
             <div class="evt-txt">${_esc(it.text || '—')}</div>
             <div class="evt-tm">${it.time ? it.time : ''}${it.cost ? (it.time ? ' · ' : '') + Number(it.cost).toLocaleString('fr-FR') + ' €' : ''}</div>
           </div>
+          <div class="evt-move">
+            <button class="evt-move-btn" data-action="move-event-up" data-day-id="${day.id}" data-event-idx="${idx}"
+              title="Monter"${idx === 0 ? ' disabled' : ''}>▲</button>
+            <button class="evt-move-btn" data-action="move-event-down" data-day-id="${day.id}" data-event-idx="${idx}"
+              title="Descendre"${idx === items.length - 1 ? ' disabled' : ''}>▼</button>
+          </div>
           <button class="evt-del" data-action="delete-event" data-day-id="${day.id}" data-event-idx="${idx}" title="Supprimer">✕</button>
         </div>`;
     }).join('');
@@ -2515,6 +2521,15 @@ function _attachLeftPanelListeners(panel) {
       const dayId = target.dataset.dayId;
       const idx   = parseInt(target.dataset.eventIdx, 10);
       if (dayId && !isNaN(idx)) _deleteEvent(dayId, idx, _tripId);
+
+    } else if (action === 'move-event-up' || action === 'move-event-down') {
+      // Reorder within the day — the alternative to drag-and-drop on touch devices.
+      e.stopPropagation();
+      const dayId = target.dataset.dayId;
+      const idx   = parseInt(target.dataset.eventIdx, 10);
+      if (dayId && !isNaN(idx)) {
+        _reorderEvent(dayId, idx, idx + (action === 'move-event-up' ? -1 : 1), _tripId);
+      }
 
     } else if (action === 'open-sleep-evt') {
       e.stopPropagation();

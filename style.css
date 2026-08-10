@@ -494,6 +494,18 @@ body{height:100%;min-height:-webkit-fill-available;font-family:var(--fn);backgro
 }
 .evt-row:hover .evt-del{opacity:1}
 .evt-del:hover{color:var(--coral)}
+.evt-move{display:flex;flex-direction:column;gap:1px;flex-shrink:0;opacity:0;transition:opacity .1s}
+.evt-row:hover .evt-move{opacity:1}
+.evt-move-btn{
+  background:none;border:none;color:var(--ink4);cursor:pointer;
+  font-size:7px;line-height:1;padding:1px 2px;border-radius:2px;
+}
+.evt-move-btn:hover:not(:disabled){color:var(--teal);background:var(--tl)}
+.evt-move-btn:disabled{opacity:.25;cursor:default}
+/* Opacity:0 + :hover reveal doesn't work with touch — keep row actions visible on mobile */
+@media(max-width:768px){
+  .evt-del,.evt-move{opacity:1}
+}
 .add-evt{
   display:flex;align-items:center;gap:4px;padding:4px 6px;
   font-size:10px;font-weight:700;color:var(--teal);cursor:pointer;

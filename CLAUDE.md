@@ -18,7 +18,7 @@ Quatre endroits à synchroniser, toujours le même numéro N :
 | `sw.js` | `const SHELL_CACHE = 'cv-shell-N'` |
 | `store.js` | `export const APP_VERSION = 'N'` |
 
-Version actuelle : **152**
+Version actuelle : **153**
 
 ---
 
@@ -239,3 +239,5 @@ uid()          // ID court aléatoire
 | v151 | Photos de voyage qui clignotent / perdent en qualité | Sur une égalité de `updatedAt` (écho de notre propre écriture), le code remplaçait la copie locale (haute qualité) par la copie compressée venant de Firestore. Tie-breaking corrigé pour préférer la copie locale (`store.js` : `setState`, `replaceTripFromNetwork` ; `share.js` : `_loadAndListen`) + suppression d'un `renderHome()` redondant après `initSharedTrips()` dans `app.js` |
 | v152 | Photos trop compressées après le fix v151 | Compression à 400px/55% (pensée pour un seul voyage partagé) appliquée telle quelle à la sync perso qui contient tous les voyages → qualité visiblement dégradée partout. `compressTripsForFirestore` (utils.js) essaie d'abord un palier qualité (900px/0.7) et n'escalade vers un palier agressif (450px/0.5) que si le payload dépasse ~900 Ko |
 | v152 | Impossible de déplacer une activité vers un autre jour sur mobile | Le déplacement entre jours utilisait le drag-and-drop HTML5 (`dragstart`/`dragover`/`drop`), qui ne fonctionne pas au toucher. Ajout d'un sélecteur "Jour" dans la sheet mobile d'édition d'événement (`_openEditEventModal`, mapcal.js), qui réutilise `_moveEvent` (la même fonction que le drag-and-drop desktop) |
+| v153 | Impossible de réordonner les activités dans un jour sur mobile | Même cause que le déplacement entre jours (drag-and-drop HTML5 inutilisable au toucher). Boutons ▲▼ ajoutés sur chaque `.evt-row` (mapcal.js), réutilisent `_reorderEvent` existant. `.evt-del`/`.evt-move` passent aussi en `opacity:1` sous 768px (le hover de survol ne marche pas au doigt) |
+| v153 | Tri par date dans Ma Carte | La liste des voyages (panneau latéral + onglet mobile "Destinations") suivait l'ordre de stockage local. `_buildSidebarTree` (mymap.js) trie maintenant par date de fin (repli sur date de début), le plus récent en premier |

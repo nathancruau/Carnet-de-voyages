@@ -693,8 +693,16 @@ function _buildSidebarTree(pins) {
     allTripMap.get(pin.trip.id)?.pins.push(pin);
   }
 
+  // Most recent trip first (by end date, falling back to start date). Trips
+  // without dates sort last rather than breaking the order.
+  const orderedTrips = [...allTripMap.values()].sort((a, b) => {
+    const da = a.trip.endDate || a.trip.startDate || '';
+    const db = b.trip.endDate || b.trip.startDate || '';
+    return db.localeCompare(da);
+  });
+
   let html = '';
-  for (const { trip, pins: tPins } of allTripMap.values()) {
+  for (const { trip, pins: tPins } of orderedTrips) {
     const typeInfo = TRIP_TYPES[trip.type] || TRIP_TYPES.voyage;
     const color    = _colorForFlag(trip.flag);
     const groupId  = 'mm-grp-' + trip.id;
