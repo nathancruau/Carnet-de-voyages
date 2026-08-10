@@ -38,6 +38,7 @@ let _globeFeaturesCache  = null;               // parsed GeoJSON country feature
 let _globeCentroidsCache = null;               // Map<ISO-2, {lon,lat}> (derived once from features)
 let _globeData           = null;               // { visitedMap, centroids } used by the current draw/redraw
 let _globeRotation        = { lambda: 10, phi: 15 };  // current view center (persists across re-renders)
+let _globeZoom             = 1;                // current zoom factor (persists across re-renders)
 let _globeTarget          = null;              // { lambda, phi } animation target when focusing a country
 let _globeAnimId          = null;              // requestAnimationFrame id for focus animation
 const _globeBoundCanvases = new WeakSet();     // avoid re-binding pointer listeners on the same canvas node
@@ -365,9 +366,9 @@ function _drawGlobe(canvas) {
   ctx.clearRect(0, 0, W, H);
 
   const isDark = document.documentElement.dataset.theme === 'dark';
-  const cx = W / 2, cy = H / 2, R = W / 2 * 0.94;
+  const cx = W / 2, cy = H / 2, R = W / 2 * 0.94 * _globeZoom;
   const { lambda, phi } = _globeRotation;
-  const { visitedMap, centroids } = _globeData;
+  const { visitedMap } = _globeData;
 
   // Ocean sphere
   ctx.beginPath();
@@ -446,10 +447,20 @@ function _drawGlobe(canvas) {
   ctx.lineWidth = 1;
   ctx.stroke();
 
-  // Small round flag markers on visited countries currently facing the viewer
-  ctx.font = `${Math.max(11, Math.round(R * 0.1))}px sans-serif`;
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
+  // Flag markers are real HTML elements overlaid on the canvas (not canvas-drawn
+  // text) so the flag emoji render at full native quality/color, same as the
+  // "Drapeaux collectés" badges, and are natively clickable.
+  _renderGlobeMarkers(canvas, W, H, cx, cy, R);
+}
+
+function _renderGlobeMarkers(canvas, W, H, cx, cy, R) {
+  const container = canvas.parentElement?.querySelector('.globe-markers');
+  if (!container || !_globeData) return;
+  const { visitedMap, centroids } = _globeData;
+  const { lambda, phi } = _globeRotation;
+  const size = Math.max(20, Math.round(R * 0.22));
+
+  let html = '';
   for (const [code, count] of visitedMap) {
     if (!count) continue;
     const c = centroids.get(code);
@@ -457,45 +468,81 @@ function _drawGlobe(canvas) {
     const p = _globeProject(c.lon, c.lat, lambda, phi);
     if (!p.visible) continue;
     const x = cx + p.x * R, y = cy - p.y * R;
-    const markerR = Math.max(8, R * 0.075);
-    ctx.beginPath();
-    ctx.arc(x, y, markerR, 0, Math.PI * 2);
-    ctx.fillStyle = isDark ? '#252320' : '#fff';
-    ctx.fill();
-    ctx.strokeStyle = isDark ? 'rgba(255,255,255,.25)' : 'rgba(0,0,0,.15)';
-    ctx.lineWidth = 1;
-    ctx.stroke();
-    ctx.fillText(_isoToFlag(code), x, y + 0.5);
+    html += `<button type="button" class="globe-marker" data-action="focus-country" data-code="${code}"
+               style="left:${x.toFixed(1)}px;top:${y.toFixed(1)}px;width:${size}px;height:${size}px;font-size:${Math.round(size * 0.55)}px"
+               title="${_esc(_A2_NAME[code] || code)}">${_isoToFlag(code)}</button>`;
   }
+  container.innerHTML = html;
 }
 
 function _attachGlobeInteraction(canvas) {
   canvas.style.touchAction = 'none';
   let dragging = false;
   let lastX = 0, lastY = 0;
+  const pointers  = new Map();   // pointerId -> {x,y}, tracks active touches for pinch-zoom
+  let pinchDist   = 0;
+
+  const clampZoom = z => Math.max(0.6, Math.min(3, z));
+  const pinchPointerDist = () => {
+    const pts = [...pointers.values()];
+    return Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+  };
 
   const onDown = e => {
-    // A focus animation in progress gets cancelled by manual dragging
+    // A focus animation in progress gets cancelled by manual interaction
     if (_globeAnimId) { cancelAnimationFrame(_globeAnimId); _globeAnimId = null; _globeTarget = null; }
-    dragging = true;
-    lastX = e.clientX; lastY = e.clientY;
     canvas.setPointerCapture?.(e.pointerId);
+    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pointers.size === 2) {
+      dragging  = false;
+      pinchDist = pinchPointerDist();
+    } else {
+      dragging = true;
+      lastX = e.clientX; lastY = e.clientY;
+    }
   };
   const onMove = e => {
+    if (!pointers.has(e.pointerId)) return;
+    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+    if (pointers.size >= 2) {
+      const d = pinchPointerDist();
+      if (pinchDist > 0) _globeZoom = clampZoom(_globeZoom * (d / pinchDist));
+      pinchDist = d;
+      _drawGlobe(canvas);
+      return;
+    }
     if (!dragging) return;
     const dx = e.clientX - lastX, dy = e.clientY - lastY;
     lastX = e.clientX; lastY = e.clientY;
-    _globeRotation.lambda += dx * 0.4;
-    _globeRotation.phi     = Math.max(-85, Math.min(85, _globeRotation.phi - dy * 0.4));
+    // Natural "grab the sphere" feel: content follows the pointer.
+    _globeRotation.lambda -= dx * 0.4;
+    _globeRotation.phi     = Math.max(-85, Math.min(85, _globeRotation.phi + dy * 0.4));
     _drawGlobe(canvas);
   };
-  const onUp = () => { dragging = false; };
+  const onUp = e => {
+    pointers.delete(e.pointerId);
+    if (pointers.size < 2) pinchDist = 0;
+    if (pointers.size === 1) {
+      const [[, p]] = pointers;
+      dragging = true; lastX = p.x; lastY = p.y;
+    } else if (pointers.size === 0) {
+      dragging = false;
+    }
+  };
 
   canvas.addEventListener('pointerdown', onDown);
   canvas.addEventListener('pointermove', onMove);
   canvas.addEventListener('pointerup', onUp);
   canvas.addEventListener('pointercancel', onUp);
   canvas.addEventListener('pointerleave', onUp);
+
+  // Desktop: mouse-wheel zoom
+  canvas.addEventListener('wheel', e => {
+    e.preventDefault();
+    _globeZoom = clampZoom(_globeZoom + (e.deltaY > 0 ? -0.1 : 0.1));
+    _drawGlobe(canvas);
+  }, { passive: false });
 }
 
 /** Smoothly rotate the globe so the given ISO-2 country faces the viewer. */
@@ -902,8 +949,12 @@ function _statsViewHtml(trips) {
         </div>
 
         <div class="globe-wrap">
-          <canvas id="globe-canvas" class="globe-canvas" aria-label="Globe des pays visités"></canvas>
+          <div class="globe-stage">
+            <canvas id="globe-canvas" class="globe-canvas" aria-label="Globe des pays visités"></canvas>
+            <div class="globe-markers"></div>
+          </div>
         </div>
+        <div style="text-align:center;font-size:10px;color:var(--ink4);margin-top:2px">glisser pour tourner · molette/pincer pour zoomer</div>
 
         <div class="globe-stats">
           <div><div class="globe-stat-val">${visitedCount}</div><div class="globe-stat-lbl">pays visités</div></div>

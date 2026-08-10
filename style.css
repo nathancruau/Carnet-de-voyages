@@ -1219,11 +1219,24 @@ body{height:100%;min-height:-webkit-fill-available;font-family:var(--fn);backgro
 .s-toggle-row input[type="checkbox"]{width:16px;height:16px;cursor:pointer;accent-color:var(--teal)}
 /* ── World globe ── */
 .globe-wrap{display:flex;justify-content:center;padding:6px 0}
+.globe-stage{
+  position:relative;width:100%;max-width:320px;aspect-ratio:1/1;
+  border-radius:50%;overflow:hidden;
+}
 .globe-canvas{
-  width:100%;max-width:320px;aspect-ratio:1/1;border-radius:50%;display:block;
+  width:100%;height:100%;display:block;
   cursor:grab;touch-action:none;
 }
 .globe-canvas:active{cursor:grabbing}
+.globe-markers{position:absolute;inset:0;pointer-events:none}
+.globe-marker{
+  position:absolute;transform:translate(-50%,-50%);
+  border-radius:50%;display:flex;align-items:center;justify-content:center;
+  background:#fff;border:1.5px solid rgba(0,0,0,.15);
+  cursor:pointer;pointer-events:auto;padding:0;line-height:1;
+  box-shadow:0 1px 4px rgba(0,0,0,.25);
+}
+[data-theme="dark"] .globe-marker{background:#252320;border-color:rgba(255,255,255,.25)}
 .globe-stats{
   display:flex;justify-content:center;gap:36px;text-align:center;
   margin:12px 0 4px;
@@ -1892,7 +1905,7 @@ html,body{background:var(--c)}
   max-width:none;overflow:auto;padding:20px;
   padding-top:max(20px, env(safe-area-inset-top));
 }
-.stat-card.stat-fs .globe-canvas{max-width:min(80vh,100%)!important}
+.stat-card.stat-fs .globe-stage{max-width:min(80vh,100%)!important}
 #wm-expand-btn{background:rgba(255,255,255,.18);border:1.5px solid rgba(255,255,255,.3);border-radius:6px;padding:4px 9px;font-size:11px;font-weight:700;cursor:pointer;color:var(--teal);background:var(--c2);border-color:var(--c3);transition:all .15s}
 #wm-expand-btn:hover{background:var(--c3)}
 
