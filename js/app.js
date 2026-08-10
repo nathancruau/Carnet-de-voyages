@@ -207,9 +207,15 @@ function _onAuthReady(user, cloudData) {
     });
 
     // Load shared trips and handle any pending invite link (non-blocking).
-    // Re-render home after loading so observer trips are classified correctly.
+    // Re-render home after loading, but only if something actually changed —
+    // initSharedTrips() commonly finds nothing new, and an unconditional
+    // re-render here rebuilds the whole trip grid (every cover photo included)
+    // a second time right after the first render, which is visible as a flicker.
+    const _sigBeforeShared = _tripsSignature(getState().trips);
     initSharedTrips(cloudData).then(() => {
-      if (currentScreen === 'home') renderHome();
+      if (currentScreen === 'home' && _tripsSignature(getState().trips) !== _sigBeforeShared) {
+        renderHome();
+      }
       return handlePendingInvite(user);
     });
   } catch (err) {

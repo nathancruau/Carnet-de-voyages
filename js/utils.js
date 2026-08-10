@@ -127,6 +127,107 @@ export function closeModal() {
 // Expose for onclick="" HTML attributes and for app.js
 window.closeModal = closeModal;
 
+// ── Photo compression for Firestore sync (1 MB document limit) ─────────────────
+// Trips carry photos as inline base64 data: URLs. A single users/{uid} document
+// holds every trip at once, so it hits Firestore's 1 MB limit far more easily
+// than any individual trip — without compression, a sync with any real photos
+// fails every single time (not intermittently), leaving the device stuck
+// writing to localStorage only. Used for both the personal sync (auth.js) and
+// the per-trip shared_trips document (share.js).
+
+const _compressedPhotoCache = new Map(); // original data: URL → compressed data: URL
+
+/** Compress a base64 photo to a small JPEG (~15–25 KB at the defaults). Returns null on error. */
+export async function compressPhotoDataUrl(b64, maxSize = 400, quality = 0.55) {
+  if (!b64 || !b64.startsWith('data:')) return null;
+  const cached = _compressedPhotoCache.get(b64);
+  if (cached !== undefined) return cached;
+  const result = await new Promise(resolve => {
+    const img = new Image();
+    img.onload = () => {
+      try {
+        const scale  = Math.min(1, maxSize / Math.max(img.width || 1, img.height || 1));
+        const canvas = document.createElement('canvas');
+        canvas.width  = Math.round((img.width  || maxSize) * scale);
+        canvas.height = Math.round((img.height || maxSize) * scale);
+        canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      } catch (_) { resolve(null); }
+    };
+    img.onerror = () => resolve(null);
+    img.src = b64;
+  });
+  _compressedPhotoCache.set(b64, result);
+  return result;
+}
+
+/**
+ * Return a copy of a trip with every embedded base64 photo re-compressed to a
+ * small JPEG and heavy gpxPoints arrays stripped, so it fits comfortably
+ * within Firestore's 1 MB document limit. Local storage / display always keep
+ * the original full-resolution photos — only the copy handed to Firestore
+ * goes through this.
+ */
+export async function compressTripPhotos(trip) {
+  const isB64 = url => typeof url === 'string' && url.startsWith('data:');
+  const t = JSON.parse(JSON.stringify(trip));
+
+  const inputs = [];
+  const scanUrl = (url) => {
+    if (!isB64(url)) return url;
+    const slot = inputs.length;
+    inputs.push(url);
+    return `__SLOT_${slot}__`;
+  };
+  const scanPhotoObjs = (arr) => (arr || []).map(p => ({ ...p, url: scanUrl(p.url) })).filter(p => p.url);
+  const scanPhotoStrs = (arr) => (arr || []).map(scanUrl).filter(Boolean);
+
+  if (t.photo) t.photo = scanUrl(t.photo);
+  t.photos = scanPhotoObjs(t.photos);
+  if (t.pin?.gpxPoints) delete t.pin.gpxPoints;
+  t.days = (t.days || []).map(day => ({
+    ...day,
+    items: (day.items || []).map(item => {
+      const i = { ...item };
+      if (i.photo) i.photo = scanUrl(i.photo);
+      i.photos = scanPhotoObjs(i.photos);
+      // journalData.photos is a plain array of base64 strings (not {url} objects)
+      if (i.journalData?.photos?.length) {
+        i.journalData = { ...i.journalData, photos: scanPhotoStrs(i.journalData.photos) };
+      }
+      delete i.gpxPoints;
+      return i;
+    }),
+  }));
+  t.journalEntries = (t.journalEntries || []).map(je => ({ ...je, photos: scanPhotoObjs(je.photos) }));
+
+  const compressed = await Promise.all(inputs.map(b64 => compressPhotoDataUrl(b64)));
+  const replaceSlot = (url) => {
+    if (typeof url !== 'string') return url;
+    const m = url.match(/^__SLOT_(\d+)__$/);
+    return m ? (compressed[parseInt(m[1], 10)] || '') : url;
+  };
+  const fixPhotoObjs = (arr) => (arr || []).map(p => ({ ...p, url: replaceSlot(p.url) })).filter(p => p.url);
+  const fixPhotoStrs = (arr) => (arr || []).map(replaceSlot).filter(Boolean);
+
+  if (t.photo) t.photo = replaceSlot(t.photo);
+  t.photos = fixPhotoObjs(t.photos);
+  t.days = t.days.map(day => ({
+    ...day,
+    items: day.items.map(item => ({
+      ...item,
+      photo:  item.photo ? replaceSlot(item.photo) : item.photo,
+      photos: fixPhotoObjs(item.photos),
+      journalData: item.journalData?.photos?.length
+        ? { ...item.journalData, photos: fixPhotoStrs(item.journalData.photos) }
+        : item.journalData,
+    })),
+  }));
+  t.journalEntries = t.journalEntries.map(je => ({ ...je, photos: fixPhotoObjs(je.photos) }));
+
+  return t;
+}
+
 // ── Date helpers ───────────────────────────────────────────────────────────────
 
 /**

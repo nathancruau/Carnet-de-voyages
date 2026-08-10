@@ -14,7 +14,7 @@
 
 const STORAGE_KEY = 'carnet_voyages_v1';
 
-export const APP_VERSION = '150';
+export const APP_VERSION = '151';
 
 export const COMP_COLORS = [
   '#0d9488','#7c3aed','#e85d3e','#d97706',
@@ -223,8 +223,12 @@ export function replaceTripFromNetwork(id, tripData) {
   const migrated = _migrateTrip({ ...tripData });
   const idx = state.trips.findIndex(t => t.id === id);
   if (idx !== -1) {
-    // Only overwrite if the network version is at least as recent as the local version
-    if ((migrated.updatedAt || 0) >= (state.trips[idx].updatedAt || 0)) {
+    // Only overwrite if the network version is strictly newer than the local one.
+    // On a tie (same updatedAt) this is almost always the echo of our own edit
+    // coming back from a shared_trips document, whose photos were compressed
+    // for the 1 MB Firestore limit — keep the local (full-resolution) copy
+    // instead of silently swapping in the lower-quality one.
+    if ((migrated.updatedAt || 0) > (state.trips[idx].updatedAt || 0)) {
       state.trips[idx] = migrated;
     }
   } else {
@@ -270,8 +274,11 @@ export function setState(cloudData) {
   const merged = cloudTrips.filter(ct => !isDeleted(ct)).map(ct => {
     const lt = localById.get(ct.id);
     localById.delete(ct.id); // mark as seen
-    // Keep local if it is strictly newer (unsaved local edit wins)
-    if (lt && (lt.updatedAt || 0) > (ct.updatedAt || 0)) return lt;
+    // Keep local unless the cloud copy is strictly newer. On a tie, the cloud
+    // snapshot is almost always the confirmation echo of our own last write —
+    // e.g. with compressed photos re-uploaded to the personal sync — so we
+    // keep the local (uncompressed) copy rather than swap in the synced one.
+    if (lt && (lt.updatedAt || 0) >= (ct.updatedAt || 0)) return lt;
     return ct;
   });
 

@@ -18,7 +18,7 @@ Quatre endroits à synchroniser, toujours le même numéro N :
 | `sw.js` | `const SHELL_CACHE = 'cv-shell-N'` |
 | `store.js` | `export const APP_VERSION = 'N'` |
 
-Version actuelle : **150**
+Version actuelle : **151**
 
 ---
 
@@ -235,3 +235,5 @@ uid()          // ID court aléatoire
 | v150 | Photo non enregistrée à l'édition d'un voyage | `_openCropModal` utilise sa propre overlay (plus `showModal`/`closeModal` partagés) pour ne plus écraser/fermer la modale de création/édition en cours |
 | v150 | Onglets Carte/Timeline du Carnet fusionnés (desktop) | `renderJournal` : timeline à gauche + carte à droite en permanence sur desktop (owner/membre) ; mobile garde 2 onglets Carte/Timeline (suppression de l'onglet Activité, redondant avec la Timeline) |
 | v150 | Partage externe d'une étape du Carnet | `_shareJournalItem` (journal.js) : `navigator.share` (nom du voyage, jour, texte, météo, notes, montant, photos en `File`), fallback presse-papiers si Web Share indisponible. Bouton dans la modale de validation + sur chaque item validé de la timeline |
+| v151 | Sync tel → cloud échouait tout le temps (jamais intermittent) | Le document personnel `users/{uid}` contient tous les voyages avec leurs photos en base64 non compressées → dépasse souvent la limite de 1 Mo de Firestore → `setDoc()` rejette systématiquement. `compressTripPhotos` (utils.js, partagé avec share.js) recompresse toutes les photos avant `syncToFirestore` |
+| v151 | Photos de voyage qui clignotent / perdent en qualité | Sur une égalité de `updatedAt` (écho de notre propre écriture), le code remplaçait la copie locale (haute qualité) par la copie compressée venant de Firestore. Tie-breaking corrigé pour préférer la copie locale (`store.js` : `setState`, `replaceTripFromNetwork` ; `share.js` : `_loadAndListen`) + suppression d'un `renderHome()` redondant après `initSharedTrips()` dans `app.js` |

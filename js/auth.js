@@ -19,6 +19,7 @@
  */
 
 import { firebaseConfig } from './firebase-config.js';
+import { compressTripPhotos } from './utils.js';
 
 const FB = 'https://www.gstatic.com/firebasejs/11.1.0';
 
@@ -179,6 +180,14 @@ export function setSyncErrorCallback(fn) { _onSyncError = fn; }
  *    second device synced afterwards.
  *  - Trips tombstoned in state.deletedTrips (or the just-deleted ids passed
  *    in) are never re-added, even from a stale _lastServerTrips snapshot.
+ *
+ * Every trip's embedded base64 photos are also re-compressed before the
+ * write. This document holds ALL of the user's trips at once, so it hits
+ * Firestore's 1 MB limit far more easily than any single trip — without
+ * this, a sync with real photos in it fails on every single attempt (not
+ * just intermittently), leaving the device stuck saving to localStorage
+ * only and never reaching the cloud. Local storage / display keep the
+ * original full-resolution photos; only this synced copy is compressed.
  */
 export async function syncToFirestore(localState, recentlyDeletedIds = []) {
   if (!_db || !_uid || !_setDocFn || !_docFn) return;
@@ -200,7 +209,12 @@ export async function syncToFirestore(localState, recentlyDeletedIds = []) {
       tripsToWrite = [...reconciled, ...missing];
     }
 
-    const stateToWrite = { ...localState, trips: tripsToWrite };
+    // Trips pulled from _lastServerTrips (missing / reconciled-newer) are already
+    // compressed from a previous sync — compressPhotoDataUrl's cache makes
+    // re-compressing them here a no-op, so we don't need to track which is which.
+    const compressedTrips = await Promise.all(tripsToWrite.map(t => compressTripPhotos(t)));
+
+    const stateToWrite = { ...localState, trips: compressedTrips };
     await _setDocFn(_docFn(_db, 'users', _uid), JSON.parse(JSON.stringify(stateToWrite)), { merge: true });
     // Keep our cache current with what we just wrote
     _lastServerTrips = stateToWrite.trips || null;
