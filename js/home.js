@@ -17,8 +17,8 @@ import {
   generateDays,
 } from './utils.js';
 // navigateToTrip / goMyMap accessed via window globals (set by app.js) to avoid circular import
-import { importFile, importAnyZip } from './import.js';
-import { tripToPlanning, downloadTripPlanning, downloadTripAll, downloadTripsZip, exportTripCustom } from './export.js';
+// import.js / export.js are dynamically imported at their few call sites below —
+// most sessions never touch import/export, so they shouldn't be in the boot bundle.
 import { getCurrentUser, logout, syncToFirestore, isFirebaseConfigured } from './auth.js';
 import { requestNotificationPermission, notificationPermissionGranted } from './notifications.js';
 import { openShareModal, leaveSharedTrip, deleteOwnerSharedTrip, removeSharedTripMember, isCurrentUserObserver, getSharedDocData, addObserverReaction, deleteObserverReaction, addObserverComment, deleteObserverComment } from './share.js';
@@ -3264,6 +3264,8 @@ function _openImportModal() {
       return;
     }
 
+    const { importFile, importAnyZip } = await import('./import.js');
+
     // ZIP: Polarsteps full export with photos
     if (file.name.toLowerCase().endsWith('.zip')) {
       statusEl.style.color = '';
@@ -3349,13 +3351,19 @@ function _openTripMenu(tripId, btn) {
       case 'duplicate':
         _duplicateTrip(trip);
         break;
-      case 'export-planning':
+      case 'export-planning': {
+        const { downloadTripPlanning } = await import('./export.js');
         downloadTripPlanning(trip);
         break;
-      case 'export-all':
+      }
+      case 'export-all': {
         notify('Préparation de l\'export…', '📦');
-        try { await downloadTripAll(trip); } catch (err) { notify(err.message, '⚠'); }
+        try {
+          const { downloadTripAll } = await import('./export.js');
+          await downloadTripAll(trip);
+        } catch (err) { notify(err.message, '⚠'); }
         break;
+      }
       case 'export-pdf':
         _openPdfExportModal(trip);
         break;
@@ -3484,10 +3492,11 @@ function _openPdfExportModal(trip) {
   });
 
   // Generate
-  document.getElementById('pdf-go')?.addEventListener('click', () => {
+  document.getElementById('pdf-go')?.addEventListener('click', async () => {
     const sections = [];
     document.querySelectorAll('[data-pdf-sec]').forEach(cb => { if (cb.checked) sections.push(cb.dataset.pdfSec); });
     closeModal();
+    const { exportTripCustom } = await import('./export.js');
     exportTripCustom(trip, {
       format:     _fmt,
       sections,
@@ -3603,6 +3612,7 @@ function _openExportModal() {
     statusEl.style.color = '';
     statusEl.textContent = 'Préparation…';
     try {
+      const { downloadTripsZip } = await import('./export.js');
       await downloadTripsZip(selectedTrips, selectedType, (done, total) => {
         statusEl.textContent = `${done} / ${total} voyage${total > 1 ? 's' : ''}…`;
       });
