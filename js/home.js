@@ -2813,7 +2813,7 @@ export function openEditTripModal(id = null, presetType = null) {
   // Sortie gets its own dedicated form
   if (trip?.type === 'sortie' || (!trip && _modalType === 'sortie')) {
     _modalType = 'sortie';
-    showModal(_buildSortieModalHtml(trip), { onClose: _cleanupSortieModalMap });
+    showModal(_buildSortieModalHtml(trip), { onClose: _cleanupSortieModalMap, fullscreenMobile: true });
     _initSortieModalListeners(trip);
     return;
   }
@@ -3078,7 +3078,7 @@ function _initModalListeners(trip) {
     // Switch to sortie-specific form
     if (newType === 'sortie') {
       _modalType = 'sortie';
-      showModal(_buildSortieModalHtml(null), { onClose: _cleanupSortieModalMap });
+      showModal(_buildSortieModalHtml(null), { onClose: _cleanupSortieModalMap, fullscreenMobile: true });
       _initSortieModalListeners(null);
       return;
     }

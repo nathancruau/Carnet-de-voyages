@@ -783,12 +783,10 @@ body{height:100%;min-height:-webkit-fill-available;font-family:var(--fn);backgro
 .exp-table tr td:last-child{border-radius:0 7px 7px 0}
 .exp-table tr:hover td{background:var(--c2)}
 .bud-line-row{cursor:pointer}
-@media(max-width:768px){
-  /* Narrow columns used to wrap the category pill onto two lines. Let the
-     table scroll horizontally instead of squeezing/wrapping its cells. */
-  .exp-table{display:block;overflow-x:auto;-webkit-overflow-scrolling:touch}
-  .exp-table td,.exp-table th{white-space:nowrap}
-}
+/* display:block on .exp-table itself was tried here but decouples thead/tbody
+   column widths (they stop sharing one table layout) — scroll the wrapper
+   instead so the table keeps its normal column alignment at any width. */
+.exp-table-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
 
 /* Mobile expense cards (tricount) */
 .tri-exp-cards{display:flex;flex-direction:column;gap:8px}
@@ -1701,6 +1699,13 @@ body{height:100%;min-height:-webkit-fill-available;font-family:var(--fn);backgro
   .mbox{max-width:98vw;margin:0;border-radius:14px 14px 0 0;max-height:92dvh;position:fixed;bottom:0;left:0;right:0;overflow-y:auto;overflow-x:hidden;padding-bottom:calc(20px + env(safe-area-inset-bottom));overscroll-behavior:contain}
   /* Prevent iOS auto-zoom when focusing inputs inside modals (font-size must be ≥ 16px) */
   .mbox input:not([type="radio"]):not([type="checkbox"]),.mbox select,.mbox textarea{font-size:16px!important}
+
+  /* ── Opt-in: true full-screen modal on mobile (dense forms like Sortie) ── */
+  .mbox.mbox-fullscreen-mobile{
+    max-width:100vw;width:100vw;max-height:100dvh;height:100dvh;
+    border-radius:0;top:0;
+    padding-top:max(16px,env(safe-area-inset-top));
+  }
 
   /* ── Share modal: compact on mobile ── */
   .share-qr{width:140px;height:140px}

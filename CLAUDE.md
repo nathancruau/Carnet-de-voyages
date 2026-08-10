@@ -18,7 +18,7 @@ Quatre endroits à synchroniser, toujours le même numéro N :
 | `sw.js` | `const SHELL_CACHE = 'cv-shell-N'` |
 | `store.js` | `export const APP_VERSION = 'N'` |
 
-Version actuelle : **154**
+Version actuelle : **155**
 
 ---
 
@@ -246,3 +246,5 @@ uid()          // ID court aléatoire
 | v154 | Cliquer sur un jour du planning ne l'ouvrait pas parfois (PC+tel) | `_attachLeftPanelListeners` (mapcal.js) rattachait un nouveau jeu de listeners (click/drag) sur `#panel-mapcal` à chaque fois que l'onglet Carte & Planning était revisité, sans jamais retirer les précédents — un tap pouvait déclencher `_selectDay` un nombre pair de fois et s'annuler. Ajout d'un garde-fou (`WeakSet`) pour ne binder qu'une fois par panel |
 | v154 | Catégorie sur deux lignes dans Budget (mobile) | `.exp-table` n'avait pas de version mobile ; le badge de catégorie s'enroulait dans une colonne trop étroite. Le tableau défile maintenant horizontalement (`overflow-x:auto`) et ses cellules passent en `white-space:nowrap` sous 768px |
 | v154 | Modification d'une sortie potentiellement bloquée sur mobile | `_handleSortieSave` (home.js) faisait un appel réseau de géocodage inverse sans timeout à chaque enregistrement, même sans changement de lieu — sur une connexion mobile lente, "Enregistrer" pouvait sembler ne rien faire indéfiniment. Appel ignoré si le lieu n'a pas changé (édition), et limité à 6 s (`AbortController`) sinon |
+| v155 | Régression v154 : tableau Budget cassé sur mobile | `display:block` sur `.exp-table` désynchronisait `thead`/`tbody` (plus de colonnes alignées). Retiré ; nouveau wrapper `.exp-table-wrap{overflow-x:auto}` autour des `<table>` (budget.js), et `white-space:nowrap` déplacé uniquement sur le badge catégorie (au lieu de toute la table) pour corriger le vrai bug v153 (catégorie sur deux lignes) sans rien casser d'autre |
+| v155 | Modal Sortie pas adapté au mobile (affichage général, pas juste le géocodage) | Nouveau paramètre `fullscreenMobile` sur `showModal()` (utils.js), activé pour la modale Sortie (home.js) : classe CSS `mbox-fullscreen-mobile` donnant un vrai plein écran (`100dvh`, sans coins arrondis) au lieu du bottom-sheet `92dvh` habituel, pour laisser respirer son contenu dense (carte, GPX, photos, compagnons) |

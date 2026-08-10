@@ -72,8 +72,13 @@ let _bodyLocked  = false;
  * @param {string} htmlContent - full HTML injected into .mbox
  * @param {object} [opts]
  * @param {Function} [opts.onClose] - called when the modal is closed
+ * @param {boolean} [opts.fullscreenMobile] - on mobile, use the full viewport
+ *   height instead of the ~92dvh rounded bottom sheet. For modals with a lot
+ *   of dense content (maps, file uploads, long forms) that felt cramped in
+ *   the generic sheet. Reset on every call so it never leaks into the next,
+ *   unrelated modal that reuses the same .mbox element.
  */
-export function showModal(htmlContent, { onClose } = {}) {
+export function showModal(htmlContent, { onClose, fullscreenMobile = false } = {}) {
   _modalCloseCallback    = onClose || null;
   window._closeModalOnBg = true;
 
@@ -87,6 +92,7 @@ export function showModal(htmlContent, { onClose } = {}) {
     box.className = 'mbox';
     ov.appendChild(box);
   }
+  box.classList.toggle('mbox-fullscreen-mobile', fullscreenMobile);
   box.innerHTML = htmlContent;
   ov.classList.add('open');
 

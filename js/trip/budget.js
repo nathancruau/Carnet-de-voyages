@@ -261,7 +261,7 @@ function _renderDaysCosts(trip, cats, selCat) {
     for (const ev of events) {
       const cat = cats.find(c => c.id === ev.catId);
       const catHtml = cat
-        ? `<span style="font-size:9px;font-weight:800;padding:2px 7px;border-radius:999px;background:${_esc(cat.color || '#0d9488')}22;color:${_esc(cat.color || '#0d9488')};border:1px solid ${_esc(cat.color || '#0d9488')}44">${_esc(cat.icon || '')} ${_esc(cat.name)}</span>`
+        ? `<span style="white-space:nowrap;font-size:9px;font-weight:800;padding:2px 7px;border-radius:999px;background:${_esc(cat.color || '#0d9488')}22;color:${_esc(cat.color || '#0d9488')};border:1px solid ${_esc(cat.color || '#0d9488')}44">${_esc(cat.icon || '')} ${_esc(cat.name)}</span>`
         : '';
       rows += `
         <tr>
@@ -282,17 +282,19 @@ function _renderDaysCosts(trip, cats, selCat) {
         <div style="font-size:12px;font-weight:700;color:var(--ink2)">Dépenses planifiées (depuis planning)</div>
         <div style="font-size:11px;font-weight:700;color:var(--teal)">${_fmtEur(totalCost)}</div>
       </div>
-      <table class="exp-table" style="opacity:.9">
-        <thead>
-          <tr>
-            <th>Événement</th>
-            <th>Catégorie</th>
-            <th>Coût estimé</th>
-            <th>Jour</th>
-          </tr>
-        </thead>
-        <tbody>${rows}</tbody>
-      </table>
+      <div class="exp-table-wrap">
+        <table class="exp-table" style="opacity:.9">
+          <thead>
+            <tr>
+              <th>Événement</th>
+              <th>Catégorie</th>
+              <th>Coût estimé</th>
+              <th>Jour</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
     </div>`;
 }
 
@@ -315,7 +317,7 @@ function _renderLinesTable(trip, cats, filteredLines) {
     const cat    = cats.find(c => c.id === line.catId);
     const day    = days.find(d => d.id === line.dayId);
     const catHtml = cat
-      ? `<span style="font-size:9px;font-weight:800;padding:2px 7px;border-radius:999px;background:${_esc(cat.color || '#0d9488')}22;color:${_esc(cat.color || '#0d9488')};border:1px solid ${_esc(cat.color || '#0d9488')}44">${_esc(cat.icon || '')} ${_esc(cat.name)}</span>`
+      ? `<span style="white-space:nowrap;font-size:9px;font-weight:800;padding:2px 7px;border-radius:999px;background:${_esc(cat.color || '#0d9488')}22;color:${_esc(cat.color || '#0d9488')};border:1px solid ${_esc(cat.color || '#0d9488')}44">${_esc(cat.icon || '')} ${_esc(cat.name)}</span>`
       : '—';
     const dayHtml = day
       ? `<span style="font-size:10px;color:var(--ink4)">Jour ${day.num}</span>`
@@ -334,17 +336,19 @@ function _renderLinesTable(trip, cats, filteredLines) {
   }
 
   return `
-    <table class="exp-table">
-      <thead>
-        <tr>
-          <th>Description</th>
-          <th>Catégorie</th>
-          <th>Montant</th>
-          <th>Jour</th>
-        </tr>
-      </thead>
-      <tbody>${rows}</tbody>
-    </table>`;
+    <div class="exp-table-wrap">
+      <table class="exp-table">
+        <thead>
+          <tr>
+            <th>Description</th>
+            <th>Catégorie</th>
+            <th>Montant</th>
+            <th>Jour</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
 }
 
 // ── Event delegation ──────────────────────────────────────────────────────────
