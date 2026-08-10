@@ -32,7 +32,7 @@ import {
   hasPendingLocalChanges, deleteTrip,
 } from './store.js';
 import { notifyCollaboratorChange } from './notifications.js';
-import { showModal, closeModal, notify, compressTripPhotos } from './utils.js';
+import { showModal, closeModal, notify, compressTripsForFirestore } from './utils.js';
 
 // ── Module state ────────────────────────────────────────────────────────────────
 
@@ -227,6 +227,12 @@ export async function deleteObserverReaction(tripId, itemId, targetUid) {
   } catch (_) {}
 }
 
+/** Compress a single trip's photos for a shared_trips write (1 MB document limit). */
+async function _compressForSharing(trip) {
+  const [compressed] = await compressTripsForFirestore([trip]);
+  return compressed;
+}
+
 function _refreshJournalIfVisible(tripId) {
   if (typeof window._refreshJournalInteractions === 'function') {
     window._refreshJournalInteractions(tripId);
@@ -391,7 +397,7 @@ async function _loadAndListen(tripId) {
     replaceTripFromNetwork(tripId, doc.trip);
   } else if ((doc.trip.updatedAt || 0) < (localTrip.updatedAt || 0)) {
     // Local version is newer — push it to Firestore instead of overwriting
-    compressTripPhotos(localTrip).then(s => saveSharedTrip(tripId, s)).catch(() => {});
+    _compressForSharing(localTrip).then(s => saveSharedTrip(tripId, s)).catch(() => {});
   }
   // else: same updatedAt — this is our own previously-synced edit. Keep the
   // local copy (full-resolution photos) rather than pulling back the
@@ -432,7 +438,7 @@ function _onLocalSharedTripEdit(tripId, tripData, action = 'a modifié le voyage
     }).catch(() => {});
   }
 
-  compressTripPhotos(tripData)
+  _compressForSharing(tripData)
     .then(sanitized => saveSharedTrip(tripId, sanitized))
     .catch(err => console.warn('[share] failed to push shared trip:', err.message));
 }
@@ -607,7 +613,7 @@ export async function openShareModal(tripId) {
     // First share: create shared_trips document and start listener
     if (!isTripShared(tripId)) {
       const ownerName = user.displayName || user.email?.split('@')[0] || 'Organisateur';
-      await initSharedTripInFirestore(tripId, await compressTripPhotos(trip), user.uid, ownerName);
+      await initSharedTripInFirestore(tripId, await _compressForSharing(trip), user.uid, ownerName);
       markTripShared(tripId);
       setSharedSyncCallback(_onLocalSharedTripEdit);
 

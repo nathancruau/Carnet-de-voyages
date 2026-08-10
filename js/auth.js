@@ -19,7 +19,7 @@
  */
 
 import { firebaseConfig } from './firebase-config.js';
-import { compressTripPhotos } from './utils.js';
+import { compressTripsForFirestore } from './utils.js';
 
 const FB = 'https://www.gstatic.com/firebasejs/11.1.0';
 
@@ -212,7 +212,7 @@ export async function syncToFirestore(localState, recentlyDeletedIds = []) {
     // Trips pulled from _lastServerTrips (missing / reconciled-newer) are already
     // compressed from a previous sync — compressPhotoDataUrl's cache makes
     // re-compressing them here a no-op, so we don't need to track which is which.
-    const compressedTrips = await Promise.all(tripsToWrite.map(t => compressTripPhotos(t)));
+    const compressedTrips = await compressTripsForFirestore(tripsToWrite);
 
     const stateToWrite = { ...localState, trips: compressedTrips };
     await _setDocFn(_docFn(_db, 'users', _uid), JSON.parse(JSON.stringify(stateToWrite)), { merge: true });

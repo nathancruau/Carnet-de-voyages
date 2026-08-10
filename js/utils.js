@@ -135,12 +135,20 @@ window.closeModal = closeModal;
 // writing to localStorage only. Used for both the personal sync (auth.js) and
 // the per-trip shared_trips document (share.js).
 
-const _compressedPhotoCache = new Map(); // original data: URL → compressed data: URL
+// Two compression tiers: try good quality first (plenty for most trips), and
+// only escalate to the aggressive tier for the rare account with enough
+// photos that even the good-quality pass wouldn't fit in a 1 MB document.
+const GOOD_TIER  = { maxSize: 900, quality: 0.7 };
+const TIGHT_TIER = { maxSize: 450, quality: 0.5 };
+const FIRESTORE_SIZE_LIMIT = 900 * 1024; // safety margin under Firestore's ~1 MiB cap
 
-/** Compress a base64 photo to a small JPEG (~15–25 KB at the defaults). Returns null on error. */
-export async function compressPhotoDataUrl(b64, maxSize = 400, quality = 0.55) {
+const _compressedPhotoCache = new Map(); // `${data: URL}|${maxSize}|${quality}` → compressed data: URL
+
+/** Compress a base64 photo to a JPEG at the given size/quality. Returns null on error. */
+export async function compressPhotoDataUrl(b64, maxSize = GOOD_TIER.maxSize, quality = GOOD_TIER.quality) {
   if (!b64 || !b64.startsWith('data:')) return null;
-  const cached = _compressedPhotoCache.get(b64);
+  const cacheKey = `${b64}|${maxSize}|${quality}`;
+  const cached = _compressedPhotoCache.get(cacheKey);
   if (cached !== undefined) return cached;
   const result = await new Promise(resolve => {
     const img = new Image();
@@ -157,18 +165,17 @@ export async function compressPhotoDataUrl(b64, maxSize = 400, quality = 0.55) {
     img.onerror = () => resolve(null);
     img.src = b64;
   });
-  _compressedPhotoCache.set(b64, result);
+  _compressedPhotoCache.set(cacheKey, result);
   return result;
 }
 
 /**
  * Return a copy of a trip with every embedded base64 photo re-compressed to a
- * small JPEG and heavy gpxPoints arrays stripped, so it fits comfortably
- * within Firestore's 1 MB document limit. Local storage / display always keep
- * the original full-resolution photos — only the copy handed to Firestore
- * goes through this.
+ * JPEG (at the given size/quality tier) and heavy gpxPoints arrays stripped.
+ * Local storage / display always keep the original full-resolution photos —
+ * only the copy handed to Firestore goes through this.
  */
-export async function compressTripPhotos(trip) {
+export async function compressTripPhotos(trip, maxSize = GOOD_TIER.maxSize, quality = GOOD_TIER.quality) {
   const isB64 = url => typeof url === 'string' && url.startsWith('data:');
   const t = JSON.parse(JSON.stringify(trip));
 
@@ -201,7 +208,7 @@ export async function compressTripPhotos(trip) {
   }));
   t.journalEntries = (t.journalEntries || []).map(je => ({ ...je, photos: scanPhotoObjs(je.photos) }));
 
-  const compressed = await Promise.all(inputs.map(b64 => compressPhotoDataUrl(b64)));
+  const compressed = await Promise.all(inputs.map(b64 => compressPhotoDataUrl(b64, maxSize, quality)));
   const replaceSlot = (url) => {
     if (typeof url !== 'string') return url;
     const m = url.match(/^__SLOT_(\d+)__$/);
@@ -226,6 +233,19 @@ export async function compressTripPhotos(trip) {
   t.journalEntries = t.journalEntries.map(je => ({ ...je, photos: fixPhotoObjs(je.photos) }));
 
   return t;
+}
+
+/**
+ * Compress a set of trips for a single Firestore write, escalating to the
+ * more aggressive tier only if the good-quality pass would still be too
+ * large for the ~1 MB document limit. Used for both the per-trip
+ * shared_trips document (share.js, pass a 1-trip array) and the personal
+ * users/{uid} document (auth.js, holds every trip at once).
+ */
+export async function compressTripsForFirestore(trips) {
+  const good = await Promise.all(trips.map(t => compressTripPhotos(t, GOOD_TIER.maxSize, GOOD_TIER.quality)));
+  if (JSON.stringify(good).length <= FIRESTORE_SIZE_LIMIT) return good;
+  return Promise.all(trips.map(t => compressTripPhotos(t, TIGHT_TIER.maxSize, TIGHT_TIER.quality)));
 }
 
 // ── Date helpers ───────────────────────────────────────────────────────────────

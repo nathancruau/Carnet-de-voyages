@@ -1758,8 +1758,22 @@ function _openEditEventModal(dayId, evtIdx, tripId) {
     }).join('');
   }
 
+  // Day picker — lets mobile users move an event to another day, since HTML5
+  // drag-and-drop (used on desktop) doesn't work with touch.
+  function _dayOptionsHtml() {
+    return (trip.days || []).map(d => {
+      const label = `Jour ${d.num}${d.date ? ' · ' + fmtDateShort(d.date) : ''}${d.title ? ' · ' + d.title : ''}`;
+      return `<option value="${_esc(d.id)}"${d.id === dayId ? ' selected' : ''}>${_esc(label)}</option>`;
+    }).join('');
+  }
+
   _showMobileEventSheet(`
     <h3 style="margin-bottom:16px">✏️ Modifier l'événement</h3>
+    ${(trip.days || []).length > 1 ? `
+    <div class="fg">
+      <label>Jour</label>
+      <select id="ee-day">${_dayOptionsHtml()}</select>
+    </div>` : ''}
     <div class="fg">
       <label>Type</label>
       <div style="display:flex;gap:6px;flex-wrap:wrap" id="ee-types">${_typeBtnsHtml()}</div>
@@ -1892,11 +1906,20 @@ function _openEditEventModal(dayId, evtIdx, tripId) {
       }
     }
 
+    // Move to another day if the picker selection changed — reuses the same
+    // move logic as the desktop drag-and-drop, which doesn't work on touch.
+    const newDayId = document.getElementById('ee-day')?.value;
+
     _closeMobileEventSheet();
-    notify('Événement mis à jour', '✅');
-    _renderDaysList(tripId);
-    _refreshMapPins(tripId);
-    updateTopStats(tripId);
+
+    if (newDayId && newDayId !== dayId) {
+      _moveEvent(dayId, evtIdx, newDayId, tripId);
+    } else {
+      notify('Événement mis à jour', '✅');
+      _renderDaysList(tripId);
+      _refreshMapPins(tripId);
+      updateTopStats(tripId);
+    }
   });
 }
 

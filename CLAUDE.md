@@ -18,7 +18,7 @@ Quatre endroits à synchroniser, toujours le même numéro N :
 | `sw.js` | `const SHELL_CACHE = 'cv-shell-N'` |
 | `store.js` | `export const APP_VERSION = 'N'` |
 
-Version actuelle : **151**
+Version actuelle : **152**
 
 ---
 
@@ -237,3 +237,5 @@ uid()          // ID court aléatoire
 | v150 | Partage externe d'une étape du Carnet | `_shareJournalItem` (journal.js) : `navigator.share` (nom du voyage, jour, texte, météo, notes, montant, photos en `File`), fallback presse-papiers si Web Share indisponible. Bouton dans la modale de validation + sur chaque item validé de la timeline |
 | v151 | Sync tel → cloud échouait tout le temps (jamais intermittent) | Le document personnel `users/{uid}` contient tous les voyages avec leurs photos en base64 non compressées → dépasse souvent la limite de 1 Mo de Firestore → `setDoc()` rejette systématiquement. `compressTripPhotos` (utils.js, partagé avec share.js) recompresse toutes les photos avant `syncToFirestore` |
 | v151 | Photos de voyage qui clignotent / perdent en qualité | Sur une égalité de `updatedAt` (écho de notre propre écriture), le code remplaçait la copie locale (haute qualité) par la copie compressée venant de Firestore. Tie-breaking corrigé pour préférer la copie locale (`store.js` : `setState`, `replaceTripFromNetwork` ; `share.js` : `_loadAndListen`) + suppression d'un `renderHome()` redondant après `initSharedTrips()` dans `app.js` |
+| v152 | Photos trop compressées après le fix v151 | Compression à 400px/55% (pensée pour un seul voyage partagé) appliquée telle quelle à la sync perso qui contient tous les voyages → qualité visiblement dégradée partout. `compressTripsForFirestore` (utils.js) essaie d'abord un palier qualité (900px/0.7) et n'escalade vers un palier agressif (450px/0.5) que si le payload dépasse ~900 Ko |
+| v152 | Impossible de déplacer une activité vers un autre jour sur mobile | Le déplacement entre jours utilisait le drag-and-drop HTML5 (`dragstart`/`dragover`/`drop`), qui ne fonctionne pas au toucher. Ajout d'un sélecteur "Jour" dans la sheet mobile d'édition d'événement (`_openEditEventModal`, mapcal.js), qui réutilise `_moveEvent` (la même fonction que le drag-and-drop desktop) |
