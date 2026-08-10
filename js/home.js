@@ -42,6 +42,8 @@ let _globeZoom             = 1;                // current zoom factor (persists 
 let _globeTarget          = null;              // { lambda, phi } animation target when focusing a country
 let _globeAnimId          = null;              // requestAnimationFrame id for focus animation
 const _globeBoundCanvases = new WeakSet();     // avoid re-binding pointer listeners on the same canvas node
+const _globeMarkerEls     = new Map();         // ISO-2 -> marker <button>, reused across redraws
+let _globeMarkersContainer = null;             // the .globe-markers node the cache above belongs to
 
 // Companion list being edited in the open modal
 let _modalComps  = [];
@@ -465,11 +467,24 @@ function _drawGlobe(canvas) {
 function _renderGlobeMarkers(canvas, W, H, cx, cy, R) {
   const container = canvas.parentElement?.querySelector('.globe-markers');
   if (!container || !_globeData) return;
+
+  // Reuse existing marker elements across redraws instead of rebuilding innerHTML
+  // every frame — recreating <img> nodes on every drag/zoom tick interrupted their
+  // load and made them flash back to the emoji fallback.
+  if (container !== _globeMarkersContainer) {
+    _globeMarkersContainer = container;
+    _globeMarkerEls.clear();
+    container.innerHTML = '';
+  }
+
   const { visitedMap, centroids } = _globeData;
   const { lambda, phi } = _globeRotation;
-  const size = Math.max(20, Math.round(R * 0.22));
+  // Marker size stays constant regardless of zoom (like a map pin, not part of the
+  // zoomed sphere itself) — otherwise at high zoom the badges balloon and cover the map.
+  const baseR = W / 2 * 0.94;
+  const size  = Math.max(20, Math.round(baseR * 0.22));
 
-  let html = '';
+  const seen = new Set();
   for (const [code, count] of visitedMap) {
     if (!count) continue;
     const c = centroids.get(code);
@@ -477,11 +492,31 @@ function _renderGlobeMarkers(canvas, W, H, cx, cy, R) {
     const p = _globeProject(c.lon, c.lat, lambda, phi);
     if (!p.visible) continue;
     const x = cx + p.x * R, y = cy - p.y * R;
-    html += `<button type="button" class="globe-marker" data-action="focus-country" data-code="${code}"
-               style="left:${x.toFixed(1)}px;top:${y.toFixed(1)}px;width:${size}px;height:${size}px;font-size:${Math.round(size * 0.55)}px"
-               title="${_esc(_A2_NAME[code] || code)}">${_flagImgHtml(code)}</button>`;
+    seen.add(code);
+
+    let el = _globeMarkerEls.get(code);
+    if (!el) {
+      el = document.createElement('button');
+      el.type = 'button';
+      el.className = 'globe-marker';
+      el.dataset.action = 'focus-country';
+      el.dataset.code   = code;
+      el.title = _A2_NAME[code] || code;
+      el.innerHTML = _flagImgHtml(code);
+      container.appendChild(el);
+      _globeMarkerEls.set(code, el);
+    }
+    el.style.left     = x.toFixed(1) + 'px';
+    el.style.top      = y.toFixed(1) + 'px';
+    el.style.width    = size + 'px';
+    el.style.height   = size + 'px';
+    el.style.fontSize = Math.round(size * 0.55) + 'px';
   }
-  container.innerHTML = html;
+
+  // Drop markers that rotated out of view
+  for (const [code, el] of _globeMarkerEls) {
+    if (!seen.has(code)) { el.remove(); _globeMarkerEls.delete(code); }
+  }
 }
 
 function _attachGlobeInteraction(canvas) {
