@@ -18,7 +18,7 @@ Quatre endroits à synchroniser, toujours le même numéro N :
 | `sw.js` | `const SHELL_CACHE = 'cv-shell-N'` |
 | `store.js` | `export const APP_VERSION = 'N'` |
 
-Version actuelle : **155**
+Version actuelle : **156**
 
 ---
 
@@ -248,3 +248,4 @@ uid()          // ID court aléatoire
 | v154 | Modification d'une sortie potentiellement bloquée sur mobile | `_handleSortieSave` (home.js) faisait un appel réseau de géocodage inverse sans timeout à chaque enregistrement, même sans changement de lieu — sur une connexion mobile lente, "Enregistrer" pouvait sembler ne rien faire indéfiniment. Appel ignoré si le lieu n'a pas changé (édition), et limité à 6 s (`AbortController`) sinon |
 | v155 | Régression v154 : tableau Budget cassé sur mobile | `display:block` sur `.exp-table` désynchronisait `thead`/`tbody` (plus de colonnes alignées). Retiré ; nouveau wrapper `.exp-table-wrap{overflow-x:auto}` autour des `<table>` (budget.js), et `white-space:nowrap` déplacé uniquement sur le badge catégorie (au lieu de toute la table) pour corriger le vrai bug v153 (catégorie sur deux lignes) sans rien casser d'autre |
 | v155 | Modal Sortie pas adapté au mobile (affichage général, pas juste le géocodage) | Nouveau paramètre `fullscreenMobile` sur `showModal()` (utils.js), activé pour la modale Sortie (home.js) : classe CSS `mbox-fullscreen-mobile` donnant un vrai plein écran (`100dvh`, sans coins arrondis) au lieu du bottom-sheet `92dvh` habituel, pour laisser respirer son contenu dense (carte, GPX, photos, compagnons) |
+| v156 | Carte invisible sur l'écran détail d'une sortie (mobile) | `sortie.js` n'est ni un onglet mapcal ni journal-timeline observateur → `#screen-app` ne reçoit jamais `tab-map-active`/`tab-fixed-active`, donc l'override body-scroll par défaut (`height:auto`) s'applique et écrase `.sortie-layout{height:100%}` (flex row), réduisant `.sortie-map-wrap` à une hauteur nulle. `@media(max-width:768px)` : `.sortie-layout` passe en colonne (info au-dessus, carte en dessous dans le flux), `.sortie-map-wrap` reçoit une hauteur explicite (260px) avec `#sortie-map` en `position:absolute;inset:0` (pattern carte body-scroll standard) |
