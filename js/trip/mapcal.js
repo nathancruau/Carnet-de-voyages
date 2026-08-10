@@ -2479,7 +2479,19 @@ window._closeCommentPanel = function() {
 
 // ─── Event delegation for left panel ─────────────────────────────────────────
 
+// #panel-mapcal is a persistent DOM node re-used across tab switches (only its
+// innerHTML is replaced by renderMapCal) — event delegation means it never
+// needs re-binding for new content, so guard against calling this more than
+// once per panel. Without this, revisiting the "Carte & Planning" tab kept
+// stacking a fresh set of click/drag listeners on top of the old ones, so a
+// single tap could fire _selectDay() (and every other delegated action) an
+// even number of times and net out to nothing — "sometimes a day just won't open".
+const _leftPanelBound = new WeakSet();
+
 function _attachLeftPanelListeners(panel) {
+  if (_leftPanelBound.has(panel)) return;
+  _leftPanelBound.add(panel);
+
   panel.addEventListener('click', e => {
     // Inline title edit — pencil button
     const editBtn = e.target.closest('[data-action="edit-day-title"]');

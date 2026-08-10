@@ -2555,14 +2555,28 @@ async function _handleSortieSave() {
 
   _cleanupSortieModalMap();
 
-  // Reverse-geocode the pin position to get the country flag emoji
-  // so MyMap can assign the correct country color.
-  let flag = '🎯';
-  if (_sortieLat != null && _sortieLng != null) {
+  const _existingTrip = _editingId ? getTrip(_editingId) : null;
+  const _existingPin  = _existingTrip?.pin || {};
+
+  // Reverse-geocode the pin position to get the country flag emoji so MyMap
+  // can assign the correct country color. Skipped when editing without moving
+  // the pin (reuses the existing flag) — on a slow/flaky mobile connection this
+  // fetch had no timeout, so editing a sortie's name/date/notes could appear to
+  // hang indefinitely on "Enregistrer" while waiting on a network call that
+  // wasn't even needed since the location never changed.
+  const _locationUnchanged = _existingTrip &&
+    _existingPin.lat === _sortieLat && _existingPin.lng === _sortieLng;
+
+  let flag = _locationUnchanged ? (_existingTrip.flag || '🎯') : '🎯';
+  if (!_locationUnchanged && _sortieLat != null && _sortieLng != null) {
     try {
+      const controller = new AbortController();
+      const timeoutId  = setTimeout(() => controller.abort(), 6000);
       const r = await fetch(
-        `https://nominatim.openstreetmap.org/reverse?lat=${_sortieLat}&lon=${_sortieLng}&format=json`
+        `https://nominatim.openstreetmap.org/reverse?lat=${_sortieLat}&lon=${_sortieLng}&format=json`,
+        { signal: controller.signal }
       );
+      clearTimeout(timeoutId);
       const d = await r.json();
       const cc = (d.address?.country_code || '').toUpperCase();
       if (cc.length === 2) {
@@ -2571,11 +2585,10 @@ async function _handleSortieSave() {
           cc.charCodeAt(1) - 65 + 0x1F1E6
         );
       }
-    } catch (_) { /* keep default */ }
+    } catch (_) { /* keep default — includes the 6s timeout abort */ }
   }
 
   // GPX — resolve final state (new upload / existing / deleted)
-  const _existingPin    = _editingId ? (getTrip(_editingId)?.pin || {}) : {};
   let finalGpxTrackId   = _existingPin.gpxTrackId  || null;
   let finalGpxStats     = _existingPin.gpxStats    || null;
   let finalGpxPoints    = _existingPin.gpxPoints   || null;

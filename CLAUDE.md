@@ -18,7 +18,7 @@ Quatre endroits à synchroniser, toujours le même numéro N :
 | `sw.js` | `const SHELL_CACHE = 'cv-shell-N'` |
 | `store.js` | `export const APP_VERSION = 'N'` |
 
-Version actuelle : **153**
+Version actuelle : **154**
 
 ---
 
@@ -241,3 +241,8 @@ uid()          // ID court aléatoire
 | v152 | Impossible de déplacer une activité vers un autre jour sur mobile | Le déplacement entre jours utilisait le drag-and-drop HTML5 (`dragstart`/`dragover`/`drop`), qui ne fonctionne pas au toucher. Ajout d'un sélecteur "Jour" dans la sheet mobile d'édition d'événement (`_openEditEventModal`, mapcal.js), qui réutilise `_moveEvent` (la même fonction que le drag-and-drop desktop) |
 | v153 | Impossible de réordonner les activités dans un jour sur mobile | Même cause que le déplacement entre jours (drag-and-drop HTML5 inutilisable au toucher). Boutons ▲▼ ajoutés sur chaque `.evt-row` (mapcal.js), réutilisent `_reorderEvent` existant. `.evt-del`/`.evt-move` passent aussi en `opacity:1` sous 768px (le hover de survol ne marche pas au doigt) |
 | v153 | Tri par date dans Ma Carte | La liste des voyages (panneau latéral + onglet mobile "Destinations") suivait l'ordre de stockage local. `_buildSidebarTree` (mymap.js) trie maintenant par date de fin (repli sur date de début), le plus récent en premier |
+| v154 | Boutons ▲▼ trop petits / trop proches de supprimer | Agrandis sous 768px (32×30px min) + séparateur visuel (`border-left`) avant le bouton ✕ pour éviter les clics accidentels |
+| v154 | Tracé du Carnet ne suivait que la 1ère nuit d'un séjour multi-nuits | `_jCollectWaypoints` (journal.js) n'avait pas la logique de continuité des nuits de mapcal.js. Ajout de `_jNightForDate` + injection d'un point de départ/retour de nuit à chaque jour couvert par le séjour, comme `_collectAllWaypoints` |
+| v154 | Cliquer sur un jour du planning ne l'ouvrait pas parfois (PC+tel) | `_attachLeftPanelListeners` (mapcal.js) rattachait un nouveau jeu de listeners (click/drag) sur `#panel-mapcal` à chaque fois que l'onglet Carte & Planning était revisité, sans jamais retirer les précédents — un tap pouvait déclencher `_selectDay` un nombre pair de fois et s'annuler. Ajout d'un garde-fou (`WeakSet`) pour ne binder qu'une fois par panel |
+| v154 | Catégorie sur deux lignes dans Budget (mobile) | `.exp-table` n'avait pas de version mobile ; le badge de catégorie s'enroulait dans une colonne trop étroite. Le tableau défile maintenant horizontalement (`overflow-x:auto`) et ses cellules passent en `white-space:nowrap` sous 768px |
+| v154 | Modification d'une sortie potentiellement bloquée sur mobile | `_handleSortieSave` (home.js) faisait un appel réseau de géocodage inverse sans timeout à chaque enregistrement, même sans changement de lieu — sur une connexion mobile lente, "Enregistrer" pouvait sembler ne rien faire indéfiniment. Appel ignoré si le lieu n'a pas changé (édition), et limité à 6 s (`AbortController`) sinon |

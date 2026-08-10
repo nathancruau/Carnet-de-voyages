@@ -502,9 +502,30 @@ body{height:100%;min-height:-webkit-fill-available;font-family:var(--fn);backgro
 }
 .evt-move-btn:hover:not(:disabled){color:var(--teal);background:var(--tl)}
 .evt-move-btn:disabled{opacity:.25;cursor:default}
-/* Opacity:0 + :hover reveal doesn't work with touch — keep row actions visible on mobile */
+/* Opacity:0 + :hover reveal doesn't work with touch — keep row actions visible on
+   mobile, and make them big enough / far enough apart to tap accurately: the
+   ▲▼ reorder buttons get a clear separator before the ✕ delete button so a
+   slightly-off tap can't hit delete by mistake. */
 @media(max-width:768px){
+  .evt-row{padding:7px 8px;gap:6px}
+  .evt-ic{font-size:15px}
+  .evt-txt{font-size:13px}
+  .evt-tm{font-size:11px}
   .evt-del,.evt-move{opacity:1}
+  .evt-move{
+    flex-direction:row;gap:4px;margin-left:2px;
+    padding-left:6px;border-left:1.5px solid var(--c3);
+  }
+  .evt-move-btn{
+    font-size:14px;min-width:32px;min-height:30px;
+    display:flex;align-items:center;justify-content:center;
+    border-radius:6px;background:var(--c2);
+  }
+  .evt-move-btn:active:not(:disabled){background:var(--tl);color:var(--teal)}
+  .evt-del{
+    font-size:15px;min-width:32px;min-height:30px;margin-left:2px;
+    display:flex;align-items:center;justify-content:center;
+  }
 }
 .add-evt{
   display:flex;align-items:center;gap:4px;padding:4px 6px;
@@ -762,6 +783,12 @@ body{height:100%;min-height:-webkit-fill-available;font-family:var(--fn);backgro
 .exp-table tr td:last-child{border-radius:0 7px 7px 0}
 .exp-table tr:hover td{background:var(--c2)}
 .bud-line-row{cursor:pointer}
+@media(max-width:768px){
+  /* Narrow columns used to wrap the category pill onto two lines. Let the
+     table scroll horizontally instead of squeezing/wrapping its cells. */
+  .exp-table{display:block;overflow-x:auto;-webkit-overflow-scrolling:touch}
+  .exp-table td,.exp-table th{white-space:nowrap}
+}
 
 /* Mobile expense cards (tricount) */
 .tri-exp-cards{display:flex;flex-direction:column;gap:8px}

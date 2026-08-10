@@ -195,13 +195,47 @@ export function destroyJournalMap() {
 
 // ── Route helpers (mirrors mapcal logic) ──────────────────────────────────────
 
-function _jCollectWaypoints(trip, observerMode = false) {
-  const wps = [];
+// Return the active night stay for a given ISO date (mirrors mapcal.js's _nightForDate).
+function _jNightForDate(trip, isoDate) {
   for (const day of (trip.days || [])) {
+    for (const item of (day.items || [])) {
+      if (item.type === 'sleep' && item.lat != null && item.lng != null &&
+          item.dateFrom && item.dateTo &&
+          item.dateFrom <= isoDate && isoDate <= item.dateTo) {
+        return { id: item.id, lat: item.lat, lng: item.lng };
+      }
+    }
+  }
+  return null;
+}
+
+function _jCollectWaypoints(trip, observerMode = false) {
+  const wps  = [];
+  const days = (trip.days || []).slice().sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+
+  // A multi-night sleep item is stored once, on the day it starts — without
+  // re-injecting it for every date in its dateFrom..dateTo range, the route
+  // only ever passed through the first night and skipped straight to
+  // whatever came after, ignoring every following night at the same place.
+  const pushNight = (night) => {
+    if (!night) return;
+    const last = wps[wps.length - 1];
+    if (last && last.nightId === night.id) return;
+    wps.push({ lat: night.lat, lng: night.lng, mode: 'car', nightId: night.id });
+  };
+
+  for (let di = 0; di < days.length; di++) {
+    const day = days[di];
+
+    // Depart from the previous day's night stay, if any.
+    if (day.date && di > 0 && days[di - 1].date) {
+      pushNight(_jNightForDate(trip, days[di - 1].date));
+    }
+
     if (observerMode) {
       // Observer: only connect validated pins (with day-coord fallback, same as _refreshJournalPins)
       for (const item of (day.items || [])) {
-        if (!item.journalData?.validated) continue;
+        if (!item.journalData?.validated || item.type === 'sleep') continue;
         const lat = item.lat ?? day.lat;
         const lng = item.lng ?? day.lng;
         if (lat == null || lng == null) continue;
@@ -210,7 +244,7 @@ function _jCollectWaypoints(trip, observerMode = false) {
         wps.push({ lat, lng, mode });
       }
     } else {
-      const itemPins = (day.items || []).filter(it => it.lat != null && it.lng != null);
+      const itemPins = (day.items || []).filter(it => it.lat != null && it.lng != null && it.type !== 'sleep');
       if (itemPins.length > 0) {
         for (const item of itemPins) {
           let mode = item.routeMode || 'car';
@@ -221,6 +255,9 @@ function _jCollectWaypoints(trip, observerMode = false) {
         wps.push({ lat: day.lat, lng: day.lng, mode: day.routeMode || 'car' });
       }
     }
+
+    // Return to this day's night stay before moving on to the next day.
+    if (day.date) pushNight(_jNightForDate(trip, day.date));
   }
   return wps;
 }
