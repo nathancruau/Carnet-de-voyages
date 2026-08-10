@@ -33,6 +33,15 @@ let _homeLibTab       = 'mine';    // 'mine' | 'observing' | 'live'
 let _listenerAttached = false;
 let _statsLastFiltered = [];       // cache for world-map re-render on expand
 
+// ── Globe (stats world view) state ──────────────────────────────────────────────
+let _globeFeaturesCache  = null;               // parsed GeoJSON country features (fetched once)
+let _globeCentroidsCache = null;               // Map<ISO-2, {lon,lat}> (derived once from features)
+let _globeData           = null;               // { visitedMap, centroids } used by the current draw/redraw
+let _globeRotation        = { lambda: 10, phi: 15 };  // current view center (persists across re-renders)
+let _globeTarget          = null;              // { lambda, phi } animation target when focusing a country
+let _globeAnimId          = null;              // requestAnimationFrame id for focus animation
+const _globeBoundCanvases = new WeakSet();     // avoid re-binding pointer listeners on the same canvas node
+
 // Companion list being edited in the open modal
 let _modalComps  = [];
 let _modalColor  = '#0d9488';
@@ -264,115 +273,262 @@ function _calcSeasons(trips) {
   return s;
 }
 
-async function _initWorldMap(trips) {
-  const canvas = document.getElementById('world-map-canvas');
+// ── Globe (stats world view) ────────────────────────────────────────────────────
+
+const _DEG2RAD = Math.PI / 180;
+
+/** Average lon/lat of a country's largest ring — same naive-average simplification
+ *  as before (breaks slightly for antimeridian-straddling countries like Russia/Fiji,
+ *  acceptable for a small flag marker's placement). */
+function _countryCentroidsLonLat(features) {
+  const map = new Map();
+  for (const feat of features) {
+    const code = _ISO_N_A2[Number(feat.id)] || '';
+    if (!code) continue;
+    const geom = feat.geometry;
+    if (!geom) continue;
+    const polys = geom.type === 'Polygon' ? [geom.coordinates] : geom.coordinates;
+    let bestRingSize = 0, lon = 0, lat = 0;
+    for (const poly of polys) {
+      const ring = poly[0];
+      let sumLon = 0, sumLat = 0;
+      for (const [lo, la] of ring) { sumLon += lo; sumLat += la; }
+      if (ring.length > bestRingSize) {
+        bestRingSize = ring.length;
+        lon = sumLon / ring.length;
+        lat = sumLat / ring.length;
+      }
+    }
+    if (bestRingSize > 0) map.set(code, { lon, lat });
+  }
+  return map;
+}
+
+/** Orthographic projection of a (lon,lat) point given the current view center. */
+function _globeProject(lon, lat, lambda0, phi0) {
+  const λ    = (lon - lambda0) * _DEG2RAD;
+  const φ    = lat * _DEG2RAD;
+  const φ1   = phi0 * _DEG2RAD;
+  const cosφ = Math.cos(φ),  sinφ  = Math.sin(φ);
+  const cosφ1= Math.cos(φ1), sinφ1 = Math.sin(φ1);
+  const cosλ = Math.cos(λ),  sinλ  = Math.sin(λ);
+  const cosC = sinφ1 * sinφ + cosφ1 * cosφ * cosλ;
+  return {
+    x: cosφ * sinλ,
+    y: cosφ1 * sinφ - sinφ1 * cosφ * cosλ,
+    visible: cosC > 0.03,
+  };
+}
+
+async function _initGlobe(trips) {
+  const canvas = document.getElementById('globe-canvas');
   if (!canvas) return;
   try {
-    const [topoMod, worldData] = await Promise.all([
-      import('https://cdn.jsdelivr.net/npm/topojson-client@3/+esm'),
-      fetch('https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json').then(r => r.json()),
-    ]);
-    const countries  = topoMod.feature(worldData, worldData.objects.countries);
+    if (!_globeFeaturesCache) {
+      const [topoMod, worldData] = await Promise.all([
+        import('https://cdn.jsdelivr.net/npm/topojson-client@3/+esm'),
+        fetch('https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json').then(r => r.json()),
+      ]);
+      _globeFeaturesCache  = topoMod.feature(worldData, worldData.objects.countries).features;
+      _globeCentroidsCache = _countryCentroidsLonLat(_globeFeaturesCache);
+    }
     const visitedMap = _getVisitedMap(trips);
-    const { centroids, W, H } = _drawWorldMap(canvas, countries.features, visitedMap);
+    _globeData = { visitedMap, centroids: _globeCentroidsCache };
 
-    // Hover tooltip
-    const tooltip = document.getElementById('wm-tooltip');
-    if (!tooltip) return;
-    canvas.addEventListener('mousemove', e => {
-      const rect = canvas.getBoundingClientRect();
-      const mx = (e.clientX - rect.left) * (W / rect.width);
-      const my = (e.clientY - rect.top)  * (H / rect.height);
-      let best = null, bestDist = 28;
-      for (const c of centroids) {
-        const d = Math.hypot(c.cx - mx, c.cy - my);
-        if (d < bestDist) { bestDist = d; best = c; }
-      }
-      if (best) {
-        tooltip.style.display = 'block';
-        tooltip.style.left = (e.clientX - rect.left + 10) + 'px';
-        tooltip.style.top  = Math.max(0, e.clientY - rect.top - 36) + 'px';
-        const name = _A2_NAME[best.code] || best.code;
-        tooltip.innerHTML = `${_isoToFlag(best.code)} <b>${name}</b> · ${best.count} voyage${best.count > 1 ? 's' : ''}`;
-      } else {
-        tooltip.style.display = 'none';
-      }
-    });
-    canvas.addEventListener('mouseleave', () => { tooltip.style.display = 'none'; });
+    _drawGlobe(canvas);
+    if (!_globeBoundCanvases.has(canvas)) {
+      _globeBoundCanvases.add(canvas);
+      _attachGlobeInteraction(canvas);
+    }
   } catch (err) {
-    console.warn('[stats] world map failed:', err.message);
+    console.warn('[stats] globe failed:', err.message);
     const wrap = document.getElementById('world-map-wrap');
     if (wrap) wrap.style.display = 'none';
   }
 }
 
-function _drawWorldMap(canvas, features, visitedMap) {
+function _drawGlobe(canvas) {
+  if (!canvas || !_globeData) return;
   const dpr = window.devicePixelRatio || 1;
-  const W   = canvas.clientWidth || 640;
-  const H   = Math.round(W * 0.46);
-  canvas.width  = W * dpr;
-  canvas.height = H * dpr;
-  canvas.style.height = H + 'px';
+  const W   = canvas.clientWidth || 320;
+  const H   = W; // circular — keep the canvas square
+  // Resizing canvas.width/height clears + reallocates the bitmap — skip it when
+  // unchanged so drag-driven redraws (many per second) don't pay for that each frame.
+  const pxW = Math.round(W * dpr), pxH = Math.round(H * dpr);
+  if (canvas.width !== pxW || canvas.height !== pxH) {
+    canvas.width  = pxW;
+    canvas.height = pxH;
+    canvas.style.height = H + 'px';
+  }
   const ctx = canvas.getContext('2d');
-  ctx.scale(dpr, dpr);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, W, H);
+
   const isDark = document.documentElement.dataset.theme === 'dark';
+  const cx = W / 2, cy = H / 2, R = W / 2 * 0.94;
+  const { lambda, phi } = _globeRotation;
+  const { visitedMap, centroids } = _globeData;
 
-  // Intensity palette: 0 visits → muted, 1 → teal-400, 2 → teal-600, 3+ → teal-800
-  const PALETTE_LIGHT = ['#e0dcd4', '#5eead4', '#0d9488', '#0f766e', '#134e4a'];
-  const PALETTE_DARK  = ['#3a3834', '#99f6e4', '#2dd4bf', '#0d9488', '#0f766e'];
-  const palette = isDark ? PALETTE_DARK : PALETTE_LIGHT;
+  // Ocean sphere
+  ctx.beginPath();
+  ctx.arc(cx, cy, R, 0, Math.PI * 2);
+  ctx.fillStyle = isDark ? '#1c3a3f' : '#cdeef2';
+  ctx.fill();
 
-  const proj = (lon, lat) => [
-    (lon + 180) / 360 * W,
-    (85 - lat) / 170 * H,
-  ];
+  // Graticule (lightweight — every 30°)
+  ctx.strokeStyle = isDark ? 'rgba(255,255,255,.08)' : 'rgba(0,0,0,.07)';
+  ctx.lineWidth = 0.6;
+  for (let lon = -180; lon < 180; lon += 30) {
+    ctx.beginPath();
+    let started = false;
+    for (let lat = -90; lat <= 90; lat += 3) {
+      const p = _globeProject(lon, lat, lambda, phi);
+      if (!p.visible) { started = false; continue; }
+      const x = cx + p.x * R, y = cy - p.y * R;
+      if (!started) { ctx.moveTo(x, y); started = true; } else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+  }
+  for (let lat = -60; lat <= 60; lat += 30) {
+    ctx.beginPath();
+    let started = false;
+    for (let lon = -180; lon <= 180; lon += 3) {
+      const p = _globeProject(lon, lat, lambda, phi);
+      if (!p.visible) { started = false; continue; }
+      const x = cx + p.x * R, y = cy - p.y * R;
+      if (!started) { ctx.moveTo(x, y); started = true; } else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+  }
 
-  const centroids = [];
+  const LAND_UNVISITED = isDark ? '#3a3834' : '#e0dcd4';
 
-  for (const feat of features) {
-    const code  = _ISO_N_A2[Number(feat.id)] || '';
-    const count = visitedMap.get(code) || 0;
-    const ci    = Math.min(count, palette.length - 1);
-    ctx.fillStyle   = palette[ci];
-    ctx.strokeStyle = isDark ? '#252320' : '#faf7f2';
-    ctx.lineWidth   = 0.4;
+  for (const feat of _globeFeaturesCache) {
+    const code = _ISO_N_A2[Number(feat.id)] || '';
+    const cont = _A2_CONTINENT[code];
+    const visited = code && visitedMap.get(code) > 0;
+    ctx.fillStyle   = visited ? (_CONTINENT_COLOR[cont] || '#0d9488') : LAND_UNVISITED;
+    ctx.strokeStyle = isDark ? '#141311' : '#faf7f2';
+    ctx.lineWidth   = 0.5;
 
     const geom = feat.geometry;
     if (!geom) continue;
     const polys = geom.type === 'Polygon' ? [geom.coordinates] : geom.coordinates;
 
-    // Compute centroid from largest polygon for hover hit-testing
-    let bestRingSize = 0, centX = 0, centY = 0;
-
     for (const poly of polys) {
       const ring = poly[0];
+      // Skip rings entirely on the far side of the globe (backface cull, per-ring)
+      let anyVisible = false;
+      const pts = ring.map(([lon, lat]) => {
+        const p = _globeProject(lon, lat, lambda, phi);
+        if (p.visible) anyVisible = true;
+        return p;
+      });
+      if (!anyVisible) continue;
+
       ctx.beginPath();
-      let prevLon = null;
-      let sumX = 0, sumY = 0;
-      ring.forEach(([lon, lat], i) => {
-        const [x, y] = proj(lon, lat);
-        sumX += x; sumY += y;
-        if (i === 0 || (prevLon !== null && Math.abs(lon - prevLon) > 180)) ctx.moveTo(x, y);
-        else ctx.lineTo(x, y);
-        prevLon = lon;
+      let started = false;
+      pts.forEach((p, i) => {
+        if (!p.visible) { started = false; return; }
+        const x = cx + p.x * R, y = cy - p.y * R;
+        if (!started) { ctx.moveTo(x, y); started = true; } else ctx.lineTo(x, y);
       });
       ctx.closePath();
       ctx.fill();
       ctx.stroke();
-      if (ring.length > bestRingSize) {
-        bestRingSize = ring.length;
-        centX = sumX / ring.length;
-        centY = sumY / ring.length;
-      }
-    }
-
-    if (count > 0 && code) {
-      centroids.push({ code, count, cx: centX, cy: centY });
     }
   }
 
-  return { centroids, W, H };
+  // Globe outline
+  ctx.beginPath();
+  ctx.arc(cx, cy, R, 0, Math.PI * 2);
+  ctx.strokeStyle = isDark ? 'rgba(255,255,255,.15)' : 'rgba(0,0,0,.12)';
+  ctx.lineWidth = 1;
+  ctx.stroke();
+
+  // Small round flag markers on visited countries currently facing the viewer
+  ctx.font = `${Math.max(11, Math.round(R * 0.1))}px sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  for (const [code, count] of visitedMap) {
+    if (!count) continue;
+    const c = centroids.get(code);
+    if (!c) continue;
+    const p = _globeProject(c.lon, c.lat, lambda, phi);
+    if (!p.visible) continue;
+    const x = cx + p.x * R, y = cy - p.y * R;
+    const markerR = Math.max(8, R * 0.075);
+    ctx.beginPath();
+    ctx.arc(x, y, markerR, 0, Math.PI * 2);
+    ctx.fillStyle = isDark ? '#252320' : '#fff';
+    ctx.fill();
+    ctx.strokeStyle = isDark ? 'rgba(255,255,255,.25)' : 'rgba(0,0,0,.15)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.fillText(_isoToFlag(code), x, y + 0.5);
+  }
+}
+
+function _attachGlobeInteraction(canvas) {
+  canvas.style.touchAction = 'none';
+  let dragging = false;
+  let lastX = 0, lastY = 0;
+
+  const onDown = e => {
+    // A focus animation in progress gets cancelled by manual dragging
+    if (_globeAnimId) { cancelAnimationFrame(_globeAnimId); _globeAnimId = null; _globeTarget = null; }
+    dragging = true;
+    lastX = e.clientX; lastY = e.clientY;
+    canvas.setPointerCapture?.(e.pointerId);
+  };
+  const onMove = e => {
+    if (!dragging) return;
+    const dx = e.clientX - lastX, dy = e.clientY - lastY;
+    lastX = e.clientX; lastY = e.clientY;
+    _globeRotation.lambda += dx * 0.4;
+    _globeRotation.phi     = Math.max(-85, Math.min(85, _globeRotation.phi - dy * 0.4));
+    _drawGlobe(canvas);
+  };
+  const onUp = () => { dragging = false; };
+
+  canvas.addEventListener('pointerdown', onDown);
+  canvas.addEventListener('pointermove', onMove);
+  canvas.addEventListener('pointerup', onUp);
+  canvas.addEventListener('pointercancel', onUp);
+  canvas.addEventListener('pointerleave', onUp);
+}
+
+/** Smoothly rotate the globe so the given ISO-2 country faces the viewer. */
+function _focusGlobeOnCountry(code) {
+  const canvas = document.getElementById('globe-canvas');
+  const centroid = _globeCentroidsCache?.get(code);
+  if (!canvas || !centroid) return;
+
+  const label = document.getElementById('globe-country-label');
+  if (label) {
+    label.style.display = '';
+    label.innerHTML = `${_isoToFlag(code)} <b>${_esc(_A2_NAME[code] || code)}</b>`;
+  }
+
+  _globeTarget = { lambda: centroid.lon, phi: centroid.lat };
+  if (_globeAnimId) cancelAnimationFrame(_globeAnimId);
+
+  const step = () => {
+    if (!_globeTarget) return;
+    let dLambda = ((_globeTarget.lambda - _globeRotation.lambda + 540) % 360) - 180;
+    let dPhi    = _globeTarget.phi - _globeRotation.phi;
+    _globeRotation.lambda += dLambda * 0.12;
+    _globeRotation.phi    += dPhi * 0.12;
+    _globeRotation.lambda  = ((_globeRotation.lambda + 180) % 360 + 360) % 360 - 180;
+    _drawGlobe(canvas);
+    if (Math.abs(dLambda) > 0.3 || Math.abs(dPhi) > 0.3) {
+      _globeAnimId = requestAnimationFrame(step);
+    } else {
+      _globeAnimId = null;
+      _globeTarget = null;
+    }
+  };
+  _globeAnimId = requestAnimationFrame(step);
 }
 
 // ── Global search ─────────────────────────────────────────────────────────────
@@ -555,22 +711,6 @@ function _statsViewHtml(trips) {
     if (cont) continentCount[cont] = (continentCount[cont] || 0) + 1;
   }
 
-  // Visited flags strip — normalise to ISO code so "🇫🇷" and "FR" merge into one entry
-  const tripFlagMap = new Map(); // key = ISO-2 code
-  for (const trip of trips) {
-    if (!trip.flag) continue;
-    const code = _isoFromFlag(trip.flag);
-    if (!code) continue;
-    const name = _A2_NAME[code] || trip.destination || trip.flag;
-    const prev = tripFlagMap.get(code) || { name, count: 0 };
-    tripFlagMap.set(code, { name, count: prev.count + 1 });
-  }
-  const flagsHtml = [...tripFlagMap.entries()]
-    .sort((a, b) => b[1].count - a[1].count)
-    .map(([code, { name, count }]) =>
-      `<span class="wm-flag-chip" title="${_esc(name)} · ${count} voyage${count > 1 ? 's' : ''}">${code}</span>`
-    ).join('');
-
   // Continent pills
   const contPillsHtml = Object.entries(continentCount)
     .sort((a, b) => b[1] - a[1])
@@ -579,18 +719,19 @@ function _statsViewHtml(trips) {
       return `<span style="display:inline-flex;align-items:center;gap:4px;padding:2px 9px;border-radius:999px;font-size:11px;font-weight:700;background:${color}22;color:${color};border:1px solid ${color}44">${_CONTINENT_LABEL[cont]} <b>${cnt}</b></span>`;
     }).join('');
 
-  // Map intensity legend
-  const legendHtml = `
-    <div style="display:flex;align-items:center;gap:5px;font-size:9px;color:var(--ink4)">
-      <span>1 visite</span>
-      <div style="display:flex;gap:2px">
-        <div style="width:12px;height:10px;border-radius:2px;background:#5eead4"></div>
-        <div style="width:12px;height:10px;border-radius:2px;background:#0d9488"></div>
-        <div style="width:12px;height:10px;border-radius:2px;background:#0f766e"></div>
-        <div style="width:12px;height:10px;border-radius:2px;background:#134e4a"></div>
-      </div>
-      <span>4+ visites</span>
-    </div>`;
+  // Collected-flags badges — one per visited country (round icon, click to focus the globe)
+  const visitedPct = Math.round((visitedCount / 195) * 100);
+  const badgesHtml = [...visitedMap.keys()]
+    .sort((a, b) => (_A2_NAME[a] || a).localeCompare(_A2_NAME[b] || b))
+    .map(code => {
+      const color = _CONTINENT_COLOR[_A2_CONTINENT[code]] || '#0d9488';
+      const name  = _A2_NAME[code] || code;
+      const count = visitedMap.get(code);
+      return `<button type="button" class="globe-badge" data-action="focus-country" data-code="${code}"
+                style="border-color:${color}66" title="${_esc(name)} · ${count} voyage${count > 1 ? 's' : ''}">
+                ${_isoToFlag(code)}
+              </button>`;
+    }).join('');
 
   // Km
   const kmByMode = _calcKmByMode(trips);
@@ -750,24 +891,33 @@ function _statsViewHtml(trips) {
       <!-- KPI grid -->
       <div class="stat-kpi-grid">${kpiHtml}</div>
 
-      <!-- World map — full width, first -->
+      <!-- World globe — full width, first -->
       <div id="world-map-wrap" class="stat-card" style="margin-bottom:14px">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px">
           <div style="display:flex;align-items:center;gap:8px">
             <h4 class="stat-card-title" style="margin-bottom:0">🌍 Pays visités</h4>
             <button id="wm-expand-btn" title="Plein écran">⛶ Plein écran</button>
           </div>
-          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-            ${contPillsHtml}
-            ${legendHtml}
-            <span style="font-family:var(--sf);font-size:18px;font-weight:800;color:var(--teal)">${visitedCount}<span style="font-size:11px;font-weight:400;color:var(--ink4)"> / ~195</span></span>
+          <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">${contPillsHtml}</div>
+        </div>
+
+        <div class="globe-wrap">
+          <canvas id="globe-canvas" class="globe-canvas" aria-label="Globe des pays visités"></canvas>
+        </div>
+
+        <div class="globe-stats">
+          <div><div class="globe-stat-val">${visitedCount}</div><div class="globe-stat-lbl">pays visités</div></div>
+          <div><div class="globe-stat-val">${visitedPct}%</div><div class="globe-stat-lbl">du monde (~195 pays)</div></div>
+        </div>
+
+        ${badgesHtml ? `
+        <div class="globe-flags-section">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px">
+            <h5 class="globe-flags-title">🏅 Drapeaux collectés</h5>
+            <div id="globe-country-label" class="globe-country-label" style="display:none"></div>
           </div>
-        </div>
-        <div style="position:relative">
-          <canvas id="world-map-canvas" class="world-map-canvas" aria-label="Carte du monde des pays visités"></canvas>
-          <div id="wm-tooltip" class="wm-tooltip"></div>
-        </div>
-        ${flagsHtml ? `<div class="wm-flags-strip">${flagsHtml}</div>` : ''}
+          <div class="globe-badges" id="globe-badges">${badgesHtml}</div>
+        </div>` : ''}
       </div>
 
       <!-- Row 2: par année + saisons -->
@@ -1613,10 +1763,10 @@ function _renderStats() {
     if (!wmWrap) return;
     const isFs = wmWrap.classList.toggle('stat-fs');
     document.getElementById('wm-expand-btn').textContent = isFs ? '✕ Fermer' : '⛶ Plein écran';
-    requestAnimationFrame(() => _initWorldMap(_statsLastFiltered));
+    requestAnimationFrame(() => _initGlobe(_statsLastFiltered));
   });
 
-  requestAnimationFrame(() => _initWorldMap(filtered));
+  requestAnimationFrame(() => _initGlobe(filtered));
 }
 
 // ── Export helpers ─────────────────────────────────────────────────────────────
@@ -1933,6 +2083,10 @@ function _attachListeners(wrap) {
 
       case 'filter':
         renderHome(target.dataset.filter);
+        break;
+
+      case 'focus-country':
+        _focusGlobeOnCountry(target.dataset.code);
         break;
 
       case 'go-home':
