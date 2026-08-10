@@ -18,7 +18,7 @@ Quatre endroits à synchroniser, toujours le même numéro N :
 | `sw.js` | `const SHELL_CACHE = 'cv-shell-N'` |
 | `store.js` | `export const APP_VERSION = 'N'` |
 
-Version actuelle : **148**
+Version actuelle : **150**
 
 ---
 
@@ -187,11 +187,10 @@ uid()          // ID court aléatoire
 
 ## Onglet Carnet (journal.js) — notes spécifiques
 
-- **3 vues mobiles** : `carte` (map + activités), `activite` (liste seule), `timeline` (frise chronologique)
-- La timeline sur mobile est en body-scroll : `#jn-tl-wrap`, `.tl-wrap`, `.tl-scroll` ont tous `height:auto; overflow:visible` via les overrides CSS du bloc body-scroll.
-- `_openJournalItemPanel()` nécessite `.map-col` dans le DOM → ne fonctionne qu'en mode carte. En timeline, utiliser `_openValidateModal()` directement.
-- `_journalView` : `'map'` | `'timeline'` (persisté en mémoire entre les re-renders)
-- `_journalMobTab` : `'carte'` | `'activite'` | `'timeline'` (mobile uniquement)
+- **Owner/membre desktop** : Carte et Timeline sont fusionnées en une seule vue (`.obs-tl-layout` > `.obs-tl-col` = timeline à gauche, `.map-col` = carte à droite), toujours visibles ensemble — plus de bouton de bascule.
+- **Owner/membre mobile** : 2 onglets plein écran, `carte` ou `timeline` (`_journalMobTab`), rendus dans `#jn-mob-body`. Body-scroll : `#jn-mob-body`, `.tl-wrap`, `.tl-scroll` ont tous `height:auto; overflow:visible` via les overrides CSS du bloc body-scroll ; `#journal-map` garde une hauteur explicite (`calc(100dvh - 180px)`).
+- **Observateur** : toggle `_journalView` (`'map'` | `'timeline'`) entre `_renderObserverView` (feed) et `_renderTimelineView` — les deux affichent déjà carte + contenu côte à côte, inchangé par la fusion ci-dessus.
+- `_openJournalItemPanel()` nécessite `.map-col` dans le DOM (présent en permanence sur desktop ; sur mobile uniquement dans l'onglet Carte). En timeline, utiliser `_openValidateModal()` directement.
 
 ---
 
@@ -229,9 +228,9 @@ uid()          // ID court aléatoire
 | v118 | Types d'activités étendus (15 types) + UI paramètres simplifiée | `DEFAULT_EVENT_TYPES` étendu ; migration forward ; boutons Ajouter/Supprimer retirés des paramètres |
 | v119 | Menu ⋯ : Modifier/Partager/Supprimer ; export PDF/Word personnalisé ; modal export corrigée | `_openTripMenu` étendu ; `_openPdfExportModal` + `exportTripCustom` avec thèmes/sections/couverture ; `.exp-trip-row` layout fix |
 | v120 | Mode observateur amélioré | Carte observateur supprimée ; 2 onglets Carnet+Timeline ; carte de voyage en lecture seule ; stats excluent les observations ; notifications enrichies avec noms et événement ; supression commentaires/likes par propriétaires |
-| v148 | Voyage supprimé qui réapparaît (tombstone manquant) | `state.deletedTrips` (id→deletedAt) persisté et synchronisé, vérifié dans `setState`/`replaceTripFromNetwork` — un snapshot tardif ne peut plus ressusciter un voyage supprimé |
-| v148 | Édition sur un appareil non reflétée sur un autre | `syncToFirestore` garde la copie serveur si elle est plus récente qu'une copie locale obsolète, au lieu d'écraser aveuglément avec l'état local |
-| v148 | `setDoc()` erreur "Unsupported field value: undefined" au 1er partage | `initSharedTripInFirestore` sanitize désormais via `JSON.parse(JSON.stringify(...))` comme les autres écritures Firestore |
-| v148 | Sheet mobile ajout/édition événement glisse horizontalement | `overscroll-behavior:contain` + `overflow-x:hidden` sur `_showMobileEventSheet` |
-| v148 | Photo non enregistrée à l'édition d'un voyage | `_openCropModal` utilise sa propre overlay (plus `showModal`/`closeModal` partagés) pour ne plus écraser/fermer la modale de création/édition en cours |
-| v148 | Onglets Carte/Timeline du Carnet fusionnés (desktop) | `renderJournal` : timeline à gauche + carte à droite en permanence sur desktop (owner/membre) ; mobile garde 2 onglets Carte/Timeline (suppression de l'onglet Activité, redondant avec la Timeline) |
+| v150 | Voyage supprimé qui réapparaît (tombstone manquant) | `state.deletedTrips` (id→deletedAt) persisté et synchronisé, vérifié dans `setState`/`replaceTripFromNetwork` — un snapshot tardif ne peut plus ressusciter un voyage supprimé |
+| v150 | Édition sur un appareil non reflétée sur un autre | `syncToFirestore` garde la copie serveur si elle est plus récente qu'une copie locale obsolète, au lieu d'écraser aveuglément avec l'état local |
+| v150 | `setDoc()` erreur "Unsupported field value: undefined" au 1er partage | `initSharedTripInFirestore` sanitize désormais via `JSON.parse(JSON.stringify(...))` comme les autres écritures Firestore |
+| v150 | Sheet mobile ajout/édition événement glisse horizontalement | `overscroll-behavior:contain` + `overflow-x:hidden` sur `_showMobileEventSheet` |
+| v150 | Photo non enregistrée à l'édition d'un voyage | `_openCropModal` utilise sa propre overlay (plus `showModal`/`closeModal` partagés) pour ne plus écraser/fermer la modale de création/édition en cours |
+| v150 | Onglets Carte/Timeline du Carnet fusionnés (desktop) | `renderJournal` : timeline à gauche + carte à droite en permanence sur desktop (owner/membre) ; mobile garde 2 onglets Carte/Timeline (suppression de l'onglet Activité, redondant avec la Timeline) |

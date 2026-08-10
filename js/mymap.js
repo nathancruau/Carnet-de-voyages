@@ -228,6 +228,126 @@ function _fmtDuration(secs) {
   return h > 0 ? `${h}h${m > 0 ? m + 'min' : ''}` : `${m}min`;
 }
 
+function _haversineMeters(a, b) {
+  const R = 6371000;
+  const φ1 = a.lat * Math.PI / 180, φ2 = b.lat * Math.PI / 180;
+  const Δφ = (b.lat - a.lat) * Math.PI / 180;
+  const Δλ = (b.lng - a.lng) * Math.PI / 180;
+  const x  = Math.sin(Δφ/2)**2 + Math.cos(φ1)*Math.cos(φ2)*Math.sin(Δλ/2)**2;
+  return R * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1-x));
+}
+
+function _buildGpxSeries(points) {
+  const elevSeries = [], speedSeries = [], timeSeries = [];
+  if (!points?.length) return { elevSeries, speedSeries, timeSeries };
+  let cumDist = 0;
+  const t0 = points[0].time ? new Date(points[0].time).getTime() : null;
+  for (let i = 0; i < points.length; i++) {
+    if (i > 0) {
+      const seg = _haversineMeters(points[i-1], points[i]);
+      cumDist += seg;
+      if (points[i-1].time && points[i].time) {
+        const dt = (new Date(points[i].time).getTime() - new Date(points[i-1].time).getTime()) / 1000;
+        if (dt > 0) speedSeries.push({ d: cumDist - seg/2, v: (seg/dt) * 3.6 });
+      }
+    }
+    if (points[i].ele != null) elevSeries.push({ d: cumDist, v: points[i].ele });
+    if (t0 && points[i].time) timeSeries.push({ d: cumDist, t: (new Date(points[i].time).getTime() - t0) / 1000 });
+  }
+  return { elevSeries, speedSeries, timeSeries };
+}
+
+function _initInfoGpxChart(elevSeries, speedSeries, timeSeries) {
+  const canvas   = document.getElementById('mm-gpx-canvas');
+  const elevBtn  = document.getElementById('mm-chart-elev');
+  const speedBtn = document.getElementById('mm-chart-speed');
+  const wrap     = document.getElementById('mm-chart-wrap');
+  const cursor   = document.getElementById('mm-chart-cursor');
+  const tip      = document.getElementById('mm-chart-tip');
+  if (!canvas) return;
+
+  const hasElev  = elevSeries.length  >= 2;
+  const hasSpeed = speedSeries.length >= 2;
+  let chartMode  = hasElev ? 'elevation' : 'speed';
+
+  const _drawChart = (mode) => {
+    const series = mode === 'elevation' ? elevSeries : speedSeries;
+    const W = canvas.offsetWidth || 240, H = 110;
+    canvas.width = W; canvas.height = H;
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, W, H);
+    if (series.length < 2) return;
+    const xs = series.map(p => p.d), ys = series.map(p => p.v);
+    const xMin = xs[0], xMax = xs[xs.length-1];
+    const yMin = Math.min(...ys), yMax = Math.max(...ys), yRange = yMax - yMin || 1;
+    const pad = { t:6, b:18, l:4, r:4 };
+    const toX = d => pad.l + (d - xMin) / (xMax - xMin) * (W - pad.l - pad.r);
+    const toY = v => H - pad.b - (v - yMin) / yRange * (H - pad.t - pad.b);
+    const color = mode === 'elevation' ? '#0891b2' : '#d97706';
+    ctx.beginPath(); ctx.moveTo(toX(xs[0]), toY(ys[0]));
+    for (let i = 1; i < series.length; i++) ctx.lineTo(toX(xs[i]), toY(ys[i]));
+    ctx.lineTo(toX(xs[xs.length-1]), H - pad.b); ctx.lineTo(toX(xs[0]), H - pad.b);
+    ctx.closePath();
+    ctx.fillStyle = mode === 'elevation' ? 'rgba(8,145,178,.15)' : 'rgba(217,119,6,.15)'; ctx.fill();
+    ctx.beginPath(); ctx.moveTo(toX(xs[0]), toY(ys[0]));
+    for (let i = 1; i < series.length; i++) ctx.lineTo(toX(xs[i]), toY(ys[i]));
+    ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.stroke();
+    ctx.fillStyle = 'rgba(100,100,100,.85)'; ctx.font = '9px sans-serif';
+    const unit = mode === 'elevation' ? 'm' : 'km/h';
+    ctx.textAlign = 'left';
+    ctx.fillText(Math.round(yMax) + unit, pad.l + 2, pad.t + 9);
+    ctx.fillText(Math.round(yMin) + unit, pad.l + 2, H - pad.b - 2);
+    ctx.textAlign = 'center';
+    ctx.fillText('0', toX(xMin), H - 4);
+    ctx.fillText(xMax >= 1000 ? (xMax/1000).toFixed(1)+' km' : Math.round(xMax)+' m', toX(xMax), H - 4);
+  };
+
+  const _setMode = (mode) => {
+    chartMode = mode;
+    _drawChart(mode);
+    if (elevBtn)  { elevBtn.style.background  = mode==='elevation' ? 'var(--tl)' : 'var(--c2)'; elevBtn.style.borderColor  = mode==='elevation' ? 'var(--teal)' : 'var(--c3)'; elevBtn.style.color  = mode==='elevation' ? 'var(--td)' : 'var(--ink3)'; }
+    if (speedBtn) { speedBtn.style.background = mode==='speed'     ? 'var(--tl)' : 'var(--c2)'; speedBtn.style.borderColor = mode==='speed'     ? 'var(--teal)' : 'var(--c3)'; speedBtn.style.color = mode==='speed'     ? 'var(--td)' : 'var(--ink3)'; }
+  };
+
+  if (!hasElev  && elevBtn)  elevBtn.setAttribute('disabled', '');
+  if (!hasSpeed && speedBtn) speedBtn.setAttribute('disabled', '');
+  elevBtn?.addEventListener('click',  () => _setMode('elevation'));
+  speedBtn?.addEventListener('click', () => _setMode('speed'));
+  requestAnimationFrame(() => _drawChart(chartMode));
+
+  if (wrap && cursor && tip) {
+    const _nearest = (s, d) => {
+      let lo = 0, hi = s.length - 1;
+      while (lo < hi - 1) { const mid = (lo+hi)>>1; if (s[mid].d < d) lo = mid; else hi = mid; }
+      return Math.abs(s[lo].d - d) <= Math.abs(s[hi].d - d) ? s[lo] : s[hi];
+    };
+    const _showAt = (clientX) => {
+      const rect = canvas.getBoundingClientRect();
+      const xPct = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+      const series = chartMode === 'elevation' ? elevSeries : speedSeries;
+      if (series.length < 2) return;
+      const xMin = series[0].d, xMax = series[series.length-1].d;
+      const pt = _nearest(series, xMin + xPct * (xMax - xMin));
+      cursor.style.display = 'block'; cursor.style.left = (xPct * 100) + '%';
+      const distStr = pt.d >= 1000 ? (pt.d/1000).toFixed(2)+' km' : Math.round(pt.d)+' m';
+      const valStr  = chartMode === 'elevation' ? Math.round(pt.v)+' m alt.' : pt.v.toFixed(1)+' km/h';
+      let lines = [distStr, valStr];
+      if (timeSeries.length >= 2) {
+        const tPt = _nearest(timeSeries, pt.d);
+        const h = Math.floor(tPt.t/3600), m = Math.floor((tPt.t%3600)/60), s = Math.floor(tPt.t%60);
+        lines.push(h > 0 ? `${h}h${String(m).padStart(2,'0')}` : `${m}m${String(s).padStart(2,'0')}s`);
+      }
+      tip.textContent = lines.join('\n');
+      if (xPct > 0.65) { tip.style.left = 'auto'; tip.style.right = '5px'; }
+      else              { tip.style.left = '5px';  tip.style.right = 'auto'; }
+    };
+    wrap.addEventListener('mousemove',  e => _showAt(e.clientX));
+    wrap.addEventListener('mouseleave', () => { cursor.style.display = 'none'; });
+    wrap.addEventListener('touchmove',  e => { e.preventDefault(); _showAt(e.touches[0].clientX); }, { passive: false });
+    wrap.addEventListener('touchend',   () => { cursor.style.display = 'none'; });
+  }
+}
+
 function _mmClearGpxTrack() {
   if (_gpxTrackLayer && _map) {
     try { _map.removeLayer(_gpxTrackLayer); } catch (_) {}
@@ -277,32 +397,81 @@ function _mmShowInfo(trip, entry) {
     entry._validated ? `<span class="mm-pill" style="background:#dcfce7;border-color:#bbf7d0;color:#16a34a">✓ Validé</span>` : '',
   ].filter(Boolean).join('');
 
-  // GPX stats section + draw polyline on map
-  let gpxHtml = '';
-  if (entry.gpxStats) {
-    const gs   = entry.gpxStats;
-    const dist = gs.distanceM >= 1000
-      ? `${(gs.distanceM / 1000).toFixed(1)} km`
-      : `${gs.distanceM} m`;
-    const gpxPills = [
-      `<span class="mm-pill mm-pill-gpx">📏 ${dist}</span>`,
-      gs.elevGain   ? `<span class="mm-pill mm-pill-gpx">↑ ${gs.elevGain} m</span>`              : '',
-      gs.elevLoss   ? `<span class="mm-pill mm-pill-gpx">↓ ${gs.elevLoss} m</span>`              : '',
-      gs.durationSecs ? `<span class="mm-pill mm-pill-gpx">⏱ ${_fmtDuration(gs.durationSecs)}</span>` : '',
-      gs.speedAvgKph  ? `<span class="mm-pill mm-pill-gpx">⚡ ${gs.speedAvgKph.toFixed(1)} km/h</span>` : '',
-    ].filter(Boolean).join('');
-    gpxHtml = `
-      <div style="border-top:1px solid var(--c3);padding-top:10px;margin-top:4px">
-        <div style="font-size:10px;font-weight:700;color:var(--ink4);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">🛤 Trace GPX</div>
-        <div style="display:flex;flex-wrap:wrap;gap:5px">${gpxPills}</div>
-      </div>`;
+  // Companions section
+  const compsHtml = (trip.companions?.length > 0) ? `
+    <div style="border-top:1px solid var(--c3);padding-top:10px;margin-top:4px">
+      <div style="font-size:10px;font-weight:700;color:var(--ink4);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Avec qui</div>
+      <div style="display:flex;flex-wrap:wrap;gap:5px">
+        ${trip.companions.map(c => `
+          <span style="display:inline-flex;align-items:center;gap:4px;background:var(--c2);border:1px solid var(--c3);border-radius:20px;padding:3px 9px 3px 5px;font-size:11px;font-weight:600;color:var(--ink2)">
+            <span style="width:18px;height:18px;border-radius:50%;background:${_esc(c.color||'#0d9488')};color:#fff;font-size:8px;font-weight:800;display:flex;align-items:center;justify-content:center;flex-shrink:0">${_esc((c.name||'?').charAt(0).toUpperCase())}</span>
+            ${_esc(c.name)}
+          </span>`).join('')}
+      </div>
+    </div>` : '';
 
-    // Draw the GPX polyline on the map
-    if (entry.gpxPoints && entry.gpxPoints.length > 1 && _map) {
+  // GPX stats + charts + draw polyline on map
+  let gpxHtml = '';
+  let _gpxChartSeries = null;
+  if (entry.gpxStats) {
+    const gs  = entry.gpxStats;
+    const dist = gs.distanceM >= 1000 ? `${(gs.distanceM/1000).toFixed(1)} km` : `${gs.distanceM} m`;
+    let durLabel = '';
+    if (gs.durationSecs) {
+      const h = Math.floor(gs.durationSecs/3600), m = Math.round((gs.durationSecs%3600)/60);
+      durLabel = h > 0 ? `${h}h${String(m).padStart(2,'0')}` : `${m} min`;
+    }
+    const statCell = (v, l, c='var(--ink)') =>
+      `<div style="text-align:center"><div style="font-size:12px;font-weight:700;color:${c}">${v}</div><div style="font-size:10px;color:var(--ink4)">${l}</div></div>`;
+
+    const hasPoints = entry.gpxPoints?.length >= 2;
+    if (hasPoints) {
+      _gpxChartSeries = _buildGpxSeries(entry.gpxPoints);
+      const hasElev  = _gpxChartSeries.elevSeries.length  >= 2;
+      const hasSpeed = _gpxChartSeries.speedSeries.length >= 2;
+      const hasChart = hasElev || hasSpeed;
+      gpxHtml = `
+        <div style="border-top:1px solid var(--c3);padding-top:10px;margin-top:4px">
+          <div style="font-size:10px;font-weight:700;color:var(--ink4);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">🛤 Trace GPX</div>
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:5px 4px;margin-bottom:${hasChart ? '8' : '0'}px">
+            ${statCell(dist, 'Distance')}
+            ${gs.elevGain ? statCell('+'+gs.elevGain+' m', 'D+', '#16a34a') : ''}
+            ${gs.elevLoss ? statCell('−'+gs.elevLoss+' m', 'D−', '#e85d3e') : ''}
+            ${durLabel    ? statCell(durLabel, 'Durée') : ''}
+            ${gs.altMin   != null ? statCell(gs.altMin+'–'+gs.altMax+' m', 'Altitude') : ''}
+            ${gs.speedAvgKph != null ? statCell(gs.speedAvgKph+' km/h', 'Vit. moy.') : ''}
+          </div>
+          ${hasChart ? `
+          <div style="display:flex;gap:4px;margin-bottom:6px">
+            <button id="mm-chart-elev"  style="flex:1;font-size:10px;font-weight:700;padding:3px 0;border-radius:5px;cursor:pointer;border:1.5px solid var(--teal);background:var(--tl);color:var(--td)">⛰ Altitude</button>
+            <button id="mm-chart-speed" style="flex:1;font-size:10px;font-weight:700;padding:3px 0;border-radius:5px;cursor:pointer;border:1.5px solid var(--c3);background:var(--c2);color:var(--ink3)">⚡ Vitesse</button>
+          </div>
+          <div id="mm-chart-wrap" style="position:relative;width:100%;touch-action:none;cursor:crosshair">
+            <canvas id="mm-gpx-canvas" style="width:100%;height:110px;display:block;border-radius:6px"></canvas>
+            <div id="mm-chart-cursor" style="display:none;position:absolute;top:0;bottom:18px;width:1px;background:rgba(0,0,0,.45);pointer-events:none">
+              <div id="mm-chart-tip" style="position:absolute;top:4px;left:5px;background:rgba(15,15,15,.82);color:#fff;padding:3px 7px;border-radius:5px;font-size:10px;line-height:1.5;white-space:pre;pointer-events:none"></div>
+            </div>
+          </div>` : ''}
+        </div>`;
+    } else {
+      const gpxPills = [
+        `<span class="mm-pill mm-pill-gpx">📏 ${dist}</span>`,
+        gs.elevGain   ? `<span class="mm-pill mm-pill-gpx">↑ ${gs.elevGain} m</span>`   : '',
+        gs.elevLoss   ? `<span class="mm-pill mm-pill-gpx">↓ ${gs.elevLoss} m</span>`   : '',
+        durLabel      ? `<span class="mm-pill mm-pill-gpx">⏱ ${durLabel}</span>`         : '',
+        gs.speedAvgKph != null ? `<span class="mm-pill mm-pill-gpx">⚡ ${gs.speedAvgKph.toFixed(1)} km/h</span>` : '',
+      ].filter(Boolean).join('');
+      gpxHtml = `
+        <div style="border-top:1px solid var(--c3);padding-top:10px;margin-top:4px">
+          <div style="font-size:10px;font-weight:700;color:var(--ink4);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">🛤 Trace GPX</div>
+          <div style="display:flex;flex-wrap:wrap;gap:5px">${gpxPills}</div>
+        </div>`;
+    }
+
+    // Draw GPX polyline on map
+    if (entry.gpxPoints?.length > 1 && _map) {
       const latlngs = entry.gpxPoints.map(p => [p.lat, p.lng]);
-      _gpxTrackLayer = L.polyline(latlngs, {
-        color: '#e85d3e', weight: 3.5, opacity: 0.85,
-      }).addTo(_map);
+      _gpxTrackLayer = L.polyline(latlngs, { color: '#e85d3e', weight: 3.5, opacity: 0.85 }).addTo(_map);
     }
   }
 
@@ -328,6 +497,7 @@ function _mmShowInfo(trip, entry) {
     </div>
     <div style="padding:12px 14px;flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:10px;min-height:0">
       ${contentHtml}
+      ${compsHtml}
       ${gpxHtml}
       ${emptyHtml}
       <div style="margin-top:auto;display:flex;flex-direction:column;gap:6px;padding-top:8px">
@@ -349,6 +519,12 @@ function _mmShowInfo(trip, entry) {
   `;
 
   _infoPanelEl.style.display = 'flex';
+
+  // Init GPX chart after DOM is ready
+  if (_gpxChartSeries) {
+    const { elevSeries, speedSeries, timeSeries } = _gpxChartSeries;
+    _initInfoGpxChart(elevSeries, speedSeries, timeSeries);
+  }
 }
 
 /** Show info panel for a merged pin (one or many entries at same location). */
