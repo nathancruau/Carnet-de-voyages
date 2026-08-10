@@ -260,6 +260,15 @@ function _isoToFlag(iso) {
   return String.fromCodePoint(iso.charCodeAt(0) - 65 + 0x1F1E6, iso.charCodeAt(1) - 65 + 0x1F1E6);
 }
 
+// Round flag badge fill: a real cropped flag image (so the circle is filled edge-to-
+// edge with the flag's colors, not a small emoji glyph floating in a plain circle).
+// Falls back to the flag emoji, underneath, if the image can't load (offline etc).
+function _flagImgHtml(iso) {
+  const code = (iso || '').toLowerCase();
+  return `<span class="flag-emoji-fallback">${_isoToFlag(iso)}</span>
+          <img class="flag-img" src="https://flagcdn.com/w80/${code}.png" alt="" loading="lazy" onerror="this.remove()">`;
+}
+
 // Count trips per travel season
 function _calcSeasons(trips) {
   const s = { spring: 0, summer: 0, autumn: 0, winter: 0 };
@@ -470,7 +479,7 @@ function _renderGlobeMarkers(canvas, W, H, cx, cy, R) {
     const x = cx + p.x * R, y = cy - p.y * R;
     html += `<button type="button" class="globe-marker" data-action="focus-country" data-code="${code}"
                style="left:${x.toFixed(1)}px;top:${y.toFixed(1)}px;width:${size}px;height:${size}px;font-size:${Math.round(size * 0.55)}px"
-               title="${_esc(_A2_NAME[code] || code)}">${_isoToFlag(code)}</button>`;
+               title="${_esc(_A2_NAME[code] || code)}">${_flagImgHtml(code)}</button>`;
   }
   container.innerHTML = html;
 }
@@ -482,7 +491,7 @@ function _attachGlobeInteraction(canvas) {
   const pointers  = new Map();   // pointerId -> {x,y}, tracks active touches for pinch-zoom
   let pinchDist   = 0;
 
-  const clampZoom = z => Math.max(0.6, Math.min(3, z));
+  const clampZoom = z => Math.max(0.6, Math.min(6, z));
   const pinchPointerDist = () => {
     const pts = [...pointers.values()];
     return Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
@@ -776,7 +785,7 @@ function _statsViewHtml(trips) {
       const count = visitedMap.get(code);
       return `<button type="button" class="globe-badge" data-action="focus-country" data-code="${code}"
                 style="border-color:${color}66" title="${_esc(name)} · ${count} voyage${count > 1 ? 's' : ''}">
-                ${_isoToFlag(code)}
+                ${_flagImgHtml(code)}
               </button>`;
     }).join('');
 
@@ -1306,9 +1315,9 @@ function _tripCardHtml(trip) {
     ) + 1;
     if (days > 0) stats.push(`${days} jour${days > 1 ? 's' : ''}`);
   }
-  if (Array.isArray(trip.budgetLines) && trip.budgetLines.length > 0) {
-    const total = trip.budgetLines.reduce((s, b) => s + (Number(b.amount) || 0), 0);
-    if (total > 0) stats.push(`${total.toLocaleString('fr-FR')} €`);
+  if (Array.isArray(trip.realExpenses) && trip.realExpenses.length > 0) {
+    const spent = trip.realExpenses.reduce((s, e) => s + (e.type !== 'transfer' ? (Number(e.amount) || 0) : 0), 0);
+    if (spent > 0) stats.push(`${Math.round(spent).toLocaleString('fr-FR')} €`);
   }
   const statsHtml = stats.length
     ? `<div class="tc-stats">${stats.map(s => `<span class="tc-s">${s}</span>`).join('')}</div>`

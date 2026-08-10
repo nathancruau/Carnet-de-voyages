@@ -1201,7 +1201,6 @@ function _handleClick(e, tripId) {
       itemLabel: `${_eventTypeIcon(item.type)} ${item.text || 'Activité'}`,
       notes:     jd.notes   || '',
       weather:   jd.weather || '',
-      amount:    jd.amount  || 0,
       photos:    jd.photos  || [],
     });
     return;
@@ -1454,11 +1453,12 @@ async function _dataUrlToFile(dataUrl, filename) {
  * Falls back to copying the text when Web Share isn't available (desktop
  * browsers mostly) or when the user's device can't share files.
  */
-async function _shareJournalItem({ tripName, dayLabel, itemLabel, notes, weather, amount, photos = [] }) {
+async function _shareJournalItem({ tripName, dayLabel, itemLabel, notes, weather, photos = [] }) {
+  // Deliberately excludes the expense amount — private spending info shouldn't
+  // leak through an external share (message, social app, etc.).
   const lines = [`✈️ ${tripName} — ${dayLabel}`, itemLabel];
   if (weather) lines.push(weather);
   if (notes)   lines.push(notes);
-  if (amount)  lines.push(`💶 ${amount} €`);
   const text  = lines.join('\n');
   const title = `${tripName} — ${dayLabel}`;
 
@@ -1607,13 +1607,12 @@ function _openValidateModal(tripId, dayId, itemIdx) {
 
   // Partager — uses whatever is currently filled in the form (no need to save first)
   document.getElementById('vld-share')?.addEventListener('click', () => {
-    const notes  = document.getElementById('vld-notes')?.value?.trim()  || '';
-    const amount = parseFloat(document.getElementById('vld-amount')?.value || '0') || 0;
+    const notes = document.getElementById('vld-notes')?.value?.trim() || '';
     _shareJournalItem({
       tripName:  trip.name || 'Mon voyage',
       dayLabel:  `Jour ${day.num}${day.title ? ' · ' + day.title : ''}`,
       itemLabel: `${_eventTypeIcon(item.type)} ${item.text || 'Activité'}`,
-      notes, amount,
+      notes,
       weather: state.weather,
       photos:  state.photos,
     });

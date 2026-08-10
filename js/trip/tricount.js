@@ -562,7 +562,7 @@ function _renderCatDonut(trip, expenses) {
   return `
     <div style="margin-top:20px;background:var(--c);border:1.5px solid var(--c3);border-radius:10px;padding:14px 16px">
       <div style="font-size:12px;font-weight:700;color:var(--ink2);margin-bottom:12px">R&eacute;partition par cat&eacute;gorie</div>
-      <div style="display:flex;align-items:center;gap:20px;flex-wrap:wrap">
+      <div class="tri-donut-row" style="display:flex;align-items:center;gap:20px;flex-wrap:wrap">
         <svg width="100" height="100" viewBox="0 0 100 100" style="flex-shrink:0">
           <circle cx="${cx}" cy="${cy}" r="${R}" fill="none" stroke="var(--c3)" stroke-width="16"/>
           ${arcs}
