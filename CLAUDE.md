@@ -18,7 +18,7 @@ Quatre endroits à synchroniser, toujours le même numéro N :
 | `sw.js` | `const SHELL_CACHE = 'cv-shell-N'` |
 | `store.js` | `export const APP_VERSION = 'N'` |
 
-Version actuelle : **147**
+Version actuelle : **148**
 
 ---
 
@@ -229,3 +229,9 @@ uid()          // ID court aléatoire
 | v118 | Types d'activités étendus (15 types) + UI paramètres simplifiée | `DEFAULT_EVENT_TYPES` étendu ; migration forward ; boutons Ajouter/Supprimer retirés des paramètres |
 | v119 | Menu ⋯ : Modifier/Partager/Supprimer ; export PDF/Word personnalisé ; modal export corrigée | `_openTripMenu` étendu ; `_openPdfExportModal` + `exportTripCustom` avec thèmes/sections/couverture ; `.exp-trip-row` layout fix |
 | v120 | Mode observateur amélioré | Carte observateur supprimée ; 2 onglets Carnet+Timeline ; carte de voyage en lecture seule ; stats excluent les observations ; notifications enrichies avec noms et événement ; supression commentaires/likes par propriétaires |
+| v148 | Voyage supprimé qui réapparaît (tombstone manquant) | `state.deletedTrips` (id→deletedAt) persisté et synchronisé, vérifié dans `setState`/`replaceTripFromNetwork` — un snapshot tardif ne peut plus ressusciter un voyage supprimé |
+| v148 | Édition sur un appareil non reflétée sur un autre | `syncToFirestore` garde la copie serveur si elle est plus récente qu'une copie locale obsolète, au lieu d'écraser aveuglément avec l'état local |
+| v148 | `setDoc()` erreur "Unsupported field value: undefined" au 1er partage | `initSharedTripInFirestore` sanitize désormais via `JSON.parse(JSON.stringify(...))` comme les autres écritures Firestore |
+| v148 | Sheet mobile ajout/édition événement glisse horizontalement | `overscroll-behavior:contain` + `overflow-x:hidden` sur `_showMobileEventSheet` |
+| v148 | Photo non enregistrée à l'édition d'un voyage | `_openCropModal` utilise sa propre overlay (plus `showModal`/`closeModal` partagés) pour ne plus écraser/fermer la modale de création/édition en cours |
+| v148 | Onglets Carte/Timeline du Carnet fusionnés (desktop) | `renderJournal` : timeline à gauche + carte à droite en permanence sur desktop (owner/membre) ; mobile garde 2 onglets Carte/Timeline (suppression de l'onglet Activité, redondant avec la Timeline) |

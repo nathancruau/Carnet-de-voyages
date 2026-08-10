@@ -1707,7 +1707,7 @@ function _showMobileEventSheet(html) {
   sheet.style.cssText = [
     'position:fixed;inset:0;z-index:10000',
     'background:var(--c);color:var(--ink)',
-    'overflow-y:auto;-webkit-overflow-scrolling:touch',
+    'overflow-x:hidden;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain',
     'padding:max(44px,env(safe-area-inset-top)) 20px calc(24px + env(safe-area-inset-bottom))',
     'font-family:var(--fn)',
     'transform:translateY(100%);transition:transform .28s cubic-bezier(.25,.8,.25,1)',

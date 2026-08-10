@@ -14,7 +14,7 @@
 
 const STORAGE_KEY = 'carnet_voyages_v1';
 
-export const APP_VERSION = '147';
+export const APP_VERSION = '148';
 
 export const COMP_COLORS = [
   '#0d9488','#7c3aed','#e85d3e','#d97706',
@@ -161,7 +161,24 @@ export function getLanguage() {
 }
 
 /* ── Internal state ── */
-let state = { trips: [], sharedTripIds: [] };
+let state = { trips: [], sharedTripIds: [], deletedTrips: {} };
+
+// How long a deletion tombstone is kept around before being pruned.
+// Must comfortably outlast the time it can take every device on an account
+// to come back online and receive the deletion (days, not the old 400ms
+// debounce window) — otherwise a device that synced late can resurrect a
+// trip that was deleted from another device.
+const DELETED_TRIP_TTL_MS = 90 * 24 * 60 * 60 * 1000; // 90 days
+
+/** Drop tombstones old enough that every device has certainly seen the deletion by now. */
+function _pruneDeletedTrips(map) {
+  const cutoff = Date.now() - DELETED_TRIP_TTL_MS;
+  const pruned = {};
+  for (const [id, ts] of Object.entries(map || {})) {
+    if (ts >= cutoff) pruned[id] = ts;
+  }
+  return pruned;
+}
 
 let _syncCallback       = null;
 let _syncTimer          = null;
@@ -198,6 +215,11 @@ export function setSharedSyncCallback(fn) { _sharedSyncCallback = fn; }
  * Used by the real-time listener in share.js.
  */
 export function replaceTripFromNetwork(id, tripData) {
+  // A tombstoned trip (deleted on this or another device) must never be
+  // resurrected by a late-arriving snapshot, no matter which device it comes from.
+  const delAt = (state.deletedTrips || {})[id];
+  if (delAt != null && delAt >= (tripData?.updatedAt || 0)) return;
+
   const migrated = _migrateTrip({ ...tripData });
   const idx = state.trips.findIndex(t => t.id === id);
   if (idx !== -1) {
@@ -221,6 +243,9 @@ export function replaceTripFromNetwork(id, tripData) {
  *  - Local-only trips (not yet pushed) are appended so they are not lost.
  *  - Cloud settings / sharedTripIds overwrite local equivalents since they
  *    are only ever written from one device at a time.
+ *  - Deletions are tracked as tombstones (state.deletedTrips: id → deletedAt)
+ *    that travel with the synced state, so a trip deleted on one device stays
+ *    deleted even if another device's stale copy resurfaces later.
  */
 export function setState(cloudData) {
   if (!cloudData || typeof cloudData !== 'object') return;
@@ -229,7 +254,20 @@ export function setState(cloudData) {
   const cloudTrips = Array.isArray(cloudData.trips)       ? cloudData.trips      : [];
   const localById  = new Map(localTrips.map(t => [t.id, t]));
 
-  const merged = cloudTrips.filter(ct => !_recentlyDeletedIds.has(ct.id)).map(ct => {
+  // Union of local + cloud tombstones, keeping the latest deletedAt per id.
+  const deletedTrips = { ...(cloudData.deletedTrips || {}), ...(state.deletedTrips || {}) };
+  for (const [id, ts] of Object.entries(deletedTrips)) {
+    const cloudTs = (cloudData.deletedTrips || {})[id];
+    if (cloudTs != null) deletedTrips[id] = Math.max(ts, cloudTs);
+  }
+  for (const id of _recentlyDeletedIds) deletedTrips[id] = Math.max(deletedTrips[id] || 0, Date.now());
+
+  const isDeleted = t => {
+    const delAt = deletedTrips[t.id];
+    return delAt != null && delAt >= (t.updatedAt || 0);
+  };
+
+  const merged = cloudTrips.filter(ct => !isDeleted(ct)).map(ct => {
     const lt = localById.get(ct.id);
     localById.delete(ct.id); // mark as seen
     // Keep local if it is strictly newer (unsaved local edit wins)
@@ -238,9 +276,11 @@ export function setState(cloudData) {
   });
 
   // Trips that only exist locally (not yet synced to cloud)
-  for (const lt of localById.values()) merged.push(lt);
+  for (const lt of localById.values()) {
+    if (!isDeleted(lt)) merged.push(lt);
+  }
 
-  state = { ...cloudData, trips: merged };
+  state = { ...cloudData, trips: merged, deletedTrips: _pruneDeletedTrips(deletedTrips) };
   if (!Array.isArray(state.trips)) state.trips = [];
   // Run migration on every trip to fill missing fields from older schema versions
   state.trips = state.trips.map(t => _migrateTrip(t));
@@ -257,12 +297,13 @@ export function loadData() {
       const parsed = JSON.parse(raw);
       state = parsed;
       if (!Array.isArray(state.trips)) state.trips = [];
+      if (!state.deletedTrips || typeof state.deletedTrips !== 'object') state.deletedTrips = {};
       // Migrate: fill any missing fields
       state.trips = state.trips.map(t => _migrateTrip(t));
     }
   } catch (e) {
     console.warn('Carnet: failed to load data', e);
-    state = { trips: [] };
+    state = { trips: [], deletedTrips: {} };
   }
 }
 
@@ -431,6 +472,9 @@ export function updateTrip(id, updates) {
 export function deleteTrip(id) {
   _recentlyDeletedIds.add(id);
   state.trips = state.trips.filter(t => t.id !== id);
+  // Persisted tombstone: travels with the synced state so the deletion sticks
+  // even if another device (or a late snapshot) still has the old trip.
+  state.deletedTrips = { ...(state.deletedTrips || {}), [id]: Date.now() };
   saveData();
 }
 

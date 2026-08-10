@@ -2730,19 +2730,34 @@ window._openEditTripModal = openEditTripModal;
 // ── Crop modal ────────────────────────────────────────────────────────────────
 
 function _openCropModal(imgSrc, onCrop) {
-  showModal(`
-    <button class="mc" onclick="closeModal()">✕</button>
-    <h3 class="modal-title">Recadrer la photo</h3>
-    <p style="font-size:12px;color:var(--ink4);margin-bottom:10px">Faites glisser l'image pour choisir la zone visible (format 16:9).</p>
-    <div id="crop-frame" style="position:relative;width:100%;aspect-ratio:16/9;overflow:hidden;background:#111;border-radius:10px;cursor:grab;touch-action:none;margin-bottom:12px">
-      <img id="crop-img" src="${_esc(imgSrc)}" draggable="false"
-           style="position:absolute;max-width:none;max-height:none;user-select:none;pointer-events:none;top:0;left:0">
+  // Standalone overlay — deliberately NOT showModal()/closeModal(), which share a
+  // single global .mbox. Opening the crop step on top of the trip create/edit modal
+  // used to overwrite that modal's content, and closing it afterwards closed the
+  // whole thing — silently discarding the in-progress form (name, dates, etc. typed
+  // by the user) since the "Enregistrer" button was gone by the time cropping ended.
+  const overlay = document.createElement('div');
+  overlay.className = 'ov open';
+  overlay.style.zIndex = '9500';
+  overlay.innerHTML = `
+    <div class="mbox">
+      <button class="mc" data-crop-close type="button">✕</button>
+      <h3 class="modal-title">Recadrer la photo</h3>
+      <p style="font-size:12px;color:var(--ink4);margin-bottom:10px">Faites glisser l'image pour choisir la zone visible (format 16:9).</p>
+      <div id="crop-frame" style="position:relative;width:100%;aspect-ratio:16/9;overflow:hidden;background:#111;border-radius:10px;cursor:grab;touch-action:none;margin-bottom:12px">
+        <img id="crop-img" src="${_esc(imgSrc)}" draggable="false"
+             style="position:absolute;max-width:none;max-height:none;user-select:none;pointer-events:none;top:0;left:0">
+      </div>
+      <button id="crop-ok" type="button" style="width:100%;background:var(--teal);color:#fff;border:none;border-radius:10px;padding:11px;font-size:14px;font-weight:700;cursor:pointer">✓ Valider ce cadrage</button>
     </div>
-    <button id="crop-ok" style="width:100%;background:var(--teal);color:#fff;border:none;border-radius:10px;padding:11px;font-size:14px;font-weight:700;cursor:pointer">✓ Valider ce cadrage</button>
-  `);
+  `;
+  document.body.appendChild(overlay);
 
-  const frame = document.getElementById('crop-frame');
-  const img   = document.getElementById('crop-img');
+  const closeCrop = () => overlay.remove();
+  overlay.addEventListener('click', e => { if (e.target === overlay) closeCrop(); });
+  overlay.querySelector('[data-crop-close]')?.addEventListener('click', closeCrop);
+
+  const frame = overlay.querySelector('#crop-frame');
+  const img   = overlay.querySelector('#crop-img');
   let ox = 0, oy = 0, dragging = false, sx = 0, sy = 0;
 
   function clamp() {
@@ -2777,7 +2792,7 @@ function _openCropModal(imgSrc, onCrop) {
   });
   frame.addEventListener('pointerup', () => { dragging = false; frame.style.cursor = 'grab'; });
 
-  document.getElementById('crop-ok')?.addEventListener('click', () => {
+  overlay.querySelector('#crop-ok')?.addEventListener('click', () => {
     const fw    = frame.clientWidth, fh = frame.clientHeight;
     const scale = img.clientWidth / img.naturalWidth;
     const sx2   = -ox / scale, sy2 = -oy / scale;
@@ -2790,10 +2805,10 @@ function _openCropModal(imgSrc, onCrop) {
       canvas.getContext('2d').drawImage(source, sx2, sy2, sw, sh, 0, 0, canvas.width, canvas.height);
       try {
         const dataUrl = canvas.toDataURL('image/jpeg', 0.88);
-        closeModal();
+        closeCrop();
         onCrop(dataUrl);
       } catch (_) {
-        closeModal();
+        closeCrop();
         notify('Recadrage impossible pour cette URL (restriction CORS). Téléchargez d\'abord l\'image.', '⚠️');
       }
     }

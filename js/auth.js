@@ -166,24 +166,41 @@ export function setSyncErrorCallback(fn) { _onSyncError = fn; }
 /**
  * Push the full app state to the user's Firestore document.
  *
- * Before writing we merge in any trips present in the last confirmed server
- * snapshot (_lastServerTrips) that are absent from the local state.
- * This prevents the race condition where device A syncs a new trip while
- * device B (which hasn't received the snapshot yet) overwrites Firestore with
- * its own stale state that doesn't include device A's trip.
+ * Before writing we reconcile against the last confirmed server snapshot
+ * (_lastServerTrips):
+ *  - Trips present on the server but missing locally (not deleted) are kept,
+ *    so this write doesn't silently drop a trip added on another device that
+ *    hasn't reached this one yet.
+ *  - Trips present on BOTH sides keep whichever copy is actually newer. Without
+ *    this, a device holding a stale local copy of a trip (e.g. it missed a
+ *    real-time update while asleep/offline) would clobber a newer edit made
+ *    on another device the next time it pushes its own full state — this is
+ *    how an edit made on one device could silently fail to "stick" once a
+ *    second device synced afterwards.
+ *  - Trips tombstoned in state.deletedTrips (or the just-deleted ids passed
+ *    in) are never re-added, even from a stale _lastServerTrips snapshot.
  */
 export async function syncToFirestore(localState, recentlyDeletedIds = []) {
   if (!_db || !_uid || !_setDocFn || !_docFn) return;
   try {
-    let stateToWrite = localState;
+    const localTrips = localState.trips || [];
+    let tripsToWrite = localTrips;
+
     if (_lastServerTrips) {
-      const localIds  = new Set((localState.trips || []).map(t => t.id));
-      const deletedSet = new Set(recentlyDeletedIds);
-      const missing   = _lastServerTrips.filter(t => !localIds.has(t.id) && !deletedSet.has(t.id));
-      if (missing.length > 0) {
-        stateToWrite = { ...localState, trips: [...(localState.trips || []), ...missing] };
-      }
+      const deletedSet = new Set([...recentlyDeletedIds, ...Object.keys(localState.deletedTrips || {})]);
+      const serverById = new Map(_lastServerTrips.map(t => [t.id, t]));
+      const localIds   = new Set(localTrips.map(t => t.id));
+
+      const reconciled = localTrips.map(lt => {
+        const st = serverById.get(lt.id);
+        return (st && (st.updatedAt || 0) > (lt.updatedAt || 0)) ? st : lt;
+      });
+
+      const missing = _lastServerTrips.filter(t => !localIds.has(t.id) && !deletedSet.has(t.id));
+      tripsToWrite = [...reconciled, ...missing];
     }
+
+    const stateToWrite = { ...localState, trips: tripsToWrite };
     await _setDocFn(_docFn(_db, 'users', _uid), JSON.parse(JSON.stringify(stateToWrite)), { merge: true });
     // Keep our cache current with what we just wrote
     _lastServerTrips = stateToWrite.trips || null;
@@ -198,13 +215,13 @@ export async function syncToFirestore(localState, recentlyDeletedIds = []) {
 /** Write the full shared trip document (first share). */
 export async function initSharedTripInFirestore(tripId, tripData, ownerId, ownerName) {
   if (!_db || !_setDocFn || !_docFn) return;
-  await _setDocFn(_docFn(_db, 'shared_trips', tripId), {
+  await _setDocFn(_docFn(_db, 'shared_trips', tripId), JSON.parse(JSON.stringify({
     trip: tripData,
     ownerId,
     members: { [ownerId]: { role: 'owner', companionId: null, companionName: ownerName || 'Organisateur' } },
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
-  });
+  })));
 }
 
 /** Remove a specific member (by UID) from a shared trip's members + presence. */

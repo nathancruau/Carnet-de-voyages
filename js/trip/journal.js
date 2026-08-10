@@ -177,8 +177,8 @@ let _journalWorldCopyOffsets = new Set();
 
 let _activeDayFilter  = null;
 let _observerMode     = false;
-let _journalView      = 'map'; // 'map' | 'timeline'
-let _journalMobTab    = 'carte';   // 'carte' | 'activite' | 'timeline' (mobile only)
+let _journalView      = 'map'; // 'map' | 'timeline' — observer mode only
+let _journalMobTab    = 'carte';   // 'carte' | 'timeline' — mobile owner/member tabs
 let _shareMod         = null;  // cached dynamic import of share.js
 
 export function destroyJournalMap() {
@@ -373,65 +373,63 @@ export async function renderJournal(tripId, isObserver = false, forceView = null
     _handlers.delete(panel);
   }
 
-  if (_journalView === 'timeline') {
-    const isMobTl = window.innerWidth <= 768 && !isObserver;
-    if (isMobTl) {
+  if (isObserver) {
+    // Observer mode already shows timeline/feed and map side by side —
+    // unaffected by the owner/member Carte+Timeline merge below.
+    if (_journalView === 'timeline') {
+      _renderTimelineView(panel, trip, tripId, isObserver);
+    } else {
+      _renderObserverView(panel, trip, tripId);
+    }
+  } else {
+    const isMobile   = window.innerWidth <= 768;
+    const sharedDoc  = isTripShared(tripId) ? _shareMod?.getSharedDocData?.(tripId) : null;
+    const currentUid = getCurrentUser()?.uid || null;
+
+    if (isMobile) {
+      // Phone: Carte and Timeline stay as two separate full-screen tabs.
+      const activeTab = _journalMobTab === 'timeline' ? 'timeline' : 'carte';
       panel.innerHTML = `
         <div class="jn-mob-tabs">
-          <button class="bm-tab" data-action="jn-tab" data-tab="carte">🗺 Carte</button>
-          <button class="bm-tab" data-action="jn-tab" data-tab="activite">📋 Activité</button>
-          <button class="bm-tab active" data-action="jn-tab" data-tab="timeline">📖 Timeline</button>
+          <button class="bm-tab${activeTab === 'carte'    ? ' active' : ''}" data-action="jn-tab" data-tab="carte">🗺 Carte</button>
+          <button class="bm-tab${activeTab === 'timeline' ? ' active' : ''}" data-action="jn-tab" data-tab="timeline">📖 Timeline</button>
         </div>
-        <div id="jn-tl-wrap" style="flex:1;min-height:0;overflow:hidden"></div>`;
-      _renderTimelineView(panel.querySelector('#jn-tl-wrap'), trip, tripId, isObserver);
-    } else {
-      _renderTimelineView(panel, trip, tripId, isObserver);
-    }
-  } else if (isObserver) {
-    _renderObserverView(panel, trip, tripId);
-  } else {
-    const isMobile = window.innerWidth <= 768;
-    const isActivite = isMobile && _journalMobTab === 'activite';
-
-    panel.innerHTML = `
-      ${isMobile ? `
-        <div class="jn-mob-tabs">
-          <button class="bm-tab${_journalMobTab==='carte'?' active':''}" data-action="jn-tab" data-tab="carte">🗺 Carte</button>
-          <button class="bm-tab${_journalMobTab==='activite'?' active':''}" data-action="jn-tab" data-tab="activite">📋 Activité</button>
-          <button class="bm-tab${_journalMobTab==='timeline'?' active':''}" data-action="jn-tab" data-tab="timeline">📖 Timeline</button>
-        </div>
-      ` : ''}
-      <div class="mapcal${isActivite ? ' jn-activite-mode' : ''}">
-        <div class="left-panel${isMobile && !isActivite ? ' collapsed' : ''}" style="width:290px;min-width:240px;max-width:290px;display:flex;flex-direction:column">
-          ${!isMobile ? _viewToggleHtml('map') : ''}
-          <div style="padding:8px 14px 4px;flex-shrink:0">
-            <h3 style="font-family:var(--sf);font-size:15px;font-weight:700;color:var(--ink);margin:0">📔 Carnet</h3>
-            <p style="font-size:11px;color:var(--ink4);margin-top:2px">Validez vos activités · les PIN apparaissent sur la carte</p>
-          </div>
-          <div class="days-scroll" id="journal-activities-list" style="flex:1;overflow-y:auto;padding:6px 8px">
-            ${_buildActivitiesHtml(trip)}
-          </div>
-        </div>
-        <div class="map-col" style="flex:1;position:relative">
-          ${!isMobile ? `<button class="lp-toggle-btn" id="jn-lp-toggle" title="Activités">◀</button>` : ''}
-          <div id="journal-map" style="width:100%;height:100%"></div>
-        </div>
-      </div>`;
-
-    // Wire left-panel toggle (desktop only)
-    if (!isMobile) {
-      const jnLp     = panel.querySelector('.left-panel');
-      const jnToggle = panel.querySelector('#jn-lp-toggle');
-      if (jnToggle && jnLp) {
-        jnToggle.addEventListener('click', () => {
-          const collapsed = jnLp.classList.toggle('collapsed');
-          jnToggle.innerHTML = collapsed ? '▶' : '◀';
-          setTimeout(() => { if (_journalMap) _journalMap.invalidateSize(); }, 280);
-        });
+        <div id="jn-mob-body" style="flex:1;min-height:0;overflow:hidden"></div>`;
+      const body = panel.querySelector('#jn-mob-body');
+      if (activeTab === 'timeline') {
+        body.innerHTML = `
+          <div class="tl-wrap" style="height:100%">
+            <div class="tl-scroll" id="tl-scroll">${_buildTimelineHtml(trip, tripId, false, sharedDoc, currentUid)}</div>
+          </div>`;
+        _initCarousels(body);
+      } else {
+        // .map-col wrapper required: _openJournalItemPanel() (opened from a map pin
+        // click) inserts its side panel as a positioned child of .map-col.
+        body.innerHTML = `<div class="map-col"><div id="journal-map" style="width:100%;height:100%"></div></div>`;
+        _initJournalMap(tripId);
       }
+    } else {
+      // Desktop: Carte and Timeline merged into a single view — timeline on the
+      // left (documenting activities as they happen), map on the right (where
+      // PIN show up), always visible together instead of a toggle between the two.
+      panel.innerHTML = `
+        <div class="obs-tl-layout">
+          <div class="obs-tl-col">
+            <div style="padding:8px 14px 4px;flex-shrink:0">
+              <h3 style="font-family:var(--sf);font-size:15px;font-weight:700;color:var(--ink);margin:0">📔 Carnet</h3>
+              <p style="font-size:11px;color:var(--ink4);margin-top:2px">Documentez vos activités · les PIN apparaissent sur la carte</p>
+            </div>
+            <div class="tl-wrap" style="flex:1;min-height:0">
+              <div class="tl-scroll" id="tl-scroll">${_buildTimelineHtml(trip, tripId, false, sharedDoc, currentUid)}</div>
+            </div>
+          </div>
+          <div class="map-col">
+            <div id="journal-map" style="width:100%;height:100%"></div>
+          </div>
+        </div>`;
+      _initCarousels(panel);
+      _initJournalMap(tripId);
     }
-
-    _initJournalMap(tripId);
   }
 
   const handler = e => _handleClick(e, tripId);
@@ -557,48 +555,28 @@ function _buildObserverFeedHtml(validatedItems, tripId, sharedDoc, currentUid) {
   return html;
 }
 
-// ── View toggle ───────────────────────────────────────────────────────────────
-
-function _viewToggleHtml(activeView) {
-  return `
-    <div class="jn-view-toggle">
-      <button class="jn-view-btn${activeView === 'map' ? ' active' : ''}" data-action="switch-view" data-view="map">🗺 Carte</button>
-      <button class="jn-view-btn${activeView === 'timeline' ? ' active' : ''}" data-action="switch-view" data-view="timeline">📅 Timeline</button>
-    </div>`;
-}
-
-// ── Timeline view ─────────────────────────────────────────────────────────────
+// ── Timeline view (observer only — owner/member timeline is merged with the
+//    map directly in renderJournal, see the Carte+Timeline layout above) ──────
 
 function _renderTimelineView(panel, trip, tripId, isObserver) {
   const sharedDoc  = isTripShared(tripId) ? _shareMod?.getSharedDocData?.(tripId) : null;
   const currentUid = getCurrentUser()?.uid || null;
 
-  if (isObserver) {
-    panel.innerHTML = `
-      <div class="obs-tl-layout">
-        <div class="obs-tl-col">
-          <div class="tl-wrap" style="height:100%;display:flex;flex-direction:column">
-            <div class="tl-scroll" id="tl-scroll" style="flex:1;overflow-y:auto">
-              ${_buildTimelineHtml(trip, tripId, isObserver, sharedDoc, currentUid)}
-            </div>
+  panel.innerHTML = `
+    <div class="obs-tl-layout">
+      <div class="obs-tl-col">
+        <div class="tl-wrap" style="height:100%;display:flex;flex-direction:column">
+          <div class="tl-scroll" id="tl-scroll" style="flex:1;overflow-y:auto">
+            ${_buildTimelineHtml(trip, tripId, isObserver, sharedDoc, currentUid)}
           </div>
         </div>
-        <div class="obs-map-col">
-          <div id="journal-map" style="position:absolute;inset:0"></div>
-        </div>
-      </div>`;
-    _initCarousels(panel);
-    _initJournalMap(tripId);
-  } else {
-    panel.innerHTML = `
-      <div class="tl-wrap">
-        ${_viewToggleHtml('timeline')}
-        <div class="tl-scroll" id="tl-scroll">
-          ${_buildTimelineHtml(trip, tripId, isObserver, sharedDoc, currentUid)}
-        </div>
-      </div>`;
-    _initCarousels(panel);
-  }
+      </div>
+      <div class="obs-map-col">
+        <div id="journal-map" style="position:absolute;inset:0"></div>
+      </div>
+    </div>`;
+  _initCarousels(panel);
+  _initJournalMap(tripId);
 }
 
 function _buildTimelineHtml(trip, tripId, isObserver, sharedDoc, currentUid) {
@@ -1157,41 +1135,9 @@ function _handleClick(e, tripId) {
   if (action === 'jn-tab') {
     const tab = btn.dataset.tab;
     if (tab === _journalMobTab) return;
-
-    // Timeline requires a full re-render; switching back from timeline also does
-    if (tab === 'timeline' || _journalMobTab === 'timeline') {
-      _journalView   = tab === 'timeline' ? 'timeline' : 'map';
-      _journalMobTab = tab;
-      renderJournal(tripId, _observerMode);
-      return;
-    }
-
+    // Carte and Timeline are two structurally different full-screen panels
+    // (map vs. timeline) — a full re-render is simplest and cheap either way.
     _journalMobTab = tab;
-    const pnl = document.getElementById('panel-journal');
-    if (!pnl) return;
-
-    pnl.querySelectorAll('.jn-mob-tabs .bm-tab').forEach(b => {
-      b.classList.toggle('active', b.dataset.tab === tab);
-    });
-
-    const mapcal   = pnl.querySelector('.mapcal');
-    const leftPanel = pnl.querySelector('.left-panel');
-
-    if (tab === 'activite') {
-      if (mapcal) mapcal.classList.add('jn-activite-mode');
-      if (leftPanel) leftPanel.classList.remove('collapsed');
-    } else {
-      if (mapcal) mapcal.classList.remove('jn-activite-mode');
-      if (leftPanel) leftPanel.classList.add('collapsed');
-      setTimeout(() => { if (_journalMap) _journalMap.invalidateSize(); }, 60);
-    }
-    return;
-  }
-
-  if (action === 'switch-view') {
-    const newView = btn.dataset.view;
-    if (newView === _journalView) return;
-    _journalView = newView;
     renderJournal(tripId, _observerMode);
     return;
   }
@@ -1431,65 +1377,6 @@ function _eventTypeIcon(type) {
   // Fallback built-in map
   const m = { visit: '🏛️', activity: '🎯', sleep: '🏨', drive: '🚗', food: '🍽️', shop: '🛍️' };
   return m[type] || '📍';
-}
-
-function _buildActivitiesHtml(trip) {
-  const days = trip.days || [];
-  const hasAny = days.some(d => (d.items || []).length > 0);
-
-  if (!hasAny) {
-    return `
-      <div class="jn-empty" style="text-align:center;padding:32px 12px;color:var(--ink4)">
-        <div style="font-size:36px;margin-bottom:8px">📅</div>
-        <p style="font-size:13px;font-weight:600;color:var(--ink3)">Aucune activité dans le planning</p>
-        <p style="font-size:11px;margin-top:6px;color:var(--ink4)">Ajoutez des activités dans Carte &amp; Planning</p>
-      </div>`;
-  }
-
-  let html = '';
-  for (const day of days) {
-    const items = day.items || [];
-    if (items.length === 0) continue;
-
-    const dayLabel = `Jour ${day.num}${day.title ? ' · ' + day.title : ''}`;
-    html += `<div class="jn-day-group">
-      <div class="jn-day-label">${_esc(dayLabel)}${day.date ? `<span style="font-weight:400;font-size:10px;color:var(--ink4);margin-left:5px">${fmtDateShort(day.date)}</span>` : ''}</div>`;
-
-    items.forEach((item, idx) => {
-      const jd        = item.journalData;
-      const validated = jd?.validated;
-      const typeIcon  = _eventTypeIcon(item.type);
-      const metaParts = [
-        item.time ? `🕐 ${item.time}` : '',
-        item.cost ? `💶 ${item.cost}€` : '',
-      ].filter(Boolean);
-
-      html += `
-        <div style="display:flex;align-items:center;gap:8px;padding:7px 8px;border-radius:8px;margin-bottom:4px;
-          background:${validated ? 'var(--tl)' : 'var(--c2)'};border:1px solid ${validated ? 'var(--teal)' : 'var(--c3)'}">
-          <div style="font-size:16px;flex-shrink:0">${typeIcon}</div>
-          <div style="flex:1;min-width:0">
-            <div style="font-weight:600;color:var(--ink);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_esc(item.text || '—')}</div>
-            ${metaParts.length ? `<div style="font-size:10px;color:var(--ink4);margin-top:1px">${_esc(metaParts.join(' · '))}</div>` : ''}
-            ${item.gpxStats ? `<div style="font-size:10px;color:#0284c7;margin-top:2px">📏 ${item.gpxStats.distanceM >= 1000 ? (item.gpxStats.distanceM/1000).toFixed(1)+' km' : item.gpxStats.distanceM+' m'}${item.gpxStats.elevGain ? ' · ↑'+item.gpxStats.elevGain+'m' : ''}</div>` : ''}
-            ${validated ? `<div style="font-size:10px;color:var(--td);margin-top:2px;display:flex;gap:4px;flex-wrap:wrap;align-items:center">
-              <span style="font-weight:700">✓ Validé</span>
-              ${jd.weather ? `<span>${jd.weather}</span>` : ''}
-              ${jd.amount  ? `<span>+${jd.amount}€</span>` : ''}
-              ${(jd.photos || []).length > 0 ? `<span>📷 ${jd.photos.length}</span>` : ''}
-            </div>` : ''}
-          </div>
-          <button data-action="validate-item" data-day-id="${_esc(day.id)}" data-item-idx="${idx}"
-            style="flex-shrink:0;font-size:10px;font-weight:700;padding:4px 7px;border-radius:6px;cursor:pointer;white-space:nowrap;
-            background:${validated ? 'var(--teal)' : 'var(--c)'};color:${validated ? '#fff' : 'var(--ink3)'};border:1.5px solid ${validated ? 'var(--teal)' : 'var(--c3)'}">
-            ${validated ? '✓ Éditer' : '✓ Valider'}
-          </button>
-        </div>`;
-    });
-
-    html += `</div>`;
-  }
-  return html;
 }
 
 // ── Validate activity modal ────────────────────────────────────────────────────
