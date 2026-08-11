@@ -19,7 +19,7 @@
  */
 
 import { firebaseConfig } from './firebase-config.js';
-import { compressTripsForFirestore, transformTripPhotos } from './utils.js';
+import { compressTripsForFirestore, transformTripPhotos, compressPhotoDataUrl, FIRESTORE_SIZE_LIMIT } from './utils.js';
 import { initPhotoStore, isPhotoStoreReady, uploadPhoto } from './photostore.js';
 
 const FB = 'https://www.gstatic.com/firebasejs/11.1.0';
@@ -193,6 +193,31 @@ export function setSyncErrorCallback(fn) { _onSyncError = fn; }
  * only and never reaching the cloud. Local storage / display keep the
  * original full-resolution photos; only this synced copy is compressed.
  */
+
+/**
+ * Build the trips array actually written to Firestore: try uploading every
+ * photo to Cloud Storage first (the document then only ever holds short
+ * download-URL strings, so it stays tiny no matter how large the photo
+ * library grows). A photo whose upload fails (Storage not truly reachable —
+ * wrong security rules, Blaze not active yet, offline, quota…) is NEVER
+ * silently dropped: it falls back to being embedded as a compressed copy,
+ * same as before the Storage migration. If that still doesn't fit the 1 MB
+ * document limit (Storage genuinely down for a large library), the whole
+ * batch falls back to the proven tiered-compression + strip-photos pipeline
+ * in compressTripsForFirestore, which always succeeds.
+ */
+async function _buildCloudTrips(tripsToWrite) {
+  if (!isPhotoStoreReady()) return compressTripsForFirestore(tripsToWrite);
+
+  const uploaded = await Promise.all(tripsToWrite.map(t => transformTripPhotos(t, async b64 => {
+    const url = await uploadPhoto(_uid, b64);
+    if (url) return url;
+    return (await compressPhotoDataUrl(b64)) || '';
+  })));
+
+  if (JSON.stringify(uploaded).length <= FIRESTORE_SIZE_LIMIT) return uploaded;
+  return compressTripsForFirestore(tripsToWrite);
+}
 export async function syncToFirestore(localState, recentlyDeletedIds = []) {
   if (!_db || !_uid || !_setDocFn || !_docFn) return;
   try {
@@ -213,16 +238,7 @@ export async function syncToFirestore(localState, recentlyDeletedIds = []) {
       tripsToWrite = [...reconciled, ...missing];
     }
 
-    // Prefer uploading photos to Cloud Storage — the document then only ever
-    // holds short download-URL strings, so it stays tiny no matter how large
-    // the photo library grows. Falls back to embedding compressed photos
-    // directly (old behaviour) if Storage isn't reachable (offline, not
-    // configured on this Firebase project). A photo whose upload fails simply
-    // isn't synced this round — it stays base64 locally and gets picked up
-    // by uploadPhoto's cache on the next successful sync, so nothing is lost.
-    const cloudTrips = isPhotoStoreReady()
-      ? await Promise.all(tripsToWrite.map(t => transformTripPhotos(t, b64 => uploadPhoto(_uid, b64))))
-      : await compressTripsForFirestore(tripsToWrite);
+    const cloudTrips = await _buildCloudTrips(tripsToWrite);
 
     const stateToWrite = { ...localState, trips: cloudTrips };
     await _setDocFn(_docFn(_db, 'users', _uid), JSON.parse(JSON.stringify(stateToWrite)), { merge: true });

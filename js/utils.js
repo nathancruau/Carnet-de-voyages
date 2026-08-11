@@ -145,7 +145,7 @@ window.closeModal = closeModal;
 const GOOD_TIER  = { maxSize: 900, quality: 0.7 };
 const TIGHT_TIER = { maxSize: 450, quality: 0.5 };
 const _SYNC_TIERS = [GOOD_TIER, TIGHT_TIER, { maxSize: 250, quality: 0.4 }];
-const FIRESTORE_SIZE_LIMIT = 900 * 1024; // safety margin under Firestore's ~1 MiB cap
+export const FIRESTORE_SIZE_LIMIT = 900 * 1024; // safety margin under Firestore's ~1 MiB cap
 
 const _compressedPhotoCache = new Map(); // `${data: URL}|${maxSize}|${quality}` → compressed data: URL
 
