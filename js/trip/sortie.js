@@ -3,6 +3,7 @@
    ============================================================ */
 
 import { getTrip, getEventTypes } from '../store.js';
+import { gpxStatsBlockHtml, initGpxChart } from '../gpx.js';
 
 let _map    = null;
 let _marker = null;
@@ -35,6 +36,7 @@ export function renderSortie(tripId) {
 
   _initMap(trip);
   _attachListeners();
+  if (trip.pin?.gpxPoints?.length >= 2) initGpxChart('si', trip.pin.gpxPoints);
 }
 
 export function destroySortieMap() {
@@ -99,6 +101,8 @@ function _sortieInfoHtml(trip) {
         <div class="si-desc-text">${_esc(pin.description).replace(/\n/g, '<br>')}</div>
       </div>` : ''}
 
+      ${pin.gpxTrackId ? gpxStatsBlockHtml('si', pin.gpxStats, pin.gpxPoints) : ''}
+
       ${!hasCoords ? `<div class="si-no-coords">Aucune position définie — modifiez pour ajouter un lieu sur la carte.</div>` : ''}
     </div>
   `;
@@ -143,6 +147,10 @@ function _initMap(trip) {
             `<b>${_esc(trip.name)}</b>${trip.destination ? '<br><small>' + _esc(trip.destination) + '</small>' : ''}`
           ).openPopup();
         }
+      }
+
+      if (pin.gpxPoints?.length > 1) {
+        L.polyline(pin.gpxPoints.map(p => [p.lat, p.lng]), { color: '#e85d3e', weight: 3.5, opacity: 0.85 }).addTo(_map);
       }
     } catch (e) {
       console.warn('[sortie] map init error', e);
