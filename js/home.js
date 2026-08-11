@@ -20,7 +20,7 @@ import {
 // import.js / export.js are dynamically imported at their few call sites below —
 // most sessions never touch import/export, so they shouldn't be in the boot bundle.
 import { parseGpx, computeGpxStats, saveLocalGpxTrack, removeLocalGpxTrack } from './gpx.js';
-import { getCurrentUser, logout, syncToFirestore, isFirebaseConfigured } from './auth.js';
+import { getCurrentUser, logout, syncToFirestore, isFirebaseConfigured, cleanupDuplicatePhotos } from './auth.js';
 import { requestNotificationPermission, notificationPermissionGranted } from './notifications.js';
 import { openShareModal, leaveSharedTrip, deleteOwnerSharedTrip, removeSharedTripMember, isCurrentUserObserver, getSharedDocData, addObserverReaction, deleteObserverReaction, addObserverComment, deleteObserverComment } from './share.js';
 
@@ -2025,6 +2025,11 @@ function _openSettingsModal() {
             style="background:#fee2e2;border:1.5px solid #fca5a5;border-radius:7px;padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer;color:var(--coral,#e85d3e)">
             🗑 Effacer toutes les données
           </button>
+          ${getCurrentUser() ? `
+          <button type="button" id="settings-cleanup-photos"
+            style="background:var(--c2);border:1.5px solid var(--c3);border-radius:7px;padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer;color:var(--ink3)">
+            🧹 Nettoyer les photos en double
+          </button>` : ''}
         </div>
       </div>
 
@@ -2143,6 +2148,27 @@ function _openSettingsModal() {
     if (confirm('Effacer TOUTES les données (voyages, journal, bagages) ? Cette action est irréversible.')) {
       localStorage.clear();
       location.reload();
+    }
+  });
+
+  // ── Cleanup duplicate/orphaned Storage photos ───────────────────────────────────
+
+  document.getElementById('settings-cleanup-photos')?.addEventListener('click', async e => {
+    if (!confirm('Rechercher et supprimer les photos en double ou inutilisées dans le stockage cloud ? Vos photos actuelles ne sont jamais touchées.')) return;
+    const btn = e.currentTarget;
+    const original = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = '⏳ Nettoyage en cours…';
+    try {
+      const { scanned, removed } = await cleanupDuplicatePhotos(getTrips());
+      notify(removed > 0
+        ? `${removed} photo(s) en double supprimée(s) sur ${scanned} analysée(s)`
+        : `Aucun doublon trouvé (${scanned} photo(s) analysée(s))`, '🧹');
+    } catch (err) {
+      notify('Échec du nettoyage : ' + err.message, '⚠️');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = original;
     }
   });
 }

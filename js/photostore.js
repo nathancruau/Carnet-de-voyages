@@ -19,7 +19,7 @@ const UPLOAD_MAX_SIZE = 2000;
 const UPLOAD_QUALITY  = 0.88;
 
 let _storage = null;
-let _refFn, _uploadStringFn, _getDownloadURLFn, _deleteObjectFn;
+let _refFn, _uploadStringFn, _getDownloadURLFn, _deleteObjectFn, _listAllFn;
 
 // Local trips stay base64 forever (only the synced copy swaps to a URL), so
 // every sync re-scans the same photos. Without a cache, an unchanged trip
@@ -64,6 +64,7 @@ export async function initPhotoStore(app) {
     _uploadStringFn   = mod.uploadString;
     _getDownloadURLFn = mod.getDownloadURL;
     _deleteObjectFn   = mod.deleteObject;
+    _listAllFn        = mod.listAll;
   } catch (err) {
     // Storage not enabled on this Firebase project (Spark plan, etc.) — sync
     // falls back to embedding compressed photos directly in Firestore.
@@ -114,4 +115,46 @@ export async function deletePhoto(url) {
   try {
     await _deleteObjectFn(_refFn(_storage, url));
   } catch (_) { /* already gone, permission race, etc. — non-fatal */ }
+}
+
+/**
+ * One-time bulk sweep of users/{uid}/photos/: lists every file actually
+ * sitting in Storage and deletes any whose download URL isn't in
+ * referencedUrls. Cleans up duplicates/orphans left behind before the
+ * per-sync cleanup in syncToFirestore existed (or from any sync that failed
+ * partway through). Returns { scanned, removed }. Never throws — a listing
+ * or per-file failure just leaves that file for a future run.
+ */
+export async function cleanupOrphanedPhotos(uid, referencedUrls) {
+  if (!_storage || !_listAllFn || !uid) return { scanned: 0, removed: 0 };
+  const folderRef = _refFn(_storage, `users/${uid}/photos`);
+  let items;
+  try {
+    ({ items } = await _listAllFn(folderRef));
+  } catch (err) {
+    console.warn('[photostore] cleanup listAll failed:', err.message);
+    return { scanned: 0, removed: 0 };
+  }
+
+  let removed = 0;
+  for (const itemRef of items) {
+    let url;
+    try {
+      url = await _getDownloadURLFn(itemRef);
+    } catch (_) {
+      continue; // already gone / unreadable — skip
+    }
+    if (referencedUrls.has(url)) continue;
+    // Purge any stale cache entry so a future re-add re-uploads instead of
+    // returning this about-to-be-deleted URL.
+    for (const [key, cachedUrl] of Object.entries(_uploadCache)) {
+      if (cachedUrl === url) delete _uploadCache[key];
+    }
+    try {
+      await _deleteObjectFn(itemRef);
+      removed++;
+    } catch (_) { /* permission race, already deleted — non-fatal */ }
+  }
+  if (removed) _persistUploadCache();
+  return { scanned: items.length, removed };
 }

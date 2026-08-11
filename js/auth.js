@@ -20,7 +20,7 @@
 
 import { firebaseConfig } from './firebase-config.js';
 import { compressTripsForFirestore, transformTripPhotos, compressPhotoDataUrl, FIRESTORE_SIZE_LIMIT } from './utils.js';
-import { initPhotoStore, isPhotoStoreReady, uploadPhoto, deletePhoto } from './photostore.js';
+import { initPhotoStore, isPhotoStoreReady, uploadPhoto, deletePhoto, cleanupOrphanedPhotos } from './photostore.js';
 
 const FB = 'https://www.gstatic.com/firebasejs/11.1.0';
 
@@ -284,6 +284,34 @@ export async function syncToFirestore(localState, recentlyDeletedIds = []) {
     console.warn('[auth] Firestore sync failed:', err.message);
     if (_onSyncError) _onSyncError(err);
   }
+}
+
+/**
+ * One-time bulk cleanup of Storage duplicates/orphans accumulated before the
+ * per-sync cleanup in syncToFirestore existed (each app reopen used to
+ * re-upload every photo as a brand-new file — see photostore.js's upload
+ * cache). Force-fetches the server copy fresh (getDocFromServer, not the
+ * IndexedDB cache) so a trip added on another device but not yet synced down
+ * here still counts as "referenced" — its photos must never be deleted just
+ * because this device hasn't caught up yet. Local trips are unioned in on
+ * top for the same reason (this device may have unsynced local edits).
+ * Returns { scanned, removed }.
+ */
+export async function cleanupDuplicatePhotos(localTrips) {
+  if (!_db || !_uid || !_docFn) return { scanned: 0, removed: 0 };
+  let serverTrips = [];
+  try {
+    const fetchFn = _getDocFromServerFn || _getDocFn;
+    const snap = await fetchFn(_docFn(_db, 'users', _uid));
+    if (snap.exists()) serverTrips = snap.data().trips || [];
+  } catch (err) {
+    console.warn('[auth] cleanupDuplicatePhotos fetch failed:', err.message);
+  }
+  const referencedUrls = new Set([
+    ..._collectStorageUrls(serverTrips),
+    ..._collectStorageUrls(localTrips || []),
+  ]);
+  return cleanupOrphanedPhotos(_uid, referencedUrls);
 }
 
 // ── Shared trips ───────────────────────────────────────────────────────────────
