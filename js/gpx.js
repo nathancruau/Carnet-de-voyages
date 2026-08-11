@@ -161,6 +161,18 @@ function _haversineM(a, b) {
   return 2 * R * Math.asin(Math.sqrt(x));
 }
 
+/**
+ * Subsample a track down to at most `max` points, evenly spaced, keeping each
+ * point's full shape (lat/lng/ele/time) — the elevation/speed chart needs
+ * ele/time to have anything to draw, so a downsample that strips them down to
+ * {lat,lng} silently disables the chart everywhere that track is shown.
+ */
+export function downsampleGpxPoints(points, max = 300) {
+  if (!points?.length) return [];
+  if (points.length <= max) return points;
+  return Array.from({ length: max }, (_, i) => points[Math.round(i * (points.length - 1) / (max - 1))]);
+}
+
 // ── Shared GPX stats block + interactive chart ──────────────────────────────────
 // Used everywhere a saved GPX track's stats need to be shown with an elevation/
 // speed chart: MyMap's pin info panel, the sortie detail screen, sortie info

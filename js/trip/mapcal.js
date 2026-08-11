@@ -7,7 +7,7 @@
  */
 
 import { getTrip, updateTrip, saveData, uid, getEventTypes, getLanguage, isTripShared } from '../store.js';
-import { parseGpx, generateGpx, downloadFile, getLocalGpxTracks, saveLocalGpxTrack, removeLocalGpxTrack, computeGpxStats } from '../gpx.js';
+import { parseGpx, generateGpx, downloadFile, getLocalGpxTracks, saveLocalGpxTrack, removeLocalGpxTrack, computeGpxStats, downsampleGpxPoints } from '../gpx.js';
 import { getSharedDocData, submitComment, deleteDayComment } from '../share.js';
 import { getCurrentUser } from '../auth.js';
 import {
@@ -765,15 +765,11 @@ function _openGpxImportModal(tripId, track, stats) {
 
     const startPt = track.points[0];
     const selEt   = evtTypes.find(t => t.key === selType);
-    // Subsample track to ≤300 points for Firestore storage (available to observers)
-    const _pts = track.points;
-    const _max = 300;
-    const gpxPoints = _pts.length <= _max
-      ? _pts.map(p => ({ lat: p.lat, lng: p.lng }))
-      : Array.from({ length: _max }, (_, i) => {
-          const p = _pts[Math.round(i * (_pts.length - 1) / (_max - 1))];
-          return { lat: p.lat, lng: p.lng };
-        });
+    // Subsample track to ≤300 points for Firestore storage (available to observers).
+    // Keeps the full point (lat/lng/ele/time) — stripping to lat/lng only, as this
+    // used to, silently disabled the elevation/speed chart everywhere this track's
+    // stats are shown, since it needs ele/time to build those series.
+    const gpxPoints = downsampleGpxPoints(track.points);
     const event   = {
       id:         'e_' + uid(),
       type:       selType,

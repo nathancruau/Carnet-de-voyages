@@ -7,7 +7,7 @@
 
 import { getTrips, TRIP_TYPES, getPinTypes } from './store.js';
 import { fmtDate, fmtDateShort, trCol, fmtFlag } from './utils.js';
-import { parseGpx, generateGpx, downloadFile, estimateTileCount, gpxStatsBlockHtml, initGpxChart } from './gpx.js';
+import { parseGpx, generateGpx, downloadFile, estimateTileCount, gpxStatsBlockHtml, initGpxChart, getLocalGpxTracks, downsampleGpxPoints } from './gpx.js';
 
 // ── PIN type helper (dynamic from settings) ────────────────────────────────────
 
@@ -394,6 +394,22 @@ function _mmShowMergedInfo(mp) {
 
 // ── Build the flat pin list from store ────────────────────────────────────────
 
+/**
+ * Older GPX imports downsampled to lat/lng only, silently disabling the
+ * elevation/speed chart everywhere that track's stats are shown (fixed going
+ * forward, but already-imported items still have the stripped points). If the
+ * full-resolution track is still on this device (GPX tracks aren't synced —
+ * see gpx.js), rebuild gpxPoints from it so the chart self-heals without
+ * requiring the user to re-import.
+ */
+function _resolveGpxPoints(tripId, item) {
+  if (!item.gpxPoints?.length || !item.gpxTrackId) return item.gpxPoints || null;
+  const hasRichData = item.gpxPoints.some(p => p.ele != null || p.time != null);
+  if (hasRichData) return item.gpxPoints;
+  const track = getLocalGpxTracks(tripId).find(t => t.id === item.gpxTrackId);
+  return track ? downsampleGpxPoints(track.points) : item.gpxPoints;
+}
+
 function _buildAllPins() {
   _allPins = [];
   for (const trip of getTrips()) {
@@ -420,7 +436,7 @@ function _buildAllPins() {
             content:    jd.notes   || '',
             weather:    jd.weather || '',
             gpxStats:   item.gpxStats  || null,
-            gpxPoints:  item.gpxPoints || null,
+            gpxPoints:  _resolveGpxPoints(trip.id, item),
             gpxTrackId: item.gpxTrackId || null,
             amount:     jd.amount  || 0,
             tags:       [],

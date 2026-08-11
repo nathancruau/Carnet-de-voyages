@@ -60,6 +60,23 @@ function _sortieInfoHtml(trip) {
 
   const hasCoords = pin.lat != null && pin.lng != null;
 
+  // All photos: trip.photos[0] is the banner (same photo as trip.photo), the
+  // rest are extra photos added in the edit modal — previously only the
+  // banner ever showed here, so any extra photo was saved but never visible.
+  const allPhotos  = trip.photos?.length ? trip.photos : (trip.photo ? [{ url: trip.photo }] : []);
+  const heroPhoto  = allPhotos[0];
+  const extraPhotos = allPhotos.slice(1);
+  window._siPhotos = allPhotos.map(p => p.url);
+
+  const extraPhotosHtml = extraPhotos.length ? `
+    <div class="si-extra-photos">
+      ${extraPhotos.map((p, i) => `
+        <img src="${_esc(p.url)}" alt="" loading="lazy"
+             onclick="window._openSlides && window._openSlides(window._siPhotos || [], ${i + 1})"
+             onerror="this.style.display='none'">
+      `).join('')}
+    </div>` : '';
+
   return `
     <div class="si-inner">
       <div class="si-head">
@@ -71,7 +88,10 @@ function _sortieInfoHtml(trip) {
 
       <h2 class="si-title">${_esc(trip.name || 'Sortie')}</h2>
 
-      ${trip.photo ? `<img class="si-photo" src="${_esc(trip.photo)}" alt="" onerror="this.style.display='none'">` : ''}
+      ${heroPhoto ? `<img class="si-photo" src="${_esc(heroPhoto.url)}" alt="" style="cursor:pointer"
+             onclick="window._openSlides && window._openSlides(window._siPhotos || [], 0)"
+             onerror="this.style.display='none'">` : ''}
+      ${extraPhotosHtml}
 
       <div class="si-meta">
         <div class="si-meta-row">
