@@ -22,11 +22,38 @@ let _storage = null;
 let _refFn, _uploadStringFn, _getDownloadURLFn, _deleteObjectFn;
 
 // Local trips stay base64 forever (only the synced copy swaps to a URL), so
-// every sync re-scans the same photos. Without this cache, an unchanged trip
+// every sync re-scans the same photos. Without a cache, an unchanged trip
 // re-uploads its photos as brand-new files on every single sync — wasted
-// bandwidth/quota, duplicate orphaned files in Storage, and competing network
+// bandwidth/quota, duplicate orphaned files in Storage (each sync/reload
+// creating yet another copy of the exact same photo), and competing network
 // traffic that made photos feel slower to load.
-const _uploadCache = new Map(); // base64 data: URL -> download URL
+//
+// Persisted to localStorage (not just in-memory) — a plain in-memory Map
+// resets on every page reload/app restart, and a PWA gets reopened far more
+// often than a single tab stays alive, so an in-memory-only cache barely
+// helped: nearly every sync from a fresh session re-uploaded everything.
+// Keyed by a cheap hash of the base64 content (not the content itself —
+// storing full data: URLs as localStorage keys would burn through its
+// 5-10 MB quota fast); only the short resulting URL is stored per entry.
+const _CACHE_KEY = 'carnet_photo_upload_cache';
+
+function _hashKey(str) {
+  let h = 0;
+  for (let i = 0; i < str.length; i++) h = (Math.imul(31, h) + str.charCodeAt(i)) | 0;
+  return str.length + ':' + h;
+}
+
+function _loadUploadCache() {
+  try { return JSON.parse(localStorage.getItem(_CACHE_KEY) || '{}'); }
+  catch (_) { return {}; }
+}
+
+const _uploadCache = _loadUploadCache(); // hash(base64) -> download URL
+
+function _persistUploadCache() {
+  try { localStorage.setItem(_CACHE_KEY, JSON.stringify(_uploadCache)); }
+  catch (_) { /* storage full/unavailable — non-fatal, just no persistent caching this run */ }
+}
 
 /** Initialise Storage against the already-initialised Firebase app. Called once from auth.js. */
 export async function initPhotoStore(app) {
@@ -53,7 +80,8 @@ export function isPhotoStoreReady() { return !!_storage; }
  */
 export async function uploadPhoto(uid, dataUrl) {
   if (!_storage || !dataUrl || !dataUrl.startsWith('data:')) return null;
-  const cached = _uploadCache.get(dataUrl);
+  const key    = _hashKey(dataUrl);
+  const cached = _uploadCache[key];
   if (cached !== undefined) return cached;
   try {
     const resized = await compressPhotoDataUrl(dataUrl, UPLOAD_MAX_SIZE, UPLOAD_QUALITY);
@@ -65,7 +93,8 @@ export async function uploadPhoto(uid, dataUrl) {
       cacheControl: 'public, max-age=31536000, immutable',
     });
     const url = await _getDownloadURLFn(fileRef);
-    _uploadCache.set(dataUrl, url);
+    _uploadCache[key] = url;
+    _persistUploadCache();
     return url;
   } catch (err) {
     console.warn('[photostore] upload failed:', err.message);
@@ -76,6 +105,12 @@ export async function uploadPhoto(uid, dataUrl) {
 /** Best-effort delete of a Storage photo by its download URL. Never throws. */
 export async function deletePhoto(url) {
   if (!_storage || !url || !url.includes('firebasestorage')) return;
+  // Drop any cache entry pointing at this URL — otherwise re-adding the exact
+  // same photo later would return this now-dead URL instead of re-uploading.
+  for (const [key, cachedUrl] of Object.entries(_uploadCache)) {
+    if (cachedUrl === url) delete _uploadCache[key];
+  }
+  _persistUploadCache();
   try {
     await _deleteObjectFn(_refFn(_storage, url));
   } catch (_) { /* already gone, permission race, etc. — non-fatal */ }
