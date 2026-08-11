@@ -20,7 +20,7 @@
 
 import { firebaseConfig } from './firebase-config.js';
 import { compressTripsForFirestore, transformTripPhotos, compressPhotoDataUrl, FIRESTORE_SIZE_LIMIT } from './utils.js';
-import { initPhotoStore, isPhotoStoreReady, uploadPhoto } from './photostore.js';
+import { initPhotoStore, isPhotoStoreReady, uploadPhoto, deletePhoto } from './photostore.js';
 
 const FB = 'https://www.gstatic.com/firebasejs/11.1.0';
 
@@ -218,6 +218,28 @@ async function _buildCloudTrips(tripsToWrite) {
   if (JSON.stringify(uploaded).length <= FIRESTORE_SIZE_LIMIT) return uploaded;
   return compressTripsForFirestore(tripsToWrite);
 }
+
+/** Every Storage download URL referenced anywhere across a set of trips. */
+function _collectStorageUrls(trips) {
+  const urls  = new Set();
+  const check = url => { if (typeof url === 'string' && url.includes('firebasestorage')) urls.add(url); };
+  for (const t of (trips || [])) {
+    check(t.photo);
+    for (const p of (t.photos || [])) check(p.url);
+    for (const day of (t.days || [])) {
+      for (const item of (day.items || [])) {
+        check(item.photo);
+        for (const p of (item.photos || [])) check(p.url);
+        for (const p of (item.journalData?.photos || [])) check(p);
+      }
+    }
+    for (const je of (t.journalEntries || [])) {
+      for (const p of (je.photos || [])) check(p.url);
+    }
+  }
+  return urls;
+}
+
 export async function syncToFirestore(localState, recentlyDeletedIds = []) {
   if (!_db || !_uid || !_setDocFn || !_docFn) return;
   try {
@@ -242,6 +264,20 @@ export async function syncToFirestore(localState, recentlyDeletedIds = []) {
 
     const stateToWrite = { ...localState, trips: cloudTrips };
     await _setDocFn(_docFn(_db, 'users', _uid), JSON.parse(JSON.stringify(stateToWrite)), { merge: true });
+
+    // Clean up Storage files that dropped out of every trip since the last
+    // confirmed write (photo removed, or the whole trip deleted) — otherwise
+    // they'd sit in Storage forever as unreferenced, silently billed orphans.
+    // Best-effort: never blocks or fails the sync (deletePhoto swallows its
+    // own errors).
+    if (_lastServerTrips) {
+      const prevUrls = _collectStorageUrls(_lastServerTrips);
+      const newUrls  = _collectStorageUrls(cloudTrips);
+      for (const url of prevUrls) {
+        if (!newUrls.has(url)) deletePhoto(url);
+      }
+    }
+
     // Keep our cache current with what we just wrote
     _lastServerTrips = stateToWrite.trips || null;
   } catch (err) {
