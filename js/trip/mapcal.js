@@ -1203,7 +1203,13 @@ function _bindRouteModeClick(polyline, toWp) {
       if (toWp.itemId) {
         const day  = (trip.days || []).find(d => d.id === toWp.dayId);
         const item = (day?.items || []).find(it => it.id === toWp.itemId);
-        if (item) { item.routeMode = newMode; toWp.mode = newMode; }
+        if (item) {
+          // Same priority as _collectAllWaypoints: 'drive' items are read from
+          // item.transport, so that's the field that must actually be written.
+          if (item.type === 'drive') item.transport = newMode;
+          else item.routeMode = newMode;
+          toWp.mode = newMode;
+        }
       } else {
         const day = (trip.days || []).find(d => d.id === toWp.dayId);
         if (day) { day.routeMode = newMode; toWp.mode = newMode; }
@@ -2582,7 +2588,13 @@ function _attachLeftPanelListeners(panel) {
       if (toWp2.itemId) {
         const day   = days.find(d => d.id === toWp2.dayId);
         const itIdx = (day?.items || []).findIndex(it => it.id === toWp2.itemId);
-        if (itIdx >= 0) day.items[itIdx] = { ...day.items[itIdx], routeMode: mode };
+        if (itIdx >= 0) {
+          // _collectAllWaypoints reads item.transport (not routeMode) as the mode
+          // for 'drive' items — write to whichever field is actually authoritative
+          // for this item, or the picked mode gets silently overridden on redraw.
+          const field = day.items[itIdx].type === 'drive' ? 'transport' : 'routeMode';
+          day.items[itIdx] = { ...day.items[itIdx], [field]: mode };
+        }
       } else {
         const dayIdx = days.findIndex(d => d.id === toWp2.dayId);
         if (dayIdx >= 0) days[dayIdx] = { ...days[dayIdx], routeMode: mode };

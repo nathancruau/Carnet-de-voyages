@@ -81,6 +81,33 @@ function _compColor(index) {
   return COMP_COLORS[index % COMP_COLORS.length];
 }
 
+/** Unique companion names across every trip, most-travelled-with first. */
+function _knownCompanions() {
+  const byLower = new Map(); // lowercase name -> { name, count }
+  for (const trip of getTrips()) {
+    for (const c of (trip.companions || [])) {
+      const name = (c.name || '').trim();
+      if (!name) continue;
+      const key = name.toLowerCase();
+      const entry = byLower.get(key);
+      if (entry) entry.count++;
+      else byLower.set(key, { name, count: 1 });
+    }
+  }
+  return [...byLower.values()].sort((a, b) => b.count - a.count);
+}
+
+/** Suggestion chips for companions not already added to the given list. */
+function _compSuggestChipsHtml(currentComps) {
+  const already = new Set(currentComps.map(c => (c.name || '').trim().toLowerCase()));
+  const suggestions = _knownCompanions().filter(c => !already.has(c.name.toLowerCase())).slice(0, 8);
+  if (!suggestions.length) return '';
+  return `
+    <div class="comp-suggest-row">
+      ${suggestions.map(c => `<button type="button" class="comp-suggest-chip" data-action="add-suggested-comp" data-name="${_esc(c.name)}">+ ${_esc(c.name)}</button>`).join('')}
+    </div>`;
+}
+
 function _initials(name) {
   if (!name) return '?';
   const parts = name.trim().split(/\s+/);
@@ -559,9 +586,14 @@ function _attachGlobeInteraction(canvas) {
     if (!dragging) return;
     const dx = e.clientX - lastX, dy = e.clientY - lastY;
     lastX = e.clientX; lastY = e.clientY;
-    // Natural "grab the sphere" feel: content follows the pointer.
-    _globeRotation.lambda -= dx * 0.4;
-    _globeRotation.phi     = Math.max(-85, Math.min(85, _globeRotation.phi + dy * 0.4));
+    // Natural "grab the sphere" feel: content follows the pointer. 0.4 is
+    // calibrated for 1:1 tracking at zoom 1 — the sphere's on-screen radius
+    // grows with zoom, so the same drag now covers more degrees of rotation
+    // unless the sensitivity shrinks to match (otherwise it drags too fast
+    // once zoomed in, spinning far more than the finger actually moved).
+    const sens = 0.4 / _globeZoom;
+    _globeRotation.lambda -= dx * sens;
+    _globeRotation.phi     = Math.max(-85, Math.min(85, _globeRotation.phi + dy * sens));
     _drawGlobe(canvas);
   };
   const onUp = e => {
@@ -2460,6 +2492,7 @@ function _buildSortieModalHtml(trip) {
         <input type="text" id="sm-comp-input" placeholder="Prénom ou nom…" autocomplete="off">
         <button class="comp-add-btn" id="sm-comp-add">Ajouter</button>
       </div>
+      <div id="sm-comp-suggest">${_compSuggestChipsHtml(_sortieComps)}</div>
     </div>
 
     <div class="fg-row-2">
@@ -2628,17 +2661,21 @@ function _initSortieModalListeners(trip) {
 
   // Companions
   const sortieCompInput = document.getElementById('sm-comp-input');
-  const addSortieComp = () => {
-    const name = sortieCompInput?.value.trim();
+  const addSortieComp = (presetName) => {
+    const name = presetName || sortieCompInput?.value.trim();
     if (!name) return;
     _sortieComps.push({ id: 'c_' + uid(), name, color: _compColor(_sortieComps.length) });
     if (sortieCompInput) sortieCompInput.value = '';
     _refreshSortieCompList();
     sortieCompInput?.focus();
   };
-  document.getElementById('sm-comp-add')?.addEventListener('click', addSortieComp);
+  document.getElementById('sm-comp-add')?.addEventListener('click', () => addSortieComp());
   sortieCompInput?.addEventListener('keydown', e => {
     if (e.key === 'Enter') { e.preventDefault(); addSortieComp(); }
+  });
+  document.getElementById('sm-comp-suggest')?.addEventListener('click', e => {
+    const chip = e.target.closest('[data-action="add-suggested-comp"]');
+    if (chip) addSortieComp(chip.dataset.name);
   });
   document.getElementById('sm-comp-list')?.addEventListener('click', e => {
     const rmBtn = e.target.closest('[data-remove-comp]');
@@ -3030,6 +3067,7 @@ function _buildModalHtml(trip) {
         <input type="text" id="m-comp-input" placeholder="Prénom ou nom…" autocomplete="off">
         <button class="comp-add-btn" id="m-comp-add">Ajouter</button>
       </div>
+      <div id="m-comp-suggest">${_compSuggestChipsHtml(_modalComps)}</div>
     </div>
 
     <div class="fg">
@@ -3363,8 +3401,8 @@ function _initModalListeners(trip) {
 
   // Add companion
   const compInput = document.getElementById('m-comp-input');
-  const addCompFn = () => {
-    const name = compInput?.value.trim();
+  const addCompFn = (presetName) => {
+    const name = presetName || compInput?.value.trim();
     if (!name) return;
     _modalComps.push({
       id:    'c_' + uid(),
@@ -3376,9 +3414,15 @@ function _initModalListeners(trip) {
     compInput?.focus();
   };
 
-  document.getElementById('m-comp-add')?.addEventListener('click', addCompFn);
+  document.getElementById('m-comp-add')?.addEventListener('click', () => addCompFn());
   compInput?.addEventListener('keydown', e => {
     if (e.key === 'Enter') { e.preventDefault(); addCompFn(); }
+  });
+
+  // Suggested companions (people from previous trips)
+  document.getElementById('m-comp-suggest')?.addEventListener('click', e => {
+    const chip = e.target.closest('[data-action="add-suggested-comp"]');
+    if (chip) addCompFn(chip.dataset.name);
   });
 
   // Remove / rename companion (delegated)
@@ -3403,11 +3447,15 @@ function _initModalListeners(trip) {
 function _refreshCompList() {
   const list = document.getElementById('m-comp-list');
   if (list) list.innerHTML = _compsListHtml();
+  const suggest = document.getElementById('m-comp-suggest');
+  if (suggest) suggest.innerHTML = _compSuggestChipsHtml(_modalComps);
 }
 
 function _refreshSortieCompList() {
   const list = document.getElementById('sm-comp-list');
   if (list) list.innerHTML = _compsListHtml(_sortieComps);
+  const suggest = document.getElementById('sm-comp-suggest');
+  if (suggest) suggest.innerHTML = _compSuggestChipsHtml(_sortieComps);
 }
 
 function _startInlineCompRename(idx) {

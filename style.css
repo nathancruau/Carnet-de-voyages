@@ -1319,6 +1319,15 @@ body{height:100%;min-height:-webkit-fill-available;font-family:var(--fn);backgro
   padding:7px 12px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap;
 }
 
+/* Suggested companions (people from previous trips) */
+.comp-suggest-row{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.comp-suggest-chip{
+  background:var(--tl);color:var(--td);border:1px solid var(--teal);
+  border-radius:999px;padding:4px 10px;font-size:11px;font-weight:700;
+  cursor:pointer;font-family:var(--fn);transition:transform .1s;
+}
+.comp-suggest-chip:hover{transform:scale(1.05)}
+
 /* ── Color picker ── */
 .col-opts{display:flex;gap:6px;flex-wrap:wrap;padding:2px 0}
 .col-o{
