@@ -133,17 +133,15 @@ export function closeModal() {
 // Expose for onclick="" HTML attributes and for app.js
 window.closeModal = closeModal;
 
-// ── Photo compression for Firestore sync (1 MB document limit) ─────────────────
-// Trips carry photos as inline base64 data: URLs. A single users/{uid} document
-// holds every trip at once, so it hits Firestore's 1 MB limit far more easily
-// than any individual trip — without compression, a sync with any real photos
-// fails every single time (not intermittently), leaving the device stuck
-// writing to localStorage only. Used for both the personal sync (auth.js) and
-// the per-trip shared_trips document (share.js).
+// ── Photo handling for Firestore sync (1 MB document limit) ────────────────────
+// Trips carry photos as inline base64 data: URLs locally. A single users/{uid}
+// document holds every trip at once, so embedding those photos as-is hits
+// Firestore's 1 MB limit fast. The primary fix is uploadTripsPhotosToCloud()
+// (auth.js) — it uploads each photo to Firebase Storage and swaps the base64
+// for a download URL, so the Firestore document only ever holds short strings
+// regardless of library size. compressTripsForFirestore() below is the
+// fallback used when Storage isn't reachable (offline, not configured).
 
-// Compression tiers: try good quality first (plenty for most trips), and only
-// escalate to a tighter tier for accounts with enough photos that a looser
-// pass wouldn't fit in a 1 MB document. Tried in order until one fits.
 const GOOD_TIER  = { maxSize: 900, quality: 0.7 };
 const TIGHT_TIER = { maxSize: 450, quality: 0.5 };
 const _SYNC_TIERS = [GOOD_TIER, TIGHT_TIER, { maxSize: 250, quality: 0.4 }];
@@ -177,12 +175,14 @@ export async function compressPhotoDataUrl(b64, maxSize = GOOD_TIER.maxSize, qua
 }
 
 /**
- * Return a copy of a trip with every embedded base64 photo re-compressed to a
- * JPEG (at the given size/quality tier) and heavy gpxPoints arrays stripped.
- * Local storage / display always keep the original full-resolution photos —
- * only the copy handed to Firestore goes through this.
+ * Walk every embedded base64 photo url field in a trip, replacing each one
+ * with `await transformFn(base64DataUrl)`. Non-base64 urls (already remote,
+ * e.g. a Storage download URL or a manually-pasted image link) are left
+ * untouched. Also strips heavy gpxPoints arrays, which never belong in a
+ * synced document. Shared by compressTripPhotos() (compress in place) and
+ * auth.js's uploadTripsPhotosToCloud() (upload to Storage, swap for a URL).
  */
-export async function compressTripPhotos(trip, maxSize = GOOD_TIER.maxSize, quality = GOOD_TIER.quality) {
+export async function transformTripPhotos(trip, transformFn) {
   const isB64 = url => typeof url === 'string' && url.startsWith('data:');
   const t = JSON.parse(JSON.stringify(trip));
 
@@ -215,11 +215,11 @@ export async function compressTripPhotos(trip, maxSize = GOOD_TIER.maxSize, qual
   }));
   t.journalEntries = (t.journalEntries || []).map(je => ({ ...je, photos: scanPhotoObjs(je.photos) }));
 
-  const compressed = await Promise.all(inputs.map(b64 => compressPhotoDataUrl(b64, maxSize, quality)));
+  const outputs = await Promise.all(inputs.map(transformFn));
   const replaceSlot = (url) => {
     if (typeof url !== 'string') return url;
     const m = url.match(/^__SLOT_(\d+)__$/);
-    return m ? (compressed[parseInt(m[1], 10)] || '') : url;
+    return m ? (outputs[parseInt(m[1], 10)] || '') : url;
   };
   const fixPhotoObjs = (arr) => (arr || []).map(p => ({ ...p, url: replaceSlot(p.url) })).filter(p => p.url);
   const fixPhotoStrs = (arr) => (arr || []).map(replaceSlot).filter(Boolean);
@@ -240,6 +240,16 @@ export async function compressTripPhotos(trip, maxSize = GOOD_TIER.maxSize, qual
   t.journalEntries = t.journalEntries.map(je => ({ ...je, photos: fixPhotoObjs(je.photos) }));
 
   return t;
+}
+
+/**
+ * Return a copy of a trip with every embedded base64 photo re-compressed to a
+ * JPEG (at the given size/quality tier). Local storage / display always keep
+ * the original full-resolution photos — only the copy handed to Firestore
+ * goes through this.
+ */
+export async function compressTripPhotos(trip, maxSize = GOOD_TIER.maxSize, quality = GOOD_TIER.quality) {
+  return transformTripPhotos(trip, b64 => compressPhotoDataUrl(b64, maxSize, quality));
 }
 
 /** Strip every embedded photo from a trip (last-resort fallback below). */
@@ -264,11 +274,11 @@ function _stripAllPhotos(trip) {
 }
 
 /**
- * Compress a set of trips for a single Firestore write, escalating through
- * progressively tighter tiers until the payload fits the ~1 MB document
- * limit. Used for both the per-trip shared_trips document (share.js, pass a
- * 1-trip array) and the personal users/{uid} document (auth.js, holds every
- * trip at once).
+ * Fallback path when Firebase Storage isn't reachable: compress a set of
+ * trips for a single Firestore write, escalating through progressively
+ * tighter tiers until the payload fits the ~1 MB document limit. Used for
+ * both the per-trip shared_trips document (share.js, pass a 1-trip array)
+ * and the personal users/{uid} document (auth.js, holds every trip at once).
  *
  * If even the tightest tier doesn't fit (an account with a very large photo
  * library), photos are dropped from the synced copy entirely rather than

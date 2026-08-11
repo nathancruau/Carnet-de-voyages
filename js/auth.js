@@ -19,7 +19,8 @@
  */
 
 import { firebaseConfig } from './firebase-config.js';
-import { compressTripsForFirestore } from './utils.js';
+import { compressTripsForFirestore, transformTripPhotos } from './utils.js';
+import { initPhotoStore, isPhotoStoreReady, uploadPhoto } from './photostore.js';
 
 const FB = 'https://www.gstatic.com/firebasejs/11.1.0';
 
@@ -68,6 +69,9 @@ export async function initAuth(onReady) {
 
     const app = appMod.initializeApp(firebaseConfig);
     _auth = authMod.getAuth(app);
+    // Non-blocking — sync falls back to embedding compressed photos in
+    // Firestore directly if Storage never becomes ready.
+    initPhotoStore(app);
     _db   = dbMod.getFirestore(app);
 
     _docFn               = dbMod.doc;
@@ -209,12 +213,18 @@ export async function syncToFirestore(localState, recentlyDeletedIds = []) {
       tripsToWrite = [...reconciled, ...missing];
     }
 
-    // Trips pulled from _lastServerTrips (missing / reconciled-newer) are already
-    // compressed from a previous sync — compressPhotoDataUrl's cache makes
-    // re-compressing them here a no-op, so we don't need to track which is which.
-    const compressedTrips = await compressTripsForFirestore(tripsToWrite);
+    // Prefer uploading photos to Cloud Storage — the document then only ever
+    // holds short download-URL strings, so it stays tiny no matter how large
+    // the photo library grows. Falls back to embedding compressed photos
+    // directly (old behaviour) if Storage isn't reachable (offline, not
+    // configured on this Firebase project). A photo whose upload fails simply
+    // isn't synced this round — it stays base64 locally and gets picked up
+    // by uploadPhoto's cache on the next successful sync, so nothing is lost.
+    const cloudTrips = isPhotoStoreReady()
+      ? await Promise.all(tripsToWrite.map(t => transformTripPhotos(t, b64 => uploadPhoto(_uid, b64))))
+      : await compressTripsForFirestore(tripsToWrite);
 
-    const stateToWrite = { ...localState, trips: compressedTrips };
+    const stateToWrite = { ...localState, trips: cloudTrips };
     await _setDocFn(_docFn(_db, 'users', _uid), JSON.parse(JSON.stringify(stateToWrite)), { merge: true });
     // Keep our cache current with what we just wrote
     _lastServerTrips = stateToWrite.trips || null;

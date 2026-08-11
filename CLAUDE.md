@@ -18,7 +18,7 @@ Quatre endroits à synchroniser, toujours le même numéro N :
 | `sw.js` | `const SHELL_CACHE = 'cv-shell-N'` |
 | `store.js` | `export const APP_VERSION = 'N'` |
 
-Version actuelle : **161**
+Version actuelle : **162**
 
 ---
 
@@ -33,6 +33,7 @@ manifest.json           PWA manifest
 js/
   app.js                Point d'entrée, routeur écrans
   auth.js               Firebase Auth (Google Sign-In, Firestore sync)
+  photostore.js          Firebase Cloud Storage (upload photos, users/{uid}/photos/) — voir "Photos & sync" ci-dessous
   store.js              État local (localStorage 'carnet_voyages_v1'), helpers
   utils.js              notify(), showModal(), closeModal(), date helpers, date picker
   home.js               Écran d'accueil (liste voyages)
@@ -194,6 +195,16 @@ uid()          // ID court aléatoire
 
 ---
 
+## Photos & sync cloud (photostore.js)
+
+- Localement, les photos restent en base64 dans `localStorage` (`trip.photo`, `trip.photos[]`, `day.items[].photo/photos`, `journalData.photos[]`, `journalEntries[].photos[]`) — inchangé, pleine résolution.
+- Pour la sync cloud (`users/{uid}` dans Firestore), `syncToFirestore` (auth.js) essaie d'abord d'**uploader chaque photo vers Firebase Storage** (`users/{uid}/photos/{id}.jpg`, via `uploadPhoto()`) et remplace le base64 par l'URL de téléchargement — le document Firestore ne contient alors plus que des URLs (quelques dizaines d'octets chacune), donc sa taille ne dépend plus du nombre de photos.
+- **Firebase Storage nécessite le plan payant Blaze** (carte bancaire sur le projet Firebase, même si l'usage réel reste sous les quotas gratuits inclus : 5 Go stockage + 1 Go/jour transfert). Si Storage n'est pas activé/joignable (`isPhotoStoreReady()` → false), `syncToFirestore` retombe sur l'ancien comportement : `compressTripsForFirestore` (utils.js) compresse et embarque les photos directement dans le document, avec paliers de compression adaptatifs et repli sur "sans photos" si même le palier le plus serré dépasse 1 Mo (voir v161 dans l'historique).
+- Un upload de photo qui échoue (hors-ligne, etc.) n'est simplement pas synchronisé ce tour-ci — la photo reste en base64 en local et sera réessayée automatiquement au prochain sync réussi (cache dans `uploadPhoto`, jamais de perte de donnée).
+- **Limites connues (scope volontairement réduit) :** le document `shared_trips/{tripId}` (partage, share.js) utilise toujours uniquement `compressTripsForFirestore` (pas de bascule vers Storage) — un voyage individuel très chargé en photos peut encore être limité. Il n'y a pas de nettoyage automatique des fichiers Storage quand une photo/un voyage est supprimé (orphelins possibles, coût Storage négligeable). L'export ZIP (export.js) n'embarque que les photos encore en base64 localement ; une photo dont la source locale est déjà une URL Storage (reçue d'un autre appareil) est référencée mais pas ré-encodée dans le ZIP.
+
+---
+
 ## Service Worker
 
 - `cv-shell-N` : cache des fichiers app (stale-while-revalidate)
@@ -254,3 +265,4 @@ uid()          // ID court aléatoire
 | v159 | Globe : zoom qui restait rond au lieu de se rapprocher, drapeaux = emoji dans un rond au lieu de vrais badges pleins ; onglet Dépenses qui débordait sur tel ; montant diffusé dans un partage externe ; carte voyage (accueil) affichait le budget prévu au lieu du dépensé | Globe : `.globe-stage` n'est plus découpé en cercle par CSS (seul le canvas dessine le cercle) — zoomer pousse maintenant l'horizon au-delà du cadre au lieu de juste agrandir un disque, zoom max 3×→6×. Drapeaux : `_flagImgHtml()` (home.js) affiche une vraie image de drapeau recadrée en cercle (`object-fit:cover`, flagcdn.com) par-dessus un emoji de repli si l'image ne charge pas (hors-ligne) — utilisé par les badges "Drapeaux collectés" et les marqueurs sur le globe. Dépenses/Tricount mobile : `.settlement-row` passe en `flex-wrap` (noms de participants longs), le donut de répartition par catégorie s'empile en colonne (`.tri-donut-row`) au lieu de forcer une largeur minimale, `overflow-x:hidden` en filet de sécurité sur `.tri-main`. Partage Carnet : `_shareJournalItem` (journal.js) n'inclut plus jamais le montant dans le texte partagé. Carte voyage (home.js) : la puce de stats affiche désormais le total `realExpenses` (dépensé) au lieu de `budgetLines` (prévu) |
 | v160 | Globe : les marqueurs-drapeaux repassaient en emoji pendant le zoom/drag et grossissaient sans limite avec le zoom (cachaient toute la carte) | `_renderGlobeMarkers` (home.js) reconstruisait `innerHTML` à chaque frame → chaque `<img>` de drapeau était recréé et rechargée en boucle, interrompant son chargement (flash sur l'emoji de repli). Remplacé par une réconciliation par clé (`_globeMarkerEls` : Map code→élément, réutilisé entre les redraws, seuls `left/top/width/height` sont mis à jour) — les images ne se rechargent plus jamais après le premier affichage. Taille des marqueurs découplée du zoom (calculée sur le rayon de base, comme un pin de carte qui ne grossit pas avec le zoom) au lieu de suivre `_globeZoom` linéairement |
 | v161 | Sync tel→cloud qui échoue de nouveau (bibliothèque bien remplie) + photos qui reclignotent | Root cause identique à v151 mais reproduite par la croissance des données : `compressTripsForFirestore` (utils.js) n'avait que 2 paliers fixes (900px/0.7, 450px/0.5) — un compte avec assez de photos dépasse encore la limite de 1 Mo même au palier serré, et `syncToFirestore` échoue alors *systématiquement* pour ce compte (plus jamais de sync confirmée → le tie-break sur `updatedAt` ne voit plus jamais de nouvelle donnée serveur fraîche, d'où le clignotement qui semble revenir). Ajout d'un 3ᵉ palier (250px/0.4) et surtout d'un filet de sécurité final : si même le palier le plus serré dépasse encore la limite, les photos sont retirées de la copie synchronisée (mais conservées en local) plutôt que de faire échouer tout l'envoi — le reste des données (dates, budget, journal, GPX…) atteint toujours le cloud |
+| v162 | Sync limitée par le 1 Mo Firestore : la compression seule ne suffira plus avec plusieurs Go de photos | Changement d'architecture : nouveau module `photostore.js` (Firebase Cloud Storage). `syncToFirestore` (auth.js) essaie maintenant d'**uploader** chaque photo vers Storage (`users/{uid}/photos/{id}.jpg`) et de ne stocker que son URL dans Firestore, au lieu d'embarquer le base64 compressé — la taille du document ne dépend plus du tout du nombre/poids des photos. Repli automatique sur l'ancien comportement (`compressTripsForFirestore`) si Storage n'est pas joignable (hors-ligne, pas encore activé). Nécessite le plan Firebase Blaze (carte bancaire, usage réel gratuit sous les quotas inclus) — voir section "Photos & sync cloud" ci-dessus pour le détail et les limites connues (share.js/export ZIP pas encore migrés, pas de nettoyage auto des fichiers orphelins) |
