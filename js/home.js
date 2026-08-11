@@ -17,9 +17,9 @@ import {
   generateDays,
 } from './utils.js';
 // navigateToTrip / goMyMap accessed via window globals (set by app.js) to avoid circular import
-// import.js / export.js are dynamically imported at their few call sites below —
-// most sessions never touch import/export, so they shouldn't be in the boot bundle.
-import { parseGpx, computeGpxStats, saveLocalGpxTrack, removeLocalGpxTrack } from './gpx.js';
+// import.js / export.js / gpx.js are dynamically imported at their few call sites below —
+// most sessions never touch import/export or upload a GPX track from a sortie,
+// so none of them should be in the boot bundle.
 import { getCurrentUser, logout, syncToFirestore, isFirebaseConfigured, cleanupDuplicatePhotos } from './auth.js';
 import { requestNotificationPermission, notificationPermissionGranted } from './notifications.js';
 import { openShareModal, leaveSharedTrip, deleteOwnerSharedTrip, removeSharedTripMember, isCurrentUserObserver, getSharedDocData, addObserverReaction, deleteObserverReaction, addObserverComment, deleteObserverComment } from './share.js';
@@ -31,6 +31,7 @@ let _currentTab       = 'trips';   // 'trips' | 'stats'
 let _statsTypeFilter  = 'all';     // 'all' | 'voyage' | 'weekend' | 'sortie'
 let _homeLibTab       = 'mine';    // 'mine' | 'observing' | 'live'
 let _listenerAttached = false;
+let _fabOutsideClickBound = false; // guards the document-level FAB-closer below (see _bindHomeFab)
 let _statsLastFiltered = [];       // cache for world-map re-render on expand
 
 // ── Globe (stats world view) state ──────────────────────────────────────────────
@@ -1837,19 +1838,28 @@ export function renderHome(filter = _currentFilter) {
 
   _initHomeCarousels(wrap);
 
-  // Home FAB toggle
-  const homeFab  = document.getElementById('home-fab');
-  const fabMenu  = document.getElementById('home-fab-menu');
+  // Home FAB toggle — #home-fab/#home-fab-menu are recreated by the innerHTML
+  // above on every renderHome() call, so their own click listener is safe to
+  // rebind each time (the old nodes + listeners are garbage collected
+  // together). The outside-click closer below is bound to `document`, which
+  // is never recreated, so it must only ever be attached once — otherwise
+  // every renderHome() (triggered on nearly every state change) stacks one
+  // more permanent listener on `document`, an unbounded leak over a session.
+  const homeFab = document.getElementById('home-fab');
+  const fabMenu = document.getElementById('home-fab-menu');
   if (homeFab && fabMenu) {
     homeFab.addEventListener('click', e => {
       e.stopPropagation();
       const open = fabMenu.classList.toggle('visible');
       homeFab.classList.toggle('open', open);
     });
+  }
+  if (!_fabOutsideClickBound) {
     document.addEventListener('click', () => {
-      fabMenu.classList.remove('visible');
-      homeFab.classList.remove('open');
+      document.getElementById('home-fab-menu')?.classList.remove('visible');
+      document.getElementById('home-fab')?.classList.remove('open');
     });
+    _fabOutsideClickBound = true;
   }
 }
 
@@ -2735,6 +2745,7 @@ function _initSortieModalListeners(trip) {
     const file = e.target.files?.[0];
     if (!file) return;
     try {
+      const { parseGpx, computeGpxStats } = await import('./gpx.js');
       const text        = await file.text();
       const { tracks }  = parseGpx(text);
       if (!tracks.length || !tracks[0].points.length) { notify('Fichier GPX invalide ou vide', '⚠️'); return; }
@@ -2912,12 +2923,14 @@ async function _handleSortieSave() {
     } catch (_) { /* keep default — includes the 6s timeout abort */ }
   }
 
-  // GPX — resolve final state (new upload / existing / deleted)
+  // GPX — resolve final state (new upload / existing / deleted). gpx.js is only
+  // loaded here, on demand, when this save actually touches a GPX track.
   let finalGpxTrackId   = _existingPin.gpxTrackId  || null;
   let finalGpxStats     = _existingPin.gpxStats    || null;
   let finalGpxPoints    = _existingPin.gpxPoints   || null;
+  const _gpxMod = (_sortieGpxDeleted || _sortieGpxTrack) ? await import('./gpx.js') : null;
   if (_sortieGpxDeleted) {
-    if (finalGpxTrackId && _editingId) removeLocalGpxTrack(_editingId, finalGpxTrackId);
+    if (finalGpxTrackId && _editingId) _gpxMod.removeLocalGpxTrack(_editingId, finalGpxTrackId);
     finalGpxTrackId = null; finalGpxStats = null; finalGpxPoints = null;
   }
   if (_sortieGpxTrack) {
@@ -2963,11 +2976,11 @@ async function _handleSortieSave() {
 
   if (_editingId) {
     updateTrip(_editingId, data);
-    if (_sortieGpxTrack) saveLocalGpxTrack(_editingId, _sortieGpxTrack);
+    if (_sortieGpxTrack) _gpxMod.saveLocalGpxTrack(_editingId, _sortieGpxTrack);
     notify('Sortie mise à jour !', '✅');
   } else {
     const newTrip = addTrip(data);
-    if (_sortieGpxTrack) saveLocalGpxTrack(newTrip.id, _sortieGpxTrack);
+    if (_sortieGpxTrack) _gpxMod.saveLocalGpxTrack(newTrip.id, _sortieGpxTrack);
     notify('Sortie créée !', '✅');
   }
 

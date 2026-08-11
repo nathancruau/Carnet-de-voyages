@@ -17,6 +17,16 @@ let _tripId     = null;
 let _isObserver = false;
 let _prevTabId  = null;
 
+// Caches the resolved module for each tab that has actually been opened this
+// session (set at the same dynamic-import call sites that render each tab).
+// destroyTripMap() only tears down maps that were actually created instead of
+// importing all three tab modules unconditionally on every trip-screen exit —
+// e.g. a user who only ever looked at the mapcal tab shouldn't force a
+// network fetch of journal.js/sortie.js just to leave the trip.
+let _mapcalMod  = null;
+let _journalMod = null;
+let _sortieMod  = null;
+
 // ─── Public API ───────────────────────────────────────────────────────────────
 
 /**
@@ -37,8 +47,8 @@ export async function openTrip(id) {
     _renderSortieTopbar(trip);
     const panels = document.getElementById('panels');
     if (panels) panels.innerHTML = '';
-    const { renderSortie } = await import('./sortie.js');
-    renderSortie(id);
+    _sortieMod = await import('./sortie.js');
+    _sortieMod.renderSortie(id);
     return;
   }
 
@@ -67,17 +77,15 @@ export async function openTrip(id) {
 }
 
 /**
- * Destroy the Leaflet map instance when leaving the trip screen.
+ * Destroy the Leaflet map instance when leaving the trip screen. Only tears
+ * down tab modules that were actually loaded this session (see _mapcalMod /
+ * _journalMod / _sortieMod above) — a trip closed without ever opening, say,
+ * the journal tab has no journal map to destroy.
  */
-export async function destroyTripMap() {
-  const [mapcalMod, journalMod, sortieMod] = await Promise.all([
-    import('./mapcal.js').catch(() => null),
-    import('./journal.js').catch(() => null),
-    import('./sortie.js').catch(() => null),
-  ]);
-  mapcalMod?.destroyMap();
-  journalMod?.destroyJournalMap();
-  sortieMod?.destroySortieMap();
+export function destroyTripMap() {
+  _mapcalMod?.destroyMap();
+  _journalMod?.destroyJournalMap();
+  _sortieMod?.destroySortieMap();
 }
 
 /**
@@ -451,13 +459,13 @@ async function _renderActiveTab(tabId, tripId, isObserver = false) {
   if (!tripId) return;
   try {
     if (tabId === 'mapcal') {
-      const { renderMapCal } = await import('./mapcal.js');
-      renderMapCal(tripId);
+      _mapcalMod = await import('./mapcal.js');
+      _mapcalMod.renderMapCal(tripId);
     } else if (tabId === 'journal' || tabId === 'journal-timeline') {
-      const { renderJournal } = await import('./journal.js');
+      _journalMod = await import('./journal.js');
       // For observers, always pass an explicit forceView so switching tabs resets the view
       const forceView = tabId === 'journal-timeline' ? 'timeline' : (isObserver ? 'map' : null);
-      renderJournal(tripId, isObserver, forceView);
+      _journalMod.renderJournal(tripId, isObserver, forceView);
     } else if (tabId === 'budget') {
       const { renderBudget } = await import('./budget.js');
       renderBudget(tripId);

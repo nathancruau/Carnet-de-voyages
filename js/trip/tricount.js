@@ -190,6 +190,10 @@ function computeSettlements(balances) {
 // ── Panel listener registry ───────────────────────────────────────────────────
 
 const _handlers = new WeakMap();
+// Keyed by panel too, even though the listener is bound to `document` (not
+// panel) — this is just how we remember "the previous render's closer" so it
+// can be removed before adding the new one, same pattern as _handlers above.
+const _fabCloseHandlers = new WeakMap();
 
 // ── Render ────────────────────────────────────────────────────────────────────
 
@@ -234,16 +238,23 @@ export function renderTricount(tripId) {
   _handlers.set(panel, handler);
   panel.addEventListener('click', handler);
 
-  // Close FAB menu on outside click
-  setTimeout(() => {
-    document.addEventListener('click', function _fabClose(ev) {
-      const fab = document.getElementById('tri-fab-menu');
-      if (!fab) { document.removeEventListener('click', _fabClose); return; }
-      if (!fab.contains(ev.target) && !ev.target.closest('[data-action="tri-fab"]')) {
-        fab.classList.remove('visible');
-      }
-    });
-  }, 0);
+  // Close FAB menu on outside click. renderTricount() re-renders panel.innerHTML
+  // (and thus a fresh #tri-fab-menu) after every expense/transfer add/edit/
+  // delete/settle, but this listener is bound to `document`, which is never
+  // recreated — so the old one must be removed first, otherwise every render
+  // stacks one more permanent listener on `document` for the rest of the session.
+  if (_fabCloseHandlers.has(panel)) {
+    document.removeEventListener('click', _fabCloseHandlers.get(panel));
+  }
+  const fabCloseHandler = ev => {
+    const fab = document.getElementById('tri-fab-menu');
+    if (!fab) return;
+    if (!fab.contains(ev.target) && !ev.target.closest('[data-action="tri-fab"]')) {
+      fab.classList.remove('visible');
+    }
+  };
+  _fabCloseHandlers.set(panel, fabCloseHandler);
+  document.addEventListener('click', fabCloseHandler);
 }
 
 // ── Side panel ────────────────────────────────────────────────────────────────

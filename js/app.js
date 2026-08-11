@@ -4,12 +4,18 @@
 
 import { loadData, getState, setState, setSyncCallback, getSettings, getTrips, hasPendingLocalChanges, getRecentlyDeletedIds } from './store.js';
 import { renderHome } from './home.js';
-import { renderMyMap, destroyMyMap } from './mymap.js';
 import { openTrip, destroyTripMap } from './trip/trip.js';
 import { closeModal, showModal, esc } from './utils.js';
 import { initAuth, loginWithGoogle, syncToFirestore, isFirebaseConfigured, listenUserDoc, setSyncErrorCallback } from './auth.js';
-import { initSharedTrips, handlePendingInvite } from './share.js';
 import { checkDepartureNotifications } from './notifications.js';
+
+// mymap.js and share.js are only ever needed once a user actually opens "My Map"
+// or reaches a shared/invite flow — most sessions do neither, so both are loaded
+// on demand instead of being in the initial boot bundle. `_mymapModule` caches
+// the resolved module so goHome()/navigateToTrip() can synchronously no-op the
+// map cleanup when mymap.js was never loaded (nothing to destroy) instead of
+// forcing a network fetch just to tear something down.
+let _mymapModule = null;
 
 // Capture ?invite=TOKEN before anything else, store in sessionStorage, clean URL
 {
@@ -61,14 +67,14 @@ export function showScreen(id) {
 
 export function navigateToTrip(id) {
   currentTripId = id;
-  destroyMyMap();
+  _mymapModule?.destroyMyMap();
   openTrip(id);
   showScreen('app');
 }
 
 export function goHome() {
   destroyTripMap();
-  destroyMyMap();
+  _mymapModule?.destroyMyMap();
   document.body.style.overflowY = '';
   document.documentElement.style.overflowY = '';
   showScreen('home');
@@ -79,8 +85,11 @@ export function goMyMap() {
   destroyTripMap();
   document.body.style.overflowY = '';
   document.documentElement.style.overflowY = '';
-  showScreen('mymap');
-  renderMyMap();
+  import('./mymap.js').then(mod => {
+    _mymapModule = mod;
+    showScreen('mymap');
+    mod.renderMyMap();
+  });
 }
 
 // ── Login screen ───────────────────────────────────────────────────────────────
@@ -211,13 +220,17 @@ function _onAuthReady(user, cloudData) {
     // initSharedTrips() commonly finds nothing new, and an unconditional
     // re-render here rebuilds the whole trip grid (every cover photo included)
     // a second time right after the first render, which is visible as a flicker.
+    // share.js itself is only needed once a session actually reaches this
+    // point (a signed-in user), so it's loaded on demand rather than eagerly.
     const _sigBeforeShared = _tripsSignature(getState().trips);
-    initSharedTrips(cloudData).then(() => {
-      if (currentScreen === 'home' && _tripsSignature(getState().trips) !== _sigBeforeShared) {
-        renderHome();
-      }
-      return handlePendingInvite(user);
-    });
+    import('./share.js').then(({ initSharedTrips, handlePendingInvite }) =>
+      initSharedTrips(cloudData).then(() => {
+        if (currentScreen === 'home' && _tripsSignature(getState().trips) !== _sigBeforeShared) {
+          renderHome();
+        }
+        return handlePendingInvite(user);
+      })
+    );
   } catch (err) {
     console.error('[app] render failed after login:', err);
     // The login form may not exist yet (spinner is still showing).

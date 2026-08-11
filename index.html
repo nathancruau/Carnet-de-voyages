@@ -27,19 +27,18 @@
 
   <!-- Modulepreload: fetch the always-loaded JS graph in parallel instead of the
        nested-import waterfall (parser must fetch+parse a module before it can
-       discover its own imports). Trip sub-tab modules (mapcal/journal/budget/…)
-       stay lazy — only dynamically imported when the user opens them. -->
-  <link rel="modulepreload" href="js/app.js?v=171" />
+       discover its own imports). mymap.js / share.js / gpx.js and the trip
+       sub-tab modules (mapcal/journal/budget/…) stay lazy — only dynamically
+       imported when the user actually opens "My Map", reaches a shared/invite
+       flow, or uploads a GPX track, since most sessions never touch any of them. -->
+  <link rel="modulepreload" href="js/app.js?v=172" />
   <link rel="modulepreload" href="js/store.js" />
   <link rel="modulepreload" href="js/utils.js" />
   <link rel="modulepreload" href="js/auth.js" />
   <link rel="modulepreload" href="js/firebase-config.js" />
   <link rel="modulepreload" href="js/photostore.js" />
   <link rel="modulepreload" href="js/home.js" />
-  <link rel="modulepreload" href="js/mymap.js" />
-  <link rel="modulepreload" href="js/gpx.js" />
   <link rel="modulepreload" href="js/trip/trip.js" />
-  <link rel="modulepreload" href="js/share.js" />
   <link rel="modulepreload" href="js/notifications.js" />
 
   <!-- Leaflet CSS: not needed for the login/home screens, so load it without
@@ -47,14 +46,25 @@
        in document order — style.css overrides several .leaflet-* rules and
        needs to win the cascade once both are applied. -->
   <link rel="stylesheet" href="vendor/leaflet.css" media="print" onload="this.media='all'" />
-  <link rel="stylesheet" href="style.css?v=171" />
+  <link rel="stylesheet" href="style.css?v=172" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,600;0,700;1,400;1,600;1,700&family=Nunito:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
   <script>
     (function(){try{
-      var d=JSON.parse(localStorage.getItem('carnet_voyages_v1')||'{}');
-      var t=(d.settings||{}).theme;
+      // carnet_theme mirrors settings.theme (kept in sync by store.js's
+      // _persistState) so this boot-time check can skip parsing the full
+      // app-state blob — which can be several MB since local trips keep
+      // photos as base64 — just to read one field before first paint.
+      var t=localStorage.getItem('carnet_theme');
+      if(t===null){
+        // Mirror doesn't exist yet (first load after this was introduced) —
+        // fall back once to the full blob, then backfill the mirror so every
+        // later boot takes the cheap path above.
+        var d=JSON.parse(localStorage.getItem('carnet_voyages_v1')||'{}');
+        t=(d.settings||{}).theme||'';
+        try{localStorage.setItem('carnet_theme',t);}catch(_){}
+      }
       if(t==='dark')document.documentElement.dataset.theme='dark';
       else if(t==='auto'&&window.matchMedia('(prefers-color-scheme:dark)').matches)
         document.documentElement.dataset.theme='dark';
@@ -212,6 +222,6 @@
       if (bar) bar.style.display = 'none';
     }
   </script>
-<script type="module" src="js/app.js?v=171"></script>
+<script type="module" src="js/app.js?v=172"></script>
 </body>
 </html>

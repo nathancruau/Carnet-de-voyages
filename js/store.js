@@ -13,8 +13,21 @@
    ============================================================ */
 
 const STORAGE_KEY = 'carnet_voyages_v1';
+// Small mirror of settings.theme, updated alongside every full-state write
+// below. index.html's inline boot script reads only this key to decide dark
+// mode before first paint — otherwise it (and loadData() moments later) would
+// each need a full JSON.parse of the entire state blob just to read one
+// field, and that blob can be multi-MB since local trips keep photos as
+// base64 in localStorage (see CLAUDE.md "Photos & sync cloud").
+const THEME_KEY = 'carnet_theme';
 
-export const APP_VERSION = '171';
+/** Persist the full state blob, keeping the small THEME_KEY mirror in sync. */
+function _persistState() {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  try { localStorage.setItem(THEME_KEY, state.settings?.theme || ''); } catch (_) {}
+}
+
+export const APP_VERSION = '172';
 
 export const COMP_COLORS = [
   '#0d9488','#7c3aed','#e85d3e','#d97706',
@@ -98,14 +111,6 @@ export function createTrip(data = {}) {
 }
 
 // ── Default app settings ───────────────────────────────────────────────────────
-
-export const DEFAULT_PIN_TYPES = [
-  { key: 'hiker',  emoji: '🥾', label: 'Randonnée' },
-  { key: 'city',   emoji: '🏙️', label: 'Ville' },
-  { key: 'temple', emoji: '⛩️', label: 'Temple / Patrimoine' },
-  { key: 'beach',  emoji: '🏖️', label: 'Plage' },
-  { key: 'park',   emoji: '🌲', label: 'Parc / Nature' },
-];
 
 export const DEFAULT_EVENT_TYPES = [
   { key: 'sleep',      emoji: '🌙', label: 'Nuit',              color: '#7c3aed' },
@@ -234,7 +239,7 @@ export function replaceTripFromNetwork(id, tripData) {
   } else {
     state.trips.unshift(migrated);
   }
-  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (e) {}
+  try { _persistState(); } catch (e) {}
 }
 
 
@@ -291,7 +296,7 @@ export function setState(cloudData) {
   if (!Array.isArray(state.trips)) state.trips = [];
   // Run migration on every trip to fill missing fields from older schema versions
   state.trips = state.trips.map(t => _migrateTrip(t));
-  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
+  try { _persistState(); }
   catch (e) { console.warn('Carnet: failed to persist merged state', e); }
 }
 
@@ -378,7 +383,7 @@ function _migrateTrip(t) {
  */
 export function saveData() {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    _persistState();
   } catch (e) {
     console.warn('Carnet: localStorage full or unavailable — data may not persist', e);
   }
@@ -486,17 +491,3 @@ export function deleteTrip(id) {
 }
 
 export function getRecentlyDeletedIds() { return new Set(_recentlyDeletedIds); }
-
-/**
- * Return a human-readable day label from an ISO date string.
- * e.g. 'lun. 3 janv.'
- */
-export function getDayLabel(isoDate) {
-  if (!isoDate) return '';
-  const d = new Date(isoDate + 'T00:00:00');
-  return d.toLocaleDateString('fr-FR', {
-    weekday: 'short',
-    day:     'numeric',
-    month:   'short',
-  });
-}

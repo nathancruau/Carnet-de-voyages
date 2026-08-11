@@ -188,58 +188,6 @@ async function _compressPhotoBlob(blob, maxDim = 1200) {
   });
 }
 
-// ── ZIP import ────────────────────────────────────────────────────────────────
-
-/**
- * Import a full Polarsteps ZIP export (trip.json + {slug}_{id}/photos/).
- * All journal entries are automatically validated with descriptions and photos.
- * @param {File} zipFile
- * @param {(done: number, total: number) => void} [onProgress]
- * @returns {Promise<object>} Created trip object
- */
-export async function importPolarstepsZip(zipFile, onProgress) {
-  const JSZip = await _loadJSZip();
-  const zip   = await JSZip.loadAsync(zipFile);
-
-  // Find trip.json (root or inside a sub-folder)
-  const tripEntry = zip.file('trip.json') ?? zip.file(/(?:^|\/)trip\.json$/)?.[0];
-  if (!tripEntry) throw new Error('trip.json introuvable dans le ZIP');
-
-  const tripData = JSON.parse(await tripEntry.async('text'));
-  if (!isPolarstepsExport(tripData)) throw new Error('Format trip.json non reconnu');
-
-  // Collect photo files — folder name pattern: {slug}_{stepId}/photos/{file}
-  const photoEntries = [];
-  zip.forEach((path, entry) => {
-    if (!entry.dir
-      && /\/photos\/[^/]+$/i.test(path)
-      && /\.(jpe?g|png|webp|gif)$/i.test(path)) {
-      const m = path.match(/_(\d+)\/photos\/[^/]+$/i);
-      if (m) photoEntries.push({ path, entry, stepId: parseInt(m[1], 10) });
-    }
-  });
-
-  const total = photoEntries.length;
-  let done = 0;
-  if (onProgress) onProgress(0, total);
-
-  const stepPhotos = {};
-  for (const { path, entry, stepId } of photoEntries) {
-    try {
-      const blob   = await entry.async('blob');
-      const base64 = await _compressPhotoBlob(blob);
-      if (base64) (stepPhotos[stepId] ??= []).push(base64);
-    } catch (e) {
-      console.warn('[zip] photo error', path, e.message);
-    }
-    done++;
-    if (onProgress) onProgress(done, total);
-  }
-
-  const days = _psBuildDays(tripData.all_steps, stepPhotos, /* validateAll */ true);
-  return addTrip({ ..._psTripBase(tripData), days });
-}
-
 // ── KML / CSV public API ──────────────────────────────────────────────────────
 
 /**

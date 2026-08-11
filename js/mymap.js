@@ -1090,11 +1090,6 @@ window._mmImportGpx = function() {
   input.click();
 };
 
-window._mmClearGpx = function() {
-  for (const layer of _gpxLayers) { try { layer.remove(); } catch (_) {} }
-  _gpxLayers = [];
-};
-
 // ── Offline tile pre-cache ────────────────────────────────────────────────────
 
 window._mmDownloadOffline = function() {

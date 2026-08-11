@@ -445,20 +445,6 @@ export async function updateLastPublished(tripId, publishData) {
   });
 }
 
-/** Persist the list of shared trip IDs on the user's personal Firestore document. */
-export async function saveUserSharedTripIds(ids) {
-  if (!_db || !_setDocFn || !_docFn || !_uid) return;
-  try {
-    await _setDocFn(
-      _docFn(_db, 'users', _uid),
-      { sharedTripIds: ids },
-      { merge: true },
-    );
-  } catch (err) {
-    console.warn('[auth] saveUserSharedTripIds failed:', err.message);
-  }
-}
-
 /** Add a comment to a day's thread in a shared trip. */
 export async function addComment(tripId, dayId, text, author) {
   if (!_db || !_updateDocFn || !_docFn || !_arrayUnionFn) return;
