@@ -141,11 +141,12 @@ window.closeModal = closeModal;
 // writing to localStorage only. Used for both the personal sync (auth.js) and
 // the per-trip shared_trips document (share.js).
 
-// Two compression tiers: try good quality first (plenty for most trips), and
-// only escalate to the aggressive tier for the rare account with enough
-// photos that even the good-quality pass wouldn't fit in a 1 MB document.
+// Compression tiers: try good quality first (plenty for most trips), and only
+// escalate to a tighter tier for accounts with enough photos that a looser
+// pass wouldn't fit in a 1 MB document. Tried in order until one fits.
 const GOOD_TIER  = { maxSize: 900, quality: 0.7 };
 const TIGHT_TIER = { maxSize: 450, quality: 0.5 };
+const _SYNC_TIERS = [GOOD_TIER, TIGHT_TIER, { maxSize: 250, quality: 0.4 }];
 const FIRESTORE_SIZE_LIMIT = 900 * 1024; // safety margin under Firestore's ~1 MiB cap
 
 const _compressedPhotoCache = new Map(); // `${data: URL}|${maxSize}|${quality}` → compressed data: URL
@@ -241,17 +242,48 @@ export async function compressTripPhotos(trip, maxSize = GOOD_TIER.maxSize, qual
   return t;
 }
 
+/** Strip every embedded photo from a trip (last-resort fallback below). */
+function _stripAllPhotos(trip) {
+  const t = JSON.parse(JSON.stringify(trip));
+  delete t.photo;
+  t.photos = [];
+  if (t.pin?.gpxPoints) delete t.pin.gpxPoints;
+  t.days = (t.days || []).map(day => ({
+    ...day,
+    items: (day.items || []).map(item => {
+      const i = { ...item };
+      delete i.photo;
+      i.photos = [];
+      if (i.journalData) i.journalData = { ...i.journalData, photos: [] };
+      delete i.gpxPoints;
+      return i;
+    }),
+  }));
+  t.journalEntries = (t.journalEntries || []).map(je => ({ ...je, photos: [] }));
+  return t;
+}
+
 /**
- * Compress a set of trips for a single Firestore write, escalating to the
- * more aggressive tier only if the good-quality pass would still be too
- * large for the ~1 MB document limit. Used for both the per-trip
- * shared_trips document (share.js, pass a 1-trip array) and the personal
- * users/{uid} document (auth.js, holds every trip at once).
+ * Compress a set of trips for a single Firestore write, escalating through
+ * progressively tighter tiers until the payload fits the ~1 MB document
+ * limit. Used for both the per-trip shared_trips document (share.js, pass a
+ * 1-trip array) and the personal users/{uid} document (auth.js, holds every
+ * trip at once).
+ *
+ * If even the tightest tier doesn't fit (an account with a very large photo
+ * library), photos are dropped from the synced copy entirely rather than
+ * failing the write outright — every non-photo field (dates, budget, journal
+ * text, GPX stats…) still reaches the cloud instead of the whole sync being
+ * stuck on localStorage-only forever. Local storage / display keep the
+ * original full-resolution photos regardless.
  */
 export async function compressTripsForFirestore(trips) {
-  const good = await Promise.all(trips.map(t => compressTripPhotos(t, GOOD_TIER.maxSize, GOOD_TIER.quality)));
-  if (JSON.stringify(good).length <= FIRESTORE_SIZE_LIMIT) return good;
-  return Promise.all(trips.map(t => compressTripPhotos(t, TIGHT_TIER.maxSize, TIGHT_TIER.quality)));
+  let result = trips;
+  for (const tier of _SYNC_TIERS) {
+    result = await Promise.all(trips.map(t => compressTripPhotos(t, tier.maxSize, tier.quality)));
+    if (JSON.stringify(result).length <= FIRESTORE_SIZE_LIMIT) return result;
+  }
+  return trips.map(_stripAllPhotos);
 }
 
 // ── Date helpers ───────────────────────────────────────────────────────────────
