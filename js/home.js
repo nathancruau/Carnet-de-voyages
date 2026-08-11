@@ -97,10 +97,18 @@ function _knownCompanions() {
   return [...byLower.values()].sort((a, b) => b.count - a.count);
 }
 
-/** Suggestion chips for companions not already added to the given list. */
-function _compSuggestChipsHtml(currentComps) {
+/**
+ * Suggestion chips for companions not already added to the given list.
+ * With no query: the most frequent travel companions (quick pick). Once the
+ * user starts typing, switches to a live filter over every known companion —
+ * not just the frequent ones — so anyone can still be found by name.
+ */
+function _compSuggestChipsHtml(currentComps, query = '') {
   const already = new Set(currentComps.map(c => (c.name || '').trim().toLowerCase()));
-  const suggestions = _knownCompanions().filter(c => !already.has(c.name.toLowerCase())).slice(0, 8);
+  const q = query.trim().toLowerCase();
+  let suggestions = _knownCompanions().filter(c => !already.has(c.name.toLowerCase()));
+  suggestions = q ? suggestions.filter(c => c.name.toLowerCase().includes(q)) : suggestions;
+  suggestions = suggestions.slice(0, 8);
   if (!suggestions.length) return '';
   return `
     <div class="comp-suggest-row">
@@ -2673,6 +2681,10 @@ function _initSortieModalListeners(trip) {
   sortieCompInput?.addEventListener('keydown', e => {
     if (e.key === 'Enter') { e.preventDefault(); addSortieComp(); }
   });
+  sortieCompInput?.addEventListener('input', () => {
+    const suggest = document.getElementById('sm-comp-suggest');
+    if (suggest) suggest.innerHTML = _compSuggestChipsHtml(_sortieComps, sortieCompInput.value);
+  });
   document.getElementById('sm-comp-suggest')?.addEventListener('click', e => {
     const chip = e.target.closest('[data-action="add-suggested-comp"]');
     if (chip) addSortieComp(chip.dataset.name);
@@ -3417,6 +3429,10 @@ function _initModalListeners(trip) {
   document.getElementById('m-comp-add')?.addEventListener('click', () => addCompFn());
   compInput?.addEventListener('keydown', e => {
     if (e.key === 'Enter') { e.preventDefault(); addCompFn(); }
+  });
+  compInput?.addEventListener('input', () => {
+    const suggest = document.getElementById('m-comp-suggest');
+    if (suggest) suggest.innerHTML = _compSuggestChipsHtml(_modalComps, compInput.value);
   });
 
   // Suggested companions (people from previous trips)

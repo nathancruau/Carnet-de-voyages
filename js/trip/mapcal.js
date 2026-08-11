@@ -1079,7 +1079,8 @@ function _collectAllWaypoints(trip) {
           const already = last && last.nightId === depNight.id;
           if (!already) {
             wps.push({ dayId: day.id, itemId: null, lat: depNight.lat, lng: depNight.lng,
-              mode: 'car', label: depNight.name || '🌙 Nuit', isNight: true, nightId: depNight.id });
+              mode: day.departNightMode || 'car', label: depNight.name || '🌙 Nuit',
+              isNight: true, isDepartNight: true, nightId: depNight.id });
           }
         }
       }
@@ -1105,7 +1106,8 @@ function _collectAllWaypoints(trip) {
         const already = last && last.nightId === retNight.id;
         if (!already) {
           wps.push({ dayId: day.id, itemId: null, lat: retNight.lat, lng: retNight.lng,
-            mode: 'car', label: retNight.name || '🌙 Nuit', isNight: true, nightId: retNight.id });
+            mode: day.returnNightMode || 'car', label: retNight.name || '🌙 Nuit',
+            isNight: true, isReturnNight: true, nightId: retNight.id });
         }
       }
     }
@@ -1212,7 +1214,14 @@ function _bindRouteModeClick(polyline, toWp) {
         }
       } else {
         const day = (trip.days || []).find(d => d.id === toWp.dayId);
-        if (day) { day.routeMode = newMode; toWp.mode = newMode; }
+        if (day) {
+          // Same field split as the write path above: a night pin's arrival edge
+          // depends on whether it's the depart-from-night or return-to-night leg.
+          if (toWp.isDepartNight) day.departNightMode = newMode;
+          else if (toWp.isReturnNight) day.returnNightMode = newMode;
+          else day.routeMode = newMode;
+          toWp.mode = newMode;
+        }
       }
       updateTrip(_tripId, { days: trip.days });
       _map?.closePopup();
@@ -2597,7 +2606,16 @@ function _attachLeftPanelListeners(panel) {
         }
       } else {
         const dayIdx = days.findIndex(d => d.id === toWp2.dayId);
-        if (dayIdx >= 0) days[dayIdx] = { ...days[dayIdx], routeMode: mode };
+        if (dayIdx >= 0) {
+          // Night pins aren't a real item — same field-mismatch issue as above:
+          // depart-from-night and return-to-night are two distinct edges on the
+          // same day and each needs its own field, or one silently overwrites
+          // the read for the other (both used to be hardcoded to 'car').
+          const field = toWp2.isDepartNight ? 'departNightMode'
+                      : toWp2.isReturnNight ? 'returnNightMode'
+                      : 'routeMode';
+          days[dayIdx] = { ...days[dayIdx], [field]: mode };
+        }
       }
       updateTrip(_tripId, { days });
       const updated = getTrip(_tripId);
