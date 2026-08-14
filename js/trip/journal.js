@@ -1464,12 +1464,15 @@ async function _shareJournalItem({ tripName, dayLabel, itemLabel, notes, weather
 
   let files = [];
   if (photos.length && navigator.canShare) {
-    try {
-      files = await Promise.all(
-        photos.slice(0, 10).map((src, i) => _dataUrlToFile(src, `photo-${i + 1}.jpg`))
-      );
-      if (!navigator.canShare({ files })) files = [];
-    } catch (_) { files = []; }
+    // Promise.allSettled, not Promise.all: one photo failing to fetch (e.g. a
+    // stale/expired URL, a transient network error) used to reject the whole
+    // batch via Promise.all's fail-fast behavior, silently dropping ALL
+    // photos from the share even when the rest were perfectly fine.
+    const results = await Promise.allSettled(
+      photos.slice(0, 10).map((src, i) => _dataUrlToFile(src, `photo-${i + 1}.jpg`))
+    );
+    files = results.filter(r => r.status === 'fulfilled').map(r => r.value);
+    if (files.length && !navigator.canShare({ files })) files = [];
   }
 
   if (navigator.share) {
