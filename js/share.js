@@ -347,6 +347,13 @@ export async function leaveSharedTrip(tripId) {
   const user = getCurrentUser();
   if (user?.uid) _obsUpdateCache(user.uid, tripId, false);
 
+  // Remove our own member entry from the shared doc too — otherwise this
+  // cleanup only touched local device state, so the owner (and everyone
+  // else) kept seeing this person in the traveler/observer list and count
+  // forever, even though they'd actually left. Best-effort: the local
+  // leave must still succeed even if this write fails (offline, etc.).
+  if (user?.uid) removeMemberFromSharedTrip(tripId, user.uid).catch(() => {});
+
   // Remove from local list and persist via store state (syncToFirestore picks it up).
   _sharedTripIds = _sharedTripIds.filter(id => id !== tripId);
   setSharedTripIds(_sharedTripIds);

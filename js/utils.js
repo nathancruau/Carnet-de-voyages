@@ -367,6 +367,18 @@ export function generateDays(trip) {
   return days;
 }
 
+/**
+ * A day's title if it's a real custom title, or '' if empty or just the
+ * "Jour N" default generateDays() sets on every day above — most days never
+ * get renamed, so treating that default as "custom" made every "Jour N ·
+ * <title>" label in the app (timeline, share text, day pickers…) show the
+ * day number twice, e.g. "Jour 3 · Jour 3".
+ */
+export function customDayTitle(day) {
+  const t = (day?.title || '').trim();
+  return (t && t !== `Jour ${day?.num}`) ? t : '';
+}
+
 // ── Event type helpers ─────────────────────────────────────────────────────────
 // These look up colour/icon for a given event or transport type.
 // The fallback maps mirror DEFAULT_EVENT_TYPES in store.js for offline safety.

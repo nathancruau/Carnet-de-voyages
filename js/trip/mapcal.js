@@ -15,7 +15,7 @@ import {
   fmtDate, fmtDateShort,
   isoToDate, dateToIso, generateDays,
   tCol, tIc, trIc, trNm, trCol, fmtFlag,
-  MNS, DOW,
+  MNS, DOW, customDayTitle,
 } from '../utils.js';
 import { updateTopStats } from './trip.js';
 
@@ -673,7 +673,7 @@ function _openGpxImportModal(tripId, track, stats) {
   const durStr  = _fmtDur(stats.durationSecs);
 
   const dayOptions = days.map(d =>
-    `<option value="${_esc(d.id)}"${d.id === defaultDayId ? ' selected' : ''}>Jour ${d.num}${d.title ? ' – ' + _esc(d.title) : ''}${d.date ? ' (' + d.date + ')' : ''}</option>`
+    `<option value="${_esc(d.id)}"${d.id === defaultDayId ? ' selected' : ''}>Jour ${d.num}${customDayTitle(d) ? ' – ' + _esc(customDayTitle(d)) : ''}${d.date ? ' (' + d.date + ')' : ''}</option>`
   ).join('');
 
   showModal(`
@@ -1779,7 +1779,7 @@ function _openEditEventModal(dayId, evtIdx, tripId) {
   // drag-and-drop (used on desktop) doesn't work with touch.
   function _dayOptionsHtml() {
     return (trip.days || []).map(d => {
-      const label = `Jour ${d.num}${d.date ? ' · ' + fmtDateShort(d.date) : ''}${d.title ? ' · ' + d.title : ''}`;
+      const label = `Jour ${d.num}${d.date ? ' · ' + fmtDateShort(d.date) : ''}${customDayTitle(d) ? ' · ' + customDayTitle(d) : ''}`;
       return `<option value="${_esc(d.id)}"${d.id === dayId ? ' selected' : ''}>${_esc(label)}</option>`;
     }).join('');
   }

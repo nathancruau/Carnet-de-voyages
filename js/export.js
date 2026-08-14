@@ -2,6 +2,8 @@
    CARNET DE VOYAGES — Export (JSON, ZIP, PDF)
    ============================================================ */
 
+import { customDayTitle } from './utils.js';
+
 // ── Private helpers ───────────────────────────────────────────────────────────
 
 async function _loadJSZip() {
@@ -245,7 +247,7 @@ function _buildCustomHtml(trip, opts) {
         <div class="day-hd">
           <b class="dn">Jour ${day.num}</b>
           ${day.date ? `<span class="dd">${_fmtDate(day.date)}</span>` : ''}
-          ${day.title ? `<span class="dt">${_esc(day.title)}</span>` : ''}
+          ${customDayTitle(day) ? `<span class="dt">${_esc(customDayTitle(day))}</span>` : ''}
           ${day.region ? `<span class="dr">${_esc(day.region)}</span>` : ''}
         </div>
         ${itemsHtml || '<p class="empty-day">—</p>'}

@@ -6,7 +6,7 @@
    ============================================================ */
 
 import { getTrips, TRIP_TYPES, getPinTypes } from './store.js';
-import { fmtDate, fmtDateShort, trCol, fmtFlag } from './utils.js';
+import { fmtDate, fmtDateShort, trCol, fmtFlag, customDayTitle } from './utils.js';
 import { parseGpx, generateGpx, downloadFile, estimateTileCount, gpxStatsBlockHtml, initGpxChart, getLocalGpxTracks, downsampleGpxPoints } from './gpx.js';
 
 // ── PIN type helper (dynamic from settings) ────────────────────────────────────
@@ -428,7 +428,7 @@ function _buildAllPins() {
             id:         item.id,
             title:      item.text  || '—',
             date:       day.date   || null,
-            dayLabel:   `Jour ${day.num}${day.title ? ' · ' + day.title : ''}`,
+            dayLabel:   `Jour ${day.num}${customDayTitle(day) ? ' · ' + customDayTitle(day) : ''}`,
             pinType:    item.type  || null,
             dayFlag:    day.flag   || null,
             lat, lng,

@@ -3,7 +3,7 @@
    ============================================================ */
 
 import { getTrip, updateTrip, uid } from '../store.js';
-import { notify, showModal, closeModal, fmtDateShort } from '../utils.js';
+import { notify, showModal, closeModal, fmtDateShort, customDayTitle } from '../utils.js';
 import { updateTopStats } from './trip.js';
 
 // ── Module state ──────────────────────────────────────────────────────────────
@@ -463,7 +463,7 @@ function _openLineModal(tripId, lineId) {
 
   const daysOpts = `<option value="">Aucun jour</option>` +
     days.map(d =>
-      `<option value="${_esc(d.id)}"${line?.dayId === d.id ? ' selected' : ''}>Jour ${d.num}${d.title ? ' · ' + _esc(d.title) : ''}${d.date ? ' (' + fmtDateShort(d.date) + ')' : ''}</option>`
+      `<option value="${_esc(d.id)}"${line?.dayId === d.id ? ' selected' : ''}>Jour ${d.num}${customDayTitle(d) ? ' · ' + _esc(customDayTitle(d)) : ''}${d.date ? ' (' + fmtDateShort(d.date) + ')' : ''}</option>`
     ).join('');
 
   showModal(`

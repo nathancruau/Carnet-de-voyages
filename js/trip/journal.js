@@ -3,7 +3,7 @@
    ============================================================ */
 
 import { getTrip, updateTrip, uid, getEventTypes, getLanguage, isTripShared } from '../store.js';
-import { notify, showModal, closeModal, fmtDate, fmtDateShort, isoToDate, dateToIso } from '../utils.js';
+import { notify, showModal, closeModal, fmtDate, fmtDateShort, isoToDate, dateToIso, customDayTitle } from '../utils.js';
 import { updateTopStats } from './trip.js';
 import { getCurrentUser } from '../auth.js';
 
@@ -65,7 +65,7 @@ function _dayLabel(trip, dayId) {
   if (!dayId) return null;
   const day = (trip.days || []).find(d => d.id === dayId);
   if (!day) return null;
-  return `Jour ${day.num}${day.title ? ' · ' + day.title : ''}`;
+  return `Jour ${day.num}${customDayTitle(day) ? ' · ' + customDayTitle(day) : ''}`;
 }
 
 function _gpxStatsHtml(item) {
@@ -572,7 +572,7 @@ function _tlDayHtml(day, items, isObserver, tripId, sharedDoc, currentUid) {
             ${!isObserver ? `<span style="font-size:10px;color:var(--ink4);font-weight:600">${validatedCount}/${items.length} documenté${validatedCount !== 1 ? 's' : ''}</span>` : ''}
             ${hasNewInDay ? `<span class="obs-new-badge">Nouveau</span>` : ''}
           </div>
-          ${day.title ? `<div class="tl-day-title">${_esc(day.title)}</div>` : ''}
+          ${customDayTitle(day) ? `<div class="tl-day-title">${_esc(customDayTitle(day))}</div>` : ''}
           ${dateLabel ? `<div class="tl-day-date">${dateLabel}</div>` : ''}
         </div>
       </div>
@@ -701,7 +701,7 @@ function _buildDayChipsHtml(trip) {
 
   for (const day of days) {
     const active = _activeDayFilter === day.id;
-    const label  = `J${day.num}${day.title ? ' · ' + day.title : ''}`;
+    const label  = `J${day.num}${customDayTitle(day) ? ' · ' + customDayTitle(day) : ''}`;
     html += `<button data-action="filter-day" data-day-id="${_esc(day.id)}"
       style="flex-shrink:0;font-size:11px;font-weight:700;padding:3px 10px;border-radius:999px;border:1.5px solid ${active ? 'var(--teal)' : 'var(--c3)'};
       background:${active ? 'var(--tl)' : 'var(--c2)'};color:${active ? 'var(--td)' : 'var(--ink3)'};cursor:pointer;white-space:nowrap">
@@ -1103,7 +1103,7 @@ function _handleClick(e, tripId) {
     const jd = item.journalData || {};
     _shareJournalItem({
       tripName:  trip.name || 'Mon voyage',
-      dayLabel:  `Jour ${day.num}${day.title ? ' · ' + day.title : ''}`,
+      dayLabel:  `Jour ${day.num}${customDayTitle(day) ? ' · ' + customDayTitle(day) : ''}`,
       itemLabel: `${_eventTypeIcon(item.type)} ${item.text || 'Activité'}`,
       notes:     jd.notes   || '',
       weather:   jd.weather || '',
@@ -1232,7 +1232,7 @@ function _openJournalItemPanel(tripId, dayId, itemIdx) {
 
   const jd        = item.journalData || {};
   const typeIcon  = _eventTypeIcon(item.type);
-  const dayLabel  = `Jour ${day.num}${day.title ? ' · ' + day.title : ''}`;
+  const dayLabel  = `Jour ${day.num}${customDayTitle(day) ? ' · ' + customDayTitle(day) : ''}`;
 
   const photosHtml = (jd.photos || []).length > 0
     ? `<div style="display:flex;gap:5px;flex-wrap:wrap;margin:6px 0">
@@ -1525,7 +1525,7 @@ function _openValidateModal(tripId, dayId, itemIdx) {
     const notes = document.getElementById('vld-notes')?.value?.trim() || '';
     _shareJournalItem({
       tripName:  trip.name || 'Mon voyage',
-      dayLabel:  `Jour ${day.num}${day.title ? ' · ' + day.title : ''}`,
+      dayLabel:  `Jour ${day.num}${customDayTitle(day) ? ' · ' + customDayTitle(day) : ''}`,
       itemLabel: `${_eventTypeIcon(item.type)} ${item.text || 'Activité'}`,
       notes,
       weather: state.weather,
@@ -1691,7 +1691,7 @@ function _openEntryModal(tripId, entryId) {
   function daysOptsHtml(selId) {
     return `<option value="">Aucun jour spécifique</option>` +
       days.map(d =>
-        `<option value="${_esc(d.id)}"${selId === d.id ? ' selected' : ''}>Jour ${d.num}${d.title ? ' · ' + _esc(d.title) : ''}${d.date ? ' (' + fmtDateShort(d.date) + ')' : ''}</option>`
+        `<option value="${_esc(d.id)}"${selId === d.id ? ' selected' : ''}>Jour ${d.num}${customDayTitle(d) ? ' · ' + _esc(customDayTitle(d)) : ''}${d.date ? ' (' + fmtDateShort(d.date) + ')' : ''}</option>`
       ).join('');
   }
 

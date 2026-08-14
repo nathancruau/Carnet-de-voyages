@@ -14,7 +14,7 @@ import {
   fmtDate, fmtDateShort,
   dpInit, dpGetDates, renderDp,
   typeBadge,
-  generateDays,
+  generateDays, customDayTitle,
 } from './utils.js';
 // navigateToTrip / goMyMap accessed via window globals (set by app.js) to avoid circular import
 // import.js / export.js / gpx.js are dynamically imported at their few call sites below —
@@ -22,7 +22,7 @@ import {
 // so none of them should be in the boot bundle.
 import { getCurrentUser, logout, syncToFirestore, isFirebaseConfigured, cleanupDuplicatePhotos } from './auth.js';
 import { requestNotificationPermission, notificationPermissionGranted } from './notifications.js';
-import { openShareModal, leaveSharedTrip, deleteOwnerSharedTrip, removeSharedTripMember, isCurrentUserObserver, getSharedDocData, addObserverReaction, deleteObserverReaction, addObserverComment, deleteObserverComment } from './share.js';
+import { openShareModal, leaveSharedTrip, deleteOwnerSharedTrip, removeSharedTripMember, isCurrentUserObserver, getSharedDocData, addObserverReaction, deleteObserverReaction, addObserverComment, deleteObserverComment, handlePendingInvite } from './share.js';
 
 // ── Module state ───────────────────────────────────────────────────────────────
 
@@ -1647,7 +1647,7 @@ function _buildLiveFeedHtml(observingTrips) {
           ${dateStr ? `<div class="live-post-time">${dateStr}</div>` : ''}
         </div>
         ${travelerNames ? `<div class="live-post-travelers">🧳 ${_esc(travelerNames)}</div>` : ''}
-        <div class="live-post-day">Jour ${day.num}${day.title ? ' · ' + _esc(day.title) : ''}</div>
+        <div class="live-post-day">Jour ${day.num}${customDayTitle(day) ? ' · ' + _esc(customDayTitle(day)) : ''}</div>
         ${item.text ? `<div style="font-size:13px;font-weight:600;color:var(--ink);margin-top:3px">${_esc(item.text)}</div>` : ''}
       </div>
       ${carousel}
@@ -1803,12 +1803,13 @@ export function renderHome(filter = _currentFilter) {
     secContent = `
       <div class="home-sec-hd">
         ${tabSwitcher}
+        <button class="btn-new hero-new-btn" data-action="join-trip">＋ Rejoindre</button>
       </div>
       ${observingTrips.length === 0 ? `
         <div style="text-align:center;padding:40px 16px;color:var(--ink4)">
           <div style="font-size:36px;margin-bottom:10px">🔭</div>
           <div style="font-size:14px;font-weight:600;margin-bottom:6px">Aucun voyage suivi</div>
-          <div style="font-size:12px">Rejoignez un voyage en tant qu'observateur<br>avec le lien d'invitation du voyageur.</div>
+          <div style="font-size:12px">Collez un lien d'invitation ou scannez son QR code<br>avec le bouton "＋ Rejoindre" ci-dessus.</div>
         </div>` : `
         <div class="trips-grid" id="trips-grid">
           ${observingTrips.map(_observedTripCardHtml).join('')}
@@ -2244,6 +2245,10 @@ function _attachListeners(wrap) {
 
       case 'new-trip':
         openEditTripModal(null, target.dataset.type || null);
+        break;
+
+      case 'join-trip':
+        _openJoinTripModal();
         break;
 
       case 'share-trip':
@@ -3669,6 +3674,123 @@ function _handleDelete() {
   closeModal();
   renderHome(_currentFilter);
   notify(`"${name}" supprimé.`, '🗑');
+}
+
+// ── Join a shared trip (paste link or scan QR) ──────────────────────────────────
+
+let _joinScanStream = null;
+let _joinScanRAF    = null;
+
+/** Extract an invite token from a pasted full link, or treat the input as a raw token. */
+function _extractInviteToken(raw) {
+  if (!raw) return null;
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  try {
+    const token = new URL(trimmed).searchParams.get('invite');
+    if (token) return token;
+  } catch (_) { /* not a full URL — fall through to raw-token below */ }
+  return trimmed;
+}
+
+async function _submitJoinLink(raw) {
+  const token    = _extractInviteToken(raw);
+  const statusEl = document.getElementById('join-status');
+  if (!token) {
+    if (statusEl) statusEl.textContent = 'Collez un lien ou un code d\'invitation valide.';
+    return;
+  }
+  const user = getCurrentUser();
+  if (!user) { notify('Connectez-vous d\'abord.', '⚠️'); return; }
+  _stopJoinScan();
+  sessionStorage.setItem('_pendingInvite', token);
+  closeModal();
+  await handlePendingInvite(user);
+}
+
+/** Best-effort camera QR scan using the native BarcodeDetector API (Chrome/Android;
+ *  not available on Safari/iOS, where pasting the link remains the only path). */
+async function _startJoinScan() {
+  const wrap   = document.getElementById('join-scan-wrap');
+  const video  = document.getElementById('join-scan-video');
+  if (!wrap || !video) return;
+
+  if (!('BarcodeDetector' in window)) {
+    notify('Scan QR non disponible sur ce navigateur — collez le lien à la place.', '⚠️');
+    return;
+  }
+
+  try {
+    _joinScanStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+  } catch (_) {
+    notify('Impossible d\'accéder à la caméra.', '⚠️');
+    return;
+  }
+
+  wrap.style.display = 'block';
+  video.srcObject = _joinScanStream;
+  await video.play().catch(() => {});
+
+  const detector = new window.BarcodeDetector({ formats: ['qr_code'] });
+  const scan = async () => {
+    if (!_joinScanStream) return; // stopped
+    try {
+      const codes = await detector.detect(video);
+      if (codes.length > 0) {
+        const raw   = codes[0].rawValue;
+        const input = document.getElementById('join-link-input');
+        if (input) input.value = raw;
+        await _submitJoinLink(raw);
+        return;
+      }
+    } catch (_) { /* detection hiccup on this frame — keep trying */ }
+    _joinScanRAF = requestAnimationFrame(scan);
+  };
+  _joinScanRAF = requestAnimationFrame(scan);
+}
+
+function _stopJoinScan() {
+  if (_joinScanRAF) { cancelAnimationFrame(_joinScanRAF); _joinScanRAF = null; }
+  if (_joinScanStream) { _joinScanStream.getTracks().forEach(t => t.stop()); _joinScanStream = null; }
+  const wrap = document.getElementById('join-scan-wrap');
+  if (wrap) wrap.style.display = 'none';
+}
+
+function _openJoinTripModal() {
+  showModal(`
+    <button class="mc" onclick="closeModal()">✕</button>
+    <h3>🔭 Rejoindre un voyage</h3>
+    <p style="font-size:13px;color:var(--ink3);margin-bottom:12px">
+      Collez le lien d'invitation reçu, ou scannez son QR code directement avec l'appareil photo.
+    </p>
+    <div class="fg">
+      <label>Lien ou code d'invitation</label>
+      <input type="text" id="join-link-input" placeholder="https://…">
+    </div>
+    <div class="fg">
+      <button type="button" id="join-scan-btn"
+        style="width:100%;background:var(--c2);border:1.5px solid var(--c3);border-radius:8px;padding:9px;font-size:13px;font-weight:700;cursor:pointer;color:var(--ink2)">
+        📷 Scanner un QR code
+      </button>
+      <div id="join-scan-wrap" style="display:none;margin-top:8px">
+        <video id="join-scan-video" style="width:100%;border-radius:8px;background:#000;display:block" playsinline muted></video>
+        <div style="font-size:11px;color:var(--ink4);margin-top:4px;text-align:center">Visez le QR code…</div>
+      </div>
+    </div>
+    <div id="join-status" style="font-size:12px;color:var(--coral);min-height:16px;margin-top:2px"></div>
+    <div class="ma">
+      <button class="bc" onclick="closeModal()">Annuler</button>
+      <button class="bs" id="join-confirm-btn">Rejoindre</button>
+    </div>
+  `, { onClose: _stopJoinScan });
+
+  document.getElementById('join-scan-btn')?.addEventListener('click', _startJoinScan);
+  document.getElementById('join-confirm-btn')?.addEventListener('click', () => {
+    _submitJoinLink(document.getElementById('join-link-input')?.value);
+  });
+  document.getElementById('join-link-input')?.addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); _submitJoinLink(e.target.value); }
+  });
 }
 
 // ── Import modal ───────────────────────────────────────────────────────────────
