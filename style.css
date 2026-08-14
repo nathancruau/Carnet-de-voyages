@@ -1615,8 +1615,17 @@ body{height:100%;min-height:-webkit-fill-available;font-family:var(--fn);backgro
   font-size:28px;cursor:pointer;
   box-shadow:0 4px 16px rgba(13,148,136,.4);
   transition:transform .2s,box-shadow .15s;
+  /* iOS Safari has a long-standing bug where position:fixed elements can
+     visually detach and "stick" wherever they were mid-scroll instead of
+     staying pinned to the viewport, especially with the dynamic address bar
+     showing/hiding on a long scrollable page (the trip list here). Forcing
+     the FAB onto its own compositing layer keeps it correctly repositioned
+     every frame instead of relying on iOS's fixed-position repaint, which
+     is what was reported as "stuck in the middle of the screen". */
+  will-change:transform;
+  -webkit-transform:translateX(-50%) translateZ(0);
 }
-.home-fab.open{transform:translateX(-50%) rotate(45deg)}
+.home-fab.open{transform:translateX(-50%) rotate(45deg);-webkit-transform:translateX(-50%) rotate(45deg) translateZ(0)}
 .home-fab-menu{
   position:fixed;bottom:calc(66px + env(safe-area-inset-bottom));left:50%;
   transform:translateX(-50%) translateY(8px);z-index:9001;
@@ -1624,6 +1633,7 @@ body{height:100%;min-height:-webkit-fill-available;font-family:var(--fn);backgro
   opacity:0;pointer-events:none;
   transition:opacity .18s,transform .18s;
   max-width:calc(100vw - 32px);
+  will-change:transform;
 }
 .home-fab-menu.visible{opacity:1;pointer-events:all;transform:translateX(-50%) translateY(0)}
 

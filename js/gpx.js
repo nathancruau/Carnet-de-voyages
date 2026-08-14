@@ -422,6 +422,25 @@ export function getLocalGpxTracks(tripId) {
   catch (_) { return []; }
 }
 
+/**
+ * Older GPX imports downsampled to lat/lng only, silently disabling the
+ * elevation/speed chart everywhere that track's stats are shown (fixed going
+ * forward, but already-imported items still have the stripped points). If the
+ * full-resolution track is still on this device (GPX tracks aren't synced),
+ * rebuild gpxPoints from it so the chart self-heals without requiring the
+ * user to re-import. Shared by mymap.js (day-item pins and sortie pins alike)
+ * and sortie.js's own detail screen — the sortie path used to read
+ * trip.pin.gpxPoints directly and never got this repair, so its chart could
+ * stay silently broken even after the day-item path was fixed for it.
+ */
+export function resolveGpxPoints(tripId, item) {
+  if (!item?.gpxPoints?.length || !item.gpxTrackId) return item?.gpxPoints || null;
+  const hasRichData = item.gpxPoints.some(p => p.ele != null || p.time != null);
+  if (hasRichData) return item.gpxPoints;
+  const track = getLocalGpxTracks(tripId).find(t => t.id === item.gpxTrackId);
+  return track ? downsampleGpxPoints(track.points) : item.gpxPoints;
+}
+
 /** Append a track to the stored list and return the updated array. */
 export function saveLocalGpxTrack(tripId, track) {
   const tracks = getLocalGpxTracks(tripId);

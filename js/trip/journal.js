@@ -3,7 +3,7 @@
    ============================================================ */
 
 import { getTrip, updateTrip, uid, getEventTypes, getLanguage, isTripShared } from '../store.js';
-import { notify, showModal, closeModal, fmtDate, fmtDateShort, isoToDate, dateToIso, customDayTitle } from '../utils.js';
+import { notify, showModal, closeModal, fmtDate, fmtDateShort, isoToDate, dateToIso, customDayTitle, trCol } from '../utils.js';
 import { updateTopStats } from './trip.js';
 import { getCurrentUser } from '../auth.js';
 
@@ -271,10 +271,6 @@ function _jOsrmProfile(mode) {
   return { car: 'driving', bus: 'driving', foot: 'foot', bike: 'cycling' }[mode] || 'driving';
 }
 
-function _jModeColor(mode) {
-  return { car: '#0284c7', foot: '#16a34a', bike: '#d97706', bus: '#7c3aed', plane: '#7c3aed', ferry: '#0d9488' }[mode] || '#9c9890';
-}
-
 async function _drawJournalRoutes(tripId) {
   if (!_journalMap) return;
   const trip = getTrip(tripId);
@@ -307,7 +303,7 @@ async function _drawJournalRoutes(tripId) {
         const coords = data.routes?.[0]?.geometry?.coordinates;
         if (coords && coords.length) {
           line = L.polyline(coords.map(([lng, lat]) => [lat, lng]), {
-            color: _jModeColor(mode), weight: 3, opacity: 0.7,
+            color: trCol(mode), weight: 3, opacity: 0.7,
           });
         }
       } catch (_) {}
@@ -628,7 +624,7 @@ function _tlItemHtml(day, item, itemIdx, isObserver, tripId, sharedDoc, currentU
     if (gpxInner) slides.push(gpxInner);
   }
   photos.forEach(src => {
-    slides.push(`<img src="${_esc(src)}" loading="lazy" onclick="window._pho && window._pho(this.src)">`);
+    slides.push(`<img src="${_esc(src)}" loading="lazy" decoding="async" onclick="window._pho && window._pho(this.src)">`);
   });
   const carousel = _carouselHtml(slides, 'tl_' + (item.id || itemIdx));
 
@@ -785,7 +781,7 @@ function _entryCard(trip, e) {
   if (e.photos && e.photos.length > 0) {
     photosHtml = `<div class="jn-photos">`;
     for (const ph of e.photos.slice(0, 5)) {
-      photosHtml += `<img class="jn-photo" src="${_esc(ph.url)}" alt="${_esc(ph.caption || '')}" title="${_esc(ph.caption || '')}" onerror="this.style.display='none'">`;
+      photosHtml += `<img class="jn-photo" src="${_esc(ph.url)}" alt="${_esc(ph.caption || '')}" title="${_esc(ph.caption || '')}" loading="lazy" decoding="async" onerror="this.style.display='none'">`;
     }
     if (e.photos.length > 5) {
       photosHtml += `<div class="jn-photo" style="display:flex;align-items:center;justify-content:center;background:var(--c2);font-size:10px;font-weight:700;color:var(--ink4)">+${e.photos.length - 5}</div>`;
@@ -1243,6 +1239,7 @@ function _openJournalItemPanel(tripId, dayId, itemIdx) {
     ? `<div style="display:flex;gap:5px;flex-wrap:wrap;margin:6px 0">
         ${(jd.photos || []).map(src =>
           `<img src="${_esc(src)}" onclick="window._pho && window._pho(this.src)"
+            loading="lazy" decoding="async"
             style="width:72px;height:56px;object-fit:cover;border-radius:6px;cursor:pointer;border:1px solid var(--c3)">`
         ).join('')}
        </div>`

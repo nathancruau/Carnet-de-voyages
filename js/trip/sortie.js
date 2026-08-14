@@ -3,7 +3,7 @@
    ============================================================ */
 
 import { getTrip, getEventTypes } from '../store.js';
-import { gpxStatsBlockHtml, initGpxChart } from '../gpx.js';
+import { gpxStatsBlockHtml, initGpxChart, resolveGpxPoints } from '../gpx.js';
 
 let _map    = null;
 let _marker = null;
@@ -36,7 +36,8 @@ export function renderSortie(tripId) {
 
   _initMap(trip);
   _attachListeners();
-  if (trip.pin?.gpxPoints?.length >= 2) initGpxChart('si', trip.pin.gpxPoints);
+  const gpxPoints = trip.pin ? resolveGpxPoints(tripId, trip.pin) : null;
+  if (gpxPoints?.length >= 2) initGpxChart('si', gpxPoints);
 }
 
 export function destroySortieMap() {
@@ -49,6 +50,7 @@ export function destroySortieMap() {
 
 function _sortieInfoHtml(trip) {
   const pin        = trip.pin || {};
+  const gpxPoints  = resolveGpxPoints(trip.id, pin);
   const eventTypes = getEventTypes();
   const et         = eventTypes.find(e => e.key === (pin.pinType || 'visit')) || eventTypes[0];
 
@@ -71,7 +73,7 @@ function _sortieInfoHtml(trip) {
   const extraPhotosHtml = extraPhotos.length ? `
     <div class="si-extra-photos">
       ${extraPhotos.map((p, i) => `
-        <img src="${_esc(p.url)}" alt="" loading="lazy"
+        <img src="${_esc(p.url)}" alt="" loading="lazy" decoding="async"
              onclick="window._openSlides && window._openSlides(window._siPhotos || [], ${i + 1})"
              onerror="this.style.display='none'">
       `).join('')}
@@ -121,7 +123,7 @@ function _sortieInfoHtml(trip) {
         <div class="si-desc-text">${_esc(pin.description).replace(/\n/g, '<br>')}</div>
       </div>` : ''}
 
-      ${pin.gpxTrackId ? gpxStatsBlockHtml('si', pin.gpxStats, pin.gpxPoints) : ''}
+      ${pin.gpxTrackId ? gpxStatsBlockHtml('si', pin.gpxStats, gpxPoints) : ''}
 
       ${!hasCoords ? `<div class="si-no-coords">Aucune position définie — modifiez pour ajouter un lieu sur la carte.</div>` : ''}
     </div>
@@ -134,6 +136,7 @@ function _initMap(trip) {
   if (!container) return;
 
   const pin       = trip.pin || {};
+  const gpxPoints = resolveGpxPoints(trip.id, pin);
   const hasCoords = pin.lat != null && pin.lng != null;
   const center    = hasCoords ? [pin.lat, pin.lng] : [20, 0];
   const zoom      = hasCoords ? 13 : 2;
@@ -169,8 +172,8 @@ function _initMap(trip) {
         }
       }
 
-      if (pin.gpxPoints?.length > 1) {
-        L.polyline(pin.gpxPoints.map(p => [p.lat, p.lng]), { color: '#e85d3e', weight: 3.5, opacity: 0.85 }).addTo(_map);
+      if (gpxPoints?.length > 1) {
+        L.polyline(gpxPoints.map(p => [p.lat, p.lng]), { color: '#e85d3e', weight: 3.5, opacity: 0.85 }).addTo(_map);
       }
     } catch (e) {
       console.warn('[sortie] map init error', e);

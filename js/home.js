@@ -307,7 +307,7 @@ function _isoToFlag(iso) {
 function _flagImgHtml(iso) {
   const code = (iso || '').toLowerCase();
   return `<span class="flag-emoji-fallback">${_isoToFlag(iso)}</span>
-          <img class="flag-img" src="https://flagcdn.com/w80/${code}.png" alt="" loading="lazy" onerror="this.remove()">`;
+          <img class="flag-img" src="https://flagcdn.com/w80/${code}.png" alt="" loading="lazy" decoding="async" onerror="this.remove()">`;
 }
 
 // Count trips per travel season
@@ -1247,7 +1247,7 @@ function _sortieCardHtml(trip) {
   if (trip.photo) {
     thumbHtml = `
       <img class="tc-img sortie-thumb-img" src="${_esc(trip.photo)}" alt=""
-           loading="lazy"
+           loading="lazy" decoding="async"
            onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
       <div class="sortie-thumb" style="background:${et.color};display:none">${et.emoji}</div>
     `;
@@ -1293,7 +1293,7 @@ function _observedTripCardHtml(trip) {
   if (trip.photo) {
     imgHtml = `
       <img class="tc-img" src="${_esc(trip.photo)}" alt=""
-           loading="lazy"
+           loading="lazy" decoding="async"
            onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
       <div class="tc-img-ph" style="background:${trip.color || '#0d9488'};display:none">${trip.flag || '🌍'}</div>
     `;
@@ -1362,7 +1362,7 @@ function _tripCardHtml(trip) {
   if (trip.photo) {
     imgHtml = `
       <img class="tc-img" src="${_esc(trip.photo)}" alt=""
-           loading="lazy"
+           loading="lazy" decoding="async"
            onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
       <div class="tc-img-ph" style="background:${trip.color || '#0d9488'};display:none">${trip.flag || '🌍'}</div>
     `;
@@ -1591,7 +1591,7 @@ function _buildLiveFeedHtml(observingTrips) {
       if (gpx) slides.push(gpx);
     }
     photos.forEach(src => {
-      slides.push(`<img src="${_esc(src)}" loading="lazy" onclick="window._pho && window._pho(this.src)">`);
+      slides.push(`<img src="${_esc(src)}" loading="lazy" decoding="async" onclick="window._pho && window._pho(this.src)">`);
     });
     const carousel = _liveCarouselHtml(slides, 'lv_' + (item.id || idx));
 

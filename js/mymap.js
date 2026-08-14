@@ -7,7 +7,7 @@
 
 import { getTrips, TRIP_TYPES, getPinTypes } from './store.js';
 import { fmtDate, fmtDateShort, trCol, fmtFlag, customDayTitle } from './utils.js';
-import { parseGpx, generateGpx, downloadFile, estimateTileCount, gpxStatsBlockHtml, initGpxChart, getLocalGpxTracks, downsampleGpxPoints } from './gpx.js';
+import { parseGpx, generateGpx, downloadFile, estimateTileCount, gpxStatsBlockHtml, initGpxChart, resolveGpxPoints } from './gpx.js';
 
 // ── PIN type helper (dynamic from settings) ────────────────────────────────────
 
@@ -258,6 +258,7 @@ function _mmShowInfo(trip, entry) {
             onclick="window._openSlides && window._openSlides(window._mmInfoPhotos || [], 0)">
          <img src="${_esc(heroPhoto.url)}"
               style="width:100%;height:100%;object-fit:cover"
+              loading="lazy" decoding="async"
               onerror="this.parentElement.style.display='none'">
          ${photos.length > 1
            ? `<span style="position:absolute;bottom:6px;right:8px;background:rgba(0,0,0,.6);color:#fff;
@@ -362,7 +363,7 @@ function _mmShowMergedInfo(mp) {
     const color    = _colorForFlag(entry.dayFlag || trip.flag);
     const typeEmoji = (entry.pinType && _ptm[entry.pinType]) ? _ptm[entry.pinType] : '📍';
     const photosHtml = (entry.photos || []).slice(0, 3).map(p =>
-      `<img src="${_esc(p.url)}" style="height:56px;min-width:56px;border-radius:6px;object-fit:cover;flex-shrink:0;border:1px solid var(--c3)" onerror="this.style.display='none'">`
+      `<img src="${_esc(p.url)}" style="height:56px;min-width:56px;border-radius:6px;object-fit:cover;flex-shrink:0;border:1px solid var(--c3)" loading="lazy" decoding="async" onerror="this.style.display='none'">`
     ).join('');
     return `
       <div style="padding:10px 14px;border-bottom:1px solid var(--c3)">
@@ -394,22 +395,6 @@ function _mmShowMergedInfo(mp) {
 
 // ── Build the flat pin list from store ────────────────────────────────────────
 
-/**
- * Older GPX imports downsampled to lat/lng only, silently disabling the
- * elevation/speed chart everywhere that track's stats are shown (fixed going
- * forward, but already-imported items still have the stripped points). If the
- * full-resolution track is still on this device (GPX tracks aren't synced —
- * see gpx.js), rebuild gpxPoints from it so the chart self-heals without
- * requiring the user to re-import.
- */
-function _resolveGpxPoints(tripId, item) {
-  if (!item.gpxPoints?.length || !item.gpxTrackId) return item.gpxPoints || null;
-  const hasRichData = item.gpxPoints.some(p => p.ele != null || p.time != null);
-  if (hasRichData) return item.gpxPoints;
-  const track = getLocalGpxTracks(tripId).find(t => t.id === item.gpxTrackId);
-  return track ? downsampleGpxPoints(track.points) : item.gpxPoints;
-}
-
 function _buildAllPins() {
   _allPins = [];
   for (const trip of getTrips()) {
@@ -436,7 +421,7 @@ function _buildAllPins() {
             content:    jd.notes   || '',
             weather:    jd.weather || '',
             gpxStats:   item.gpxStats  || null,
-            gpxPoints:  _resolveGpxPoints(trip.id, item),
+            gpxPoints:  resolveGpxPoints(trip.id, item),
             gpxTrackId: item.gpxTrackId || null,
             amount:     jd.amount  || 0,
             tags:       [],
@@ -473,7 +458,7 @@ function _buildAllPins() {
           weather:    trip.pin.weather || '',
           amount:     trip.pin.cost || 0,
           gpxStats:   trip.pin.gpxStats   || null,
-          gpxPoints:  trip.pin.gpxPoints  || null,
+          gpxPoints:  resolveGpxPoints(trip.id, trip.pin),
           gpxTrackId: trip.pin.gpxTrackId || null,
           tags:       [],
           _validated: false,

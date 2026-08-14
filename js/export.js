@@ -240,7 +240,7 @@ function _buildCustomHtml(trip, opts) {
           </div>
           ${notes ? `<p class="notes">${_esc(notes).replace(/\n/g,'<br>')}</p>` : ''}
           ${photos.length ? `<div class="${photoClass}">${photos.map(s =>
-            `<img src="${s}" alt="" loading="lazy" onerror="this.style.display='none'">`).join('')}</div>` : ''}
+            `<img src="${s}" alt="" loading="lazy" decoding="async" onerror="this.style.display='none'">`).join('')}</div>` : ''}
         </div>`;
       }).join('');
       return `<div class="day">
