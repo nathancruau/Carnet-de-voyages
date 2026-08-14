@@ -895,12 +895,18 @@ function _showCompanionPicker(trip, members, tripId, user) {
 
   document.querySelectorAll('.comp-pick-btn').forEach(btn => {
     btn.addEventListener('click', async () => {
-      const compId   = btn.dataset.compId;
-      const compName = btn.dataset.compName;
+      const compId     = btn.dataset.compId;
+      const compName   = btn.dataset.compName;
+      // The "Observateur" button (no companion slot) must join with the
+      // read-only role — without this it silently fell back to joinSharedTrip's
+      // default 'member' role, so this person counted as a real traveler
+      // (e.g. showing up as "Voyage de X et Observateur" instead of being
+      // excluded from the traveler list and counted separately).
+      const isObserver = btn.classList.contains('comp-pick-observer');
       closeModal();
 
       try {
-        await joinSharedTrip(tripId, compId, compName);
+        await joinSharedTrip(tripId, compId || null, compName, isObserver ? 'observer' : 'member');
 
         if (!_sharedTripIds.includes(tripId)) {
           _sharedTripIds.push(tripId);

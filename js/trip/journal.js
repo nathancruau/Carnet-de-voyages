@@ -367,7 +367,11 @@ export async function renderJournal(tripId, isObserver = false, forceView = null
   // ── Lightweight refresh for observer timeline ─────────────────────────────
   // When the same trip's data updates in real-time (new validated items),
   // refresh only the timeline content and map pins — don't destroy/recreate the map.
-  if (isObserver && _journalView === 'timeline' && _journalMap && tripId === _journalTripId) {
+  // Desktop only: on mobile, carte/timeline are two separate full-screen tabs
+  // (see jn-mob-tabs below), so returning early here without going through
+  // the tab-switch logic silently ignored every "Timeline" tab tap once the
+  // map had been created once.
+  if (isObserver && _journalView === 'timeline' && _journalMap && tripId === _journalTripId && window.innerWidth > 768) {
     try {
       const container = _journalMap.getContainer();
       if (document.contains(container)) {
@@ -1358,11 +1362,12 @@ async function _dataUrlToFile(dataUrl, filename) {
 async function _shareJournalItem({ tripName, dayLabel, itemLabel, notes, weather, photos = [] }) {
   // Deliberately excludes the expense amount — private spending info shouldn't
   // leak through an external share (message, social app, etc.).
-  // `title` already carries "tripName — dayLabel" — many share targets (SMS,
-  // Mail, WhatsApp…) display title and text together, so repeating that same
-  // header as the first line of `text` used to show "Jour X … Jour X" twice.
-  const title = `✈️ ${tripName} — ${dayLabel}`;
-  const lines = [itemLabel];
+  // No separate `title` passed to navigator.share(): some targets (WhatsApp,
+  // SMS…) show only `text` and drop `title` entirely, so a header living
+  // solely in `title` could vanish completely; others show both back to
+  // back, which duplicated the same header ("Jour X … Jour X"). Putting it
+  // once in `text` alone is the one placement every target actually shows.
+  const lines = [`✈️ ${tripName} — ${dayLabel}`, itemLabel];
   if (weather) lines.push(weather);
   if (notes)   lines.push(notes);
   const text  = lines.join('\n');
@@ -1384,7 +1389,7 @@ async function _shareJournalItem({ tripName, dayLabel, itemLabel, notes, weather
 
   if (navigator.share) {
     try {
-      await navigator.share(files.length ? { title, text, files } : { title, text });
+      await navigator.share(files.length ? { text, files } : { text });
       return;
     } catch (err) {
       if (err?.name === 'AbortError') return; // user cancelled the share sheet
