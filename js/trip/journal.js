@@ -1362,20 +1362,26 @@ function _eventTypeIcon(type) {
  * this covers the common case — sharing something you added yourself —
  * with zero delay before navigator.share() is called.
  */
-function _b64ToFile(dataUrl, filename) {
+const _MIME_EXT = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif', 'image/heic': 'heic' };
+
+function _b64ToFile(dataUrl, basename) {
   const commaIdx = dataUrl.indexOf(',');
   const mime     = dataUrl.slice(5, commaIdx).split(';')[0] || 'image/jpeg';
   const binary   = atob(dataUrl.slice(commaIdx + 1));
   const bytes    = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  return new File([bytes], filename, { type: mime });
+  // The file's extension must match its actual MIME type — some share
+  // targets validate the two against each other and silently refuse a
+  // mismatched attachment (e.g. a .jpg filename on an image/png blob).
+  return new File([bytes], `${basename}.${_MIME_EXT[mime] || 'jpg'}`, { type: mime });
 }
 
 /** Fetch-based fallback for a non-base64 (e.g. already-uploaded Storage) photo URL — the only case that genuinely needs a network round trip. */
-async function _dataUrlToFile(dataUrl, filename) {
+async function _dataUrlToFile(dataUrl, basename) {
   const res  = await fetch(dataUrl);
   const blob = await res.blob();
-  return new File([blob], filename, { type: blob.type || 'image/jpeg' });
+  const mime = blob.type || 'image/jpeg';
+  return new File([blob], `${basename}.${_MIME_EXT[mime] || 'jpg'}`, { type: mime });
 }
 
 /**
@@ -1410,18 +1416,27 @@ async function _shareJournalItem({ tripName, dayLabel, itemLabel, notes, weather
     const asyncPairs = [];
     slice.forEach((src, i) => {
       if (typeof src === 'string' && src.startsWith('data:')) {
-        try { syncFiles.push(_b64ToFile(src, `photo-${i + 1}.jpg`)); } catch (_) {}
+        try { syncFiles.push(_b64ToFile(src, `photo-${i + 1}`)); } catch (_) {}
       } else {
         asyncPairs.push([src, i]);
       }
     });
     const asyncResults = asyncPairs.length
-      ? await Promise.allSettled(asyncPairs.map(([src, i]) => _dataUrlToFile(src, `photo-${i + 1}.jpg`)))
+      ? await Promise.allSettled(asyncPairs.map(([src, i]) => _dataUrlToFile(src, `photo-${i + 1}`)))
       : [];
     files = [...syncFiles, ...asyncResults.filter(r => r.status === 'fulfilled').map(r => r.value)];
-    try {
-      if (files.length && !navigator.canShare({ files })) files = [];
-    } catch (_) { files = []; }
+    // Diagnostic: conversion succeeded but the platform itself refuses to
+    // share these particular files (unsupported type, too large, too many…).
+    // Surfacing this (instead of silently sending text-only, indistinguishable
+    // from "there were no photos to begin with") is what let v188 ship a fix
+    // that didn't actually address the real cause on the reporter's device.
+    if (files.length) {
+      try {
+        if (!navigator.canShare({ files })) { files = []; notify('Photos non partageables sur cet appareil — texte envoyé seul', '⚠️'); }
+      } catch (_) { files = []; notify('Photos non partageables sur cet appareil — texte envoyé seul', '⚠️'); }
+    } else if (slice.length) {
+      notify('Échec de préparation des photos — texte envoyé seul', '⚠️');
+    }
   }
 
   if (navigator.share) {
