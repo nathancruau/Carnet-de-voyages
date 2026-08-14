@@ -972,7 +972,7 @@ export async function handlePendingInvite(user) {
         setSharedTripIds(_sharedTripIds);
       }
       notify('Voyage chargé !', '✅');
-      if (typeof window._rerenderCurrentView === 'function') window._rerenderCurrentView();
+      _goHomeAndRefresh();
       return;
     }
 
@@ -1000,7 +1000,7 @@ export async function handlePendingInvite(user) {
         Notification.requestPermission().catch(() => {});
       }
       notify(`Vous suivez désormais "${sharedDoc.trip?.name || 'ce voyage'}" en tant qu'observateur 👁`, '✅');
-      if (typeof window._rerenderCurrentView === 'function') window._rerenderCurrentView();
+      _goHomeAndRefresh();
       return;
     }
 
@@ -1011,6 +1011,20 @@ export async function handlePendingInvite(user) {
     console.error('[share] handlePendingInvite failed:', err);
     notify('Erreur lors du chargement du voyage partagé.', '❌');
   }
+}
+
+/**
+ * Force a visible refresh right after joining a shared trip. Prefers
+ * window.goHome() (switches to the home screen and unconditionally
+ * re-renders it) over window._rerenderCurrentView() (only re-renders if
+ * currentScreen is already 'home' — a currentScreen mismatch at the exact
+ * moment a join completes has repeatedly been the cause of a newly-joined
+ * trip silently not appearing, see v179/v180) — joining a trip is always
+ * meant to land the user back on their library anyway.
+ */
+function _goHomeAndRefresh() {
+  if (typeof window.goHome === 'function') window.goHome();
+  else if (typeof window._rerenderCurrentView === 'function') window._rerenderCurrentView();
 }
 
 function _showCompanionPicker(trip, members, tripId, user) {
@@ -1078,7 +1092,7 @@ function _showCompanionPicker(trip, members, tripId, user) {
         if (isObserver) _obsUpdateCache(user.uid, tripId, true);
         await _loadAndListen(tripId).catch(() => {});
         notify(`Bienvenue, ${compName} ! 🎉`);
-        if (typeof window._rerenderCurrentView === 'function') window._rerenderCurrentView();
+        _goHomeAndRefresh();
 
       } catch (err) {
         console.error('[share] join failed:', err);
