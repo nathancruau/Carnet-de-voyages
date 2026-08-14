@@ -32,7 +32,11 @@ import {
   hasPendingLocalChanges, deleteTrip, clearDeletedTrip,
 } from './store.js';
 import { notifyCollaboratorChange } from './notifications.js';
-import { showModal, closeModal, notify, compressTripsForFirestore } from './utils.js';
+import {
+  showModal, closeModal, notify, compressTripsForFirestore,
+  transformTripPhotos, compressPhotoDataUrl, FIRESTORE_SIZE_LIMIT,
+} from './utils.js';
+import { isPhotoStoreReady, uploadPhoto } from './photostore.js';
 
 // ── Module state ────────────────────────────────────────────────────────────────
 
@@ -227,8 +231,27 @@ export async function deleteObserverReaction(tripId, itemId, targetUid) {
   } catch (_) {}
 }
 
-/** Compress a single trip's photos for a shared_trips write (1 MB document limit). */
+/**
+ * Prepare a trip's photos for a shared_trips write (1 MB document limit).
+ * Tries Storage upload first, exactly like the personal users/{uid} sync
+ * (_buildCloudTrips in auth.js) — without this, shared_trips only ever
+ * embedded compressed base64 photos, and a trip too heavily photographed to
+ * fit even the tightest compression tier had ALL its photos silently
+ * stripped for every traveler/observer but the device that took them
+ * (they'd render as broken/black images in the Carnet timeline). Falls back
+ * to the old compress-in-place behavior if Storage isn't reachable, or if
+ * the upload still doesn't bring the payload under the limit.
+ */
 async function _compressForSharing(trip) {
+  const uid = getCurrentUser()?.uid;
+  if (isPhotoStoreReady() && uid) {
+    const uploaded = await transformTripPhotos(trip, async b64 => {
+      const url = await uploadPhoto(uid, b64);
+      if (url) return url;
+      return (await compressPhotoDataUrl(b64)) || '';
+    });
+    if (JSON.stringify(uploaded).length <= FIRESTORE_SIZE_LIMIT) return uploaded;
+  }
   const [compressed] = await compressTripsForFirestore([trip]);
   return compressed;
 }
