@@ -29,7 +29,7 @@ import {
   getTrip, markTripShared, unmarkTripShared, isTripShared,
   replaceTripFromNetwork, setSharedSyncCallback,
   getSharedTripIds, setSharedTripIds, getSettings,
-  hasPendingLocalChanges, deleteTrip,
+  hasPendingLocalChanges, deleteTrip, clearDeletedTrip,
 } from './store.js';
 import { notifyCollaboratorChange } from './notifications.js';
 import { showModal, closeModal, notify, compressTripsForFirestore } from './utils.js';
@@ -401,6 +401,18 @@ async function _loadAndListen(tripId) {
   const user      = getCurrentUser();
   const myRole    = doc.members?.[user?.uid]?.role;
   const localTrip = getTrip(tripId);
+
+  // Self-heal: on old shared trips created before the owner's real display
+  // name was passed through, the owner's member entry was written with the
+  // literal placeholder "Organisateur" and nothing ever rewrote it since —
+  // fix it in place as soon as the owner's own device sees a real name to use.
+  if (myRole === 'owner' && user.displayName
+      && doc.members[user.uid].companionName === 'Organisateur'
+      && user.displayName !== 'Organisateur') {
+    const fixedName = user.displayName;
+    doc.members[user.uid] = { ...doc.members[user.uid], companionName: fixedName };
+    updateSharedTripFields(tripId, { [`members.${user.uid}.companionName`]: fixedName }).catch(() => {});
+  }
   if (myRole === 'observer') {
     // Observers can't edit — always take the cloud version
     replaceTripFromNetwork(tripId, doc.trip);
@@ -482,6 +494,11 @@ function _onNetworkUpdate(tripId, data, hasPendingWrites) {
   const user = getCurrentUser();
   if (user && prevData?.members?.[user.uid] && !data.members?.[user.uid]) {
     leaveSharedTrip(tripId);
+    // leaveSharedTrip() only unmarks the trip as shared — without also
+    // deleting the local copy, it stayed in state.trips looking like an
+    // ordinary owned trip and reappeared in "Mes voyages" instead of
+    // just disappearing.
+    deleteTrip(tripId);
     notify('Vous avez été retiré de ce voyage partagé.', 'ℹ️');
     if (typeof window.goHome === 'function') window.goHome();
     return;
@@ -881,6 +898,10 @@ export async function handlePendingInvite(user) {
     // Already a member — just re-connect
     if (sharedDoc.members?.[user.uid]) {
       markTripShared(tripId);
+      // A prior removal (kicked, or the trip itself deleted then re-shared)
+      // may have left a local tombstone — an explicit rejoin must override it,
+      // otherwise replaceTripFromNetwork() below silently refuses to resurrect it.
+      clearDeletedTrip(tripId);
       replaceTripFromNetwork(tripId, sharedDoc.trip);
       _sharedDocData.set(tripId, sharedDoc);
       if (sharedDoc.members[user.uid].role === 'observer') _obsUpdateCache(user.uid, tripId, true);
@@ -908,6 +929,7 @@ export async function handlePendingInvite(user) {
       // own re-fetch below: if that second read ever fails for any reason,
       // this still makes the trip show up in "Mes observations" immediately.
       markTripShared(tripId);
+      clearDeletedTrip(tripId);
       replaceTripFromNetwork(tripId, sharedDoc.trip);
       _sharedDocData.set(tripId, sharedDoc);
       _obsUpdateCache(user.uid, tripId, true);
@@ -990,6 +1012,7 @@ function _showCompanionPicker(trip, members, tripId, user) {
         // opened) — see the identical comment on the observer-invite path
         // above for why this doesn't just rely on _loadAndListen alone.
         markTripShared(tripId);
+        clearDeletedTrip(tripId);
         replaceTripFromNetwork(tripId, trip);
         if (isObserver) _obsUpdateCache(user.uid, tripId, true);
         await _loadAndListen(tripId).catch(() => {});

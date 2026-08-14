@@ -27,7 +27,7 @@ function _persistState() {
   try { localStorage.setItem(THEME_KEY, state.settings?.theme || ''); } catch (_) {}
 }
 
-export const APP_VERSION = '180';
+export const APP_VERSION = '181';
 
 export const COMP_COLORS = [
   '#0d9488','#7c3aed','#e85d3e','#d97706',
@@ -491,3 +491,17 @@ export function deleteTrip(id) {
 }
 
 export function getRecentlyDeletedIds() { return new Set(_recentlyDeletedIds); }
+
+/**
+ * Clear a trip's deletion tombstone so it can be resurrected by an explicit
+ * rejoin (e.g. scanning a shared trip's invite again after having been
+ * removed from it). Without this, replaceTripFromNetwork() keeps refusing
+ * to re-add it, since the tombstone's timestamp (set when we were removed)
+ * is usually newer than the shared trip's last updatedAt.
+ */
+export function clearDeletedTrip(id) {
+  if (!state.deletedTrips || !(id in state.deletedTrips)) return;
+  const { [id]: _omit, ...rest } = state.deletedTrips;
+  state.deletedTrips = rest;
+  saveData();
+}

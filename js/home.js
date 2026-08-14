@@ -86,6 +86,9 @@ function _compColor(index) {
 function _knownCompanions() {
   const byLower = new Map(); // lowercase name -> { name, count }
   for (const trip of getTrips()) {
+    // Companions of trips we merely observe aren't ours to suggest — they're
+    // other travelers' data, not people we've actually traveled with.
+    if (isCurrentUserObserver(trip.id)) continue;
     for (const c of (trip.companions || [])) {
       const name = (c.name || '').trim();
       if (!name) continue;
