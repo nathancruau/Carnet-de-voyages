@@ -1351,7 +1351,27 @@ function _eventTypeIcon(type) {
 
 // ── External share (Web Share API) ────────────────────────────────────────────
 
-/** Convert a base64 data: URL photo into a File, for navigator.share's `files` option. */
+/**
+ * Convert a base64 data: URL photo into a File synchronously, via atob() —
+ * no fetch()/network stack involved. iOS Safari silently drops the `files`
+ * array from navigator.share() (while still sharing the text fine) once too
+ * much async work has happened since the user's tap — its "user activation"
+ * for file sharing is short-lived and doesn't survive fetch()-ing and
+ * decoding several full-resolution (multi-MB) base64 photos one by one.
+ * Local photos are always base64 (see CLAUDE.md "Photos & sync cloud"), so
+ * this covers the common case — sharing something you added yourself —
+ * with zero delay before navigator.share() is called.
+ */
+function _b64ToFile(dataUrl, filename) {
+  const commaIdx = dataUrl.indexOf(',');
+  const mime     = dataUrl.slice(5, commaIdx).split(';')[0] || 'image/jpeg';
+  const binary   = atob(dataUrl.slice(commaIdx + 1));
+  const bytes    = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return new File([bytes], filename, { type: mime });
+}
+
+/** Fetch-based fallback for a non-base64 (e.g. already-uploaded Storage) photo URL — the only case that genuinely needs a network round trip. */
 async function _dataUrlToFile(dataUrl, filename) {
   const res  = await fetch(dataUrl);
   const blob = await res.blob();
@@ -1379,14 +1399,26 @@ async function _shareJournalItem({ tripName, dayLabel, itemLabel, notes, weather
 
   let files = [];
   if (photos.length && navigator.canShare) {
-    // Promise.allSettled, not Promise.all: one photo failing to fetch (e.g. a
-    // stale/expired URL, a transient network error) used to reject the whole
-    // batch via Promise.all's fail-fast behavior, silently dropping ALL
-    // photos from the share even when the rest were perfectly fine.
-    const results = await Promise.allSettled(
-      photos.slice(0, 10).map((src, i) => _dataUrlToFile(src, `photo-${i + 1}.jpg`))
-    );
-    files = results.filter(r => r.status === 'fulfilled').map(r => r.value);
+    // Base64 photos (the common case) are converted synchronously via
+    // _b64ToFile — see its comment for why that matters on iOS Safari.
+    // Only genuinely remote URLs go through the async fetch() fallback, and
+    // Promise.allSettled (not Promise.all) is used there so one photo
+    // failing to fetch (stale/expired URL, transient network error) can't
+    // reject the whole batch and silently drop every other photo with it.
+    const slice      = photos.slice(0, 10);
+    const syncFiles  = [];
+    const asyncPairs = [];
+    slice.forEach((src, i) => {
+      if (typeof src === 'string' && src.startsWith('data:')) {
+        try { syncFiles.push(_b64ToFile(src, `photo-${i + 1}.jpg`)); } catch (_) {}
+      } else {
+        asyncPairs.push([src, i]);
+      }
+    });
+    const asyncResults = asyncPairs.length
+      ? await Promise.allSettled(asyncPairs.map(([src, i]) => _dataUrlToFile(src, `photo-${i + 1}.jpg`)))
+      : [];
+    files = [...syncFiles, ...asyncResults.filter(r => r.status === 'fulfilled').map(r => r.value)];
     try {
       if (files.length && !navigator.canShare({ files })) files = [];
     } catch (_) { files = []; }
