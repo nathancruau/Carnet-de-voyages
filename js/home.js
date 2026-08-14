@@ -3708,17 +3708,44 @@ async function _submitJoinLink(raw) {
   sessionStorage.setItem('_pendingInvite', token);
   closeModal();
   await handlePendingInvite(user);
+  // Belt-and-suspenders: handlePendingInvite() refreshes the view itself via
+  // window._rerenderCurrentView, but that hook lives in app.js and depends on
+  // currentScreen state we can't see from here — re-render directly since we
+  // know for a fact we're still on the home screen (we just closed a modal
+  // opened from it), so the newly joined trip reliably shows up immediately
+  // instead of only appearing after some unrelated later re-render.
+  renderHome(_currentFilter);
 }
 
-/** Best-effort camera QR scan using the native BarcodeDetector API (Chrome/Android;
- *  not available on Safari/iOS, where pasting the link remains the only path). */
+async function _loadJsQR() {
+  if (window.jsQR) return window.jsQR;
+  return new Promise((resolve, reject) => {
+    const s   = document.createElement('script');
+    s.src     = 'https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js';
+    s.onload  = () => resolve(window.jsQR);
+    s.onerror = () => reject(new Error('Impossible de charger le lecteur QR'));
+    document.head.appendChild(s);
+  });
+}
+
+/**
+ * Camera QR scan via jsQR (pure-JS decoder loaded on demand) rather than the
+ * native BarcodeDetector API — BarcodeDetector isn't implemented in Safari/
+ * iOS at all, which would leave most of this app's users (a French travel
+ * app skews heavily iPhone) without any working scan option. getUserMedia
+ * itself works fine in Safari/iOS PWAs, so jsQR + a polling loop over canvas
+ * frames covers every browser BarcodeDetector would have, plus Safari/iOS.
+ */
 async function _startJoinScan() {
   const wrap   = document.getElementById('join-scan-wrap');
   const video  = document.getElementById('join-scan-video');
   if (!wrap || !video) return;
 
-  if (!('BarcodeDetector' in window)) {
-    notify('Scan QR non disponible sur ce navigateur — collez le lien à la place.', '⚠️');
+  let jsQR;
+  try {
+    jsQR = await _loadJsQR();
+  } catch (_) {
+    notify('Impossible de charger le lecteur de QR code.', '⚠️');
     return;
   }
 
@@ -3733,19 +3760,26 @@ async function _startJoinScan() {
   video.srcObject = _joinScanStream;
   await video.play().catch(() => {});
 
-  const detector = new window.BarcodeDetector({ formats: ['qr_code'] });
-  const scan = async () => {
+  const canvas = document.createElement('canvas');
+  const ctx    = canvas.getContext('2d', { willReadFrequently: true });
+
+  const scan = () => {
     if (!_joinScanStream) return; // stopped
-    try {
-      const codes = await detector.detect(video);
-      if (codes.length > 0) {
-        const raw   = codes[0].rawValue;
+    if (video.readyState === video.HAVE_ENOUGH_DATA && video.videoWidth) {
+      canvas.width  = video.videoWidth;
+      canvas.height = video.videoHeight;
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const frame = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const code  = jsQR(frame.data, frame.width, frame.height, { inversionAttempts: 'dontInvert' });
+      if (code?.data) {
+        const raw   = code.data;
         const input = document.getElementById('join-link-input');
         if (input) input.value = raw;
-        await _submitJoinLink(raw);
+        _stopJoinScan();
+        _submitJoinLink(raw);
         return;
       }
-    } catch (_) { /* detection hiccup on this frame — keep trying */ }
+    }
     _joinScanRAF = requestAnimationFrame(scan);
   };
   _joinScanRAF = requestAnimationFrame(scan);
