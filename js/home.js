@@ -1305,17 +1305,25 @@ function _observedTripCardHtml(trip) {
     dateStr = `Dès ${fmtDate(trip.startDate)}`;
   }
 
-  // Find owner names from shared doc
+  // Find owner names from shared doc. Observers are deliberately excluded from
+  // this "who's actually on the trip" list (an observer is a spectator, not a
+  // traveler) — their presence is only ever surfaced as a headcount below,
+  // never by name here.
   let ownerHtml = '';
   const sharedDoc = getSharedDocData(trip.id);
   if (sharedDoc?.members) {
-    const owners = Object.values(sharedDoc.members)
+    const members = Object.values(sharedDoc.members);
+    const owners  = members
       .filter(m => m.role === 'owner' || m.role === 'member')
       .map(m => m.companionName).filter(Boolean);
+    const obsCount = members.filter(m => m.role === 'observer').length;
     if (owners.length > 0) {
       const names = owners.length === 1 ? owners[0]
         : owners.slice(0, -1).join(', ') + ' et ' + owners[owners.length - 1];
       ownerHtml = `<div class="tc-owner">✈️ ${_esc(names)}</div>`;
+    }
+    if (obsCount > 0) {
+      ownerHtml += `<div class="tc-owner" style="opacity:.7">👁 ${obsCount} observateur${obsCount > 1 ? 's' : ''}</div>`;
     }
   }
 
