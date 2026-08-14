@@ -257,12 +257,23 @@ function _countTripPhotos(trip) {
  * (they'd render as broken/black images in the Carnet timeline). Falls back
  * to the old compress-in-place behavior if Storage isn't reachable, or if
  * the upload still doesn't bring the payload under the limit.
+ *
+ * Always uploads under the trip OWNER's uid, never the current editor's —
+ * uploading under whichever member/traveler happens to be editing created a
+ * brand new users/{theirUid}/photos/ folder per participant, re-uploading
+ * photos that already existed in the owner's folder (duplicate Storage
+ * cost) every time a different person edited the trip. Uploading always to
+ * the same, single, canonical folder per trip avoids that entirely. A
+ * non-owner's device typically can't write into the owner's folder (Storage
+ * rules scope writes to request.auth.uid == uid), so their own edits with
+ * new photos safely fall back to an embedded compressed copy in that case —
+ * the owner's device then picks up the size mismatch (see the caller in
+ * _loadAndListen) and re-uploads it properly on its next sync.
  */
-async function _compressForSharing(trip) {
-  const uid = getCurrentUser()?.uid;
-  if (isPhotoStoreReady() && uid) {
+async function _compressForSharing(trip, ownerUid) {
+  if (isPhotoStoreReady() && ownerUid) {
     const uploaded = await transformTripPhotos(trip, async b64 => {
-      const url = await uploadPhoto(uid, b64);
+      const url = await uploadPhoto(ownerUid, b64);
       if (url) return url;
       return (await compressPhotoDataUrl(b64)) || '';
     });
@@ -460,7 +471,7 @@ async function _loadAndListen(tripId) {
     replaceTripFromNetwork(tripId, doc.trip);
   } else if ((doc.trip.updatedAt || 0) < (localTrip.updatedAt || 0)) {
     // Local version is newer — push it to Firestore instead of overwriting
-    _compressForSharing(localTrip).then(s => saveSharedTrip(tripId, s)).catch(() => {});
+    _compressForSharing(localTrip, doc.ownerId).then(s => saveSharedTrip(tripId, s)).catch(() => {});
   } else if (_countTripPhotos(localTrip) > _countTripPhotos(doc.trip)) {
     // Same updatedAt (our own previously-synced edit) but the shared copy is
     // missing photos the local trip actually has — a trip shared before
@@ -470,7 +481,7 @@ async function _loadAndListen(tripId) {
     // re-triggers that push until the trip is next edited. Re-push once,
     // now that Storage upload can actually bring it under the limit, instead
     // of waiting on an unrelated edit to happen to notice.
-    _compressForSharing(localTrip).then(s => saveSharedTrip(tripId, s)).catch(() => {});
+    _compressForSharing(localTrip, doc.ownerId).then(s => saveSharedTrip(tripId, s)).catch(() => {});
   }
   // else: same updatedAt and photo count — this is our own previously-synced
   // edit. Keep the local copy (full-resolution photos) rather than pulling
@@ -512,7 +523,8 @@ function _onLocalSharedTripEdit(tripId, tripData, action = 'a modifié le voyage
     }).catch(() => {});
   }
 
-  _compressForSharing(tripData)
+  const ownerId = _sharedDocData.get(tripId)?.ownerId;
+  _compressForSharing(tripData, ownerId)
     .then(sanitized => saveSharedTrip(tripId, sanitized))
     .catch(err => console.warn('[share] failed to push shared trip:', err.message));
 }
@@ -692,7 +704,7 @@ export async function openShareModal(tripId) {
     // First share: create shared_trips document and start listener
     if (!isTripShared(tripId)) {
       const ownerName = user.displayName || user.email?.split('@')[0] || 'Organisateur';
-      await initSharedTripInFirestore(tripId, await _compressForSharing(trip), user.uid, ownerName);
+      await initSharedTripInFirestore(tripId, await _compressForSharing(trip, user.uid), user.uid, ownerName);
       markTripShared(tripId);
       setSharedSyncCallback(_onLocalSharedTripEdit);
 
