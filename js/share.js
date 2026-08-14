@@ -651,10 +651,11 @@ export async function openShareModal(tripId) {
     const collabUrl = `${baseUrl}?invite=${collabToken}`;
     const obsUrl    = `${baseUrl}?invite=${obsToken}`;
 
-    const sharedDoc    = await loadSharedTrip(tripId);
-    const memberCount  = Object.keys(sharedDoc?.members || {}).length;
+    const sharedDoc = await loadSharedTrip(tripId);
+    const members   = sharedDoc?.members || {};
+    const isOwner   = members[user.uid]?.role === 'owner';
 
-    showModal(_shareModalHtml(trip, collabUrl, obsUrl, memberCount));
+    showModal(_shareModalHtml(trip, collabUrl, obsUrl, members, isOwner));
 
     document.getElementById('share-copy-collab')?.addEventListener('click', () => {
       navigator.clipboard?.writeText(collabUrl).then(() => {
@@ -674,6 +675,21 @@ export async function openShareModal(tripId) {
       _showPresentielOverlay(trip, tripId, obsUrl);
     });
 
+    // Owner-only: remove a participant (e.g. one who left before their own
+    // self-removal fix existed, or whose device never got the chance to
+    // write the removal — a manual escape hatch for a stale member/observer
+    // entry that never disappears on its own).
+    document.querySelectorAll('[data-action="remove-participant"]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const uid  = btn.dataset.uid;
+        const name = members[uid]?.companionName || 'ce participant';
+        if (!confirm(`Retirer ${name} de ce voyage ?`)) return;
+        btn.disabled = true;
+        await removeMemberFromSharedTrip(tripId, uid).catch(() => {});
+        openShareModal(tripId); // refresh the list + counts
+      });
+    });
+
   } catch (err) {
     console.error('[share] openShareModal failed:', err);
     showModal(`
@@ -685,8 +701,37 @@ export async function openShareModal(tripId) {
   }
 }
 
-function _shareModalHtml(trip, collabUrl, obsUrl, memberCount) {
-  const guestCount  = memberCount - 1; // exclude owner
+/** Sorted owner → member → observer, each with a remove button for the owner. */
+function _participantsListHtml(members, isOwner) {
+  const order   = { owner: 0, member: 1, observer: 2 };
+  const entries = Object.entries(members || {})
+    .sort(([, a], [, b]) => (order[a.role] ?? 3) - (order[b.role] ?? 3));
+  if (entries.length === 0) return '';
+
+  const roleLabels = { owner: 'Organisateur', member: 'Voyageur', observer: 'Observateur' };
+  const rows = entries.map(([uid, m]) => {
+    const canRemove = isOwner && m.role !== 'owner';
+    return `
+      <div style="display:flex;align-items:center;gap:8px;padding:5px 0">
+        <div class="comp-avatar" style="width:26px;height:26px;font-size:10px;flex-shrink:0">${_initials(m.companionName)}</div>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:12px;font-weight:700;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_esc(m.companionName || '?')}</div>
+          <div style="font-size:10px;color:var(--ink4)">${roleLabels[m.role] || m.role}</div>
+        </div>
+        ${canRemove ? `<button type="button" data-action="remove-participant" data-uid="${_esc(uid)}" title="Retirer"
+            style="background:none;border:none;color:var(--ink4);cursor:pointer;font-size:14px;padding:2px 6px;line-height:1;flex-shrink:0">✕</button>` : ''}
+      </div>`;
+  }).join('');
+
+  return `
+    <div class="share-section" style="margin-top:10px">
+      <div class="share-section-title" style="margin-bottom:2px">Participants</div>
+      ${rows}
+    </div>`;
+}
+
+function _shareModalHtml(trip, collabUrl, obsUrl, members, isOwner) {
+  const guestCount  = Object.keys(members || {}).length - 1; // exclude owner
   const membersNote = guestCount > 0
     ? `<strong>${guestCount} participant${guestCount > 1 ? 's' : ''}</strong> a déjà rejoint.`
     : 'Aucun participant n\'a encore rejoint.';
@@ -695,8 +740,9 @@ function _shareModalHtml(trip, collabUrl, obsUrl, memberCount) {
     <button class="mc" onclick="closeModal()">✕</button>
     <h3 class="modal-title">Partager — ${_esc(trip.flag)} ${_esc(trip.name)}</h3>
     <p class="share-hint" style="margin-bottom:12px">${membersNote}</p>
+    ${_participantsListHtml(members, isOwner)}
 
-    <div class="share-section">
+    <div class="share-section" style="margin-top:10px">
       <div class="share-section-hd">
         <span class="share-section-icon">✈️</span>
         <div>

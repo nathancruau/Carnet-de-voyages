@@ -27,7 +27,7 @@ function _persistState() {
   try { localStorage.setItem(THEME_KEY, state.settings?.theme || ''); } catch (_) {}
 }
 
-export const APP_VERSION = '177';
+export const APP_VERSION = '178';
 
 export const COMP_COLORS = [
   '#0d9488','#7c3aed','#e85d3e','#d97706',

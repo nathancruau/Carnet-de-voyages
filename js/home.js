@@ -1803,13 +1803,12 @@ export function renderHome(filter = _currentFilter) {
     secContent = `
       <div class="home-sec-hd">
         ${tabSwitcher}
-        <button class="btn-new hero-new-btn" data-action="join-trip">＋ Rejoindre</button>
       </div>
       ${observingTrips.length === 0 ? `
         <div style="text-align:center;padding:40px 16px;color:var(--ink4)">
           <div style="font-size:36px;margin-bottom:10px">🔭</div>
           <div style="font-size:14px;font-weight:600;margin-bottom:6px">Aucun voyage suivi</div>
-          <div style="font-size:12px">Collez un lien d'invitation ou scannez son QR code<br>avec le bouton "＋ Rejoindre" ci-dessus.</div>
+          <div style="font-size:12px">Collez un lien d'invitation ou scannez son QR code<br>avec le bouton ＋ en bas à droite.</div>
         </div>` : `
         <div class="trips-grid" id="trips-grid">
           ${observingTrips.map(_observedTripCardHtml).join('')}
@@ -1828,15 +1827,20 @@ export function renderHome(filter = _currentFilter) {
       </div>`;
   }
 
+  // On "Mes observations", the FAB has nothing to create — it joins a trip
+  // (paste link / scan QR) directly, without a submenu, instead of offering
+  // Sortie/Week-end/Voyage creation, which don't make sense from this tab.
+  const isObservingTab = _homeLibTab === 'observing';
   wrap.innerHTML = `
     ${_heroHtml(heroTrips)}
     <div class="home-sec">${secContent}</div>
-    <button class="home-fab" id="home-fab" title="Ajouter un voyage">＋</button>
+    <button class="home-fab" id="home-fab" title="${isObservingTab ? 'Rejoindre un voyage' : 'Ajouter un voyage'}">＋</button>
+    ${isObservingTab ? '' : `
     <div class="home-fab-menu panel-fab-menu" id="home-fab-menu">
       <button class="pfm-btn" data-action="new-trip" data-type="sortie">📍 Sortie</button>
       <button class="pfm-btn" data-action="new-trip" data-type="weekend">🌿 Week-end</button>
       <button class="pfm-btn" data-action="new-trip" data-type="voyage">✈️ Voyage</button>
-    </div>
+    </div>`}
   `;
 
   // Attach the click listener only once; subsequent renderHome calls reuse it
@@ -1855,10 +1859,12 @@ export function renderHome(filter = _currentFilter) {
   // every renderHome() (triggered on nearly every state change) stacks one
   // more permanent listener on `document`, an unbounded leak over a session.
   const homeFab = document.getElementById('home-fab');
-  const fabMenu = document.getElementById('home-fab-menu');
-  if (homeFab && fabMenu) {
+  const fabMenu = document.getElementById('home-fab-menu'); // absent on "Mes observations"
+  if (homeFab) {
     homeFab.addEventListener('click', e => {
       e.stopPropagation();
+      if (isObservingTab) { _openJoinTripModal(); return; }
+      if (!fabMenu) return;
       const open = fabMenu.classList.toggle('visible');
       homeFab.classList.toggle('open', open);
     });
@@ -2245,10 +2251,6 @@ function _attachListeners(wrap) {
 
       case 'new-trip':
         openEditTripModal(null, target.dataset.type || null);
-        break;
-
-      case 'join-trip':
-        _openJoinTripModal();
         break;
 
       case 'share-trip':
