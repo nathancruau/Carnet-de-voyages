@@ -1352,22 +1352,34 @@ function _eventTypeIcon(type) {
 // ── External share (Web Share API) ────────────────────────────────────────────
 
 /**
- * Convert a photo (base64 data: URL, or an already-uploaded Storage URL)
- * into a File for navigator.share()'s `files` option. Uses fetch(), which
- * handles a data: URL natively and correctly (no manual base64 decoding —
- * a hand-rolled atob() version tried here briefly threw on real photos and
- * was reverted, see CLAUDE.md v190 history) — it doesn't hit the network
- * for a data: URL, so it isn't the slow path a fetch() name might suggest.
+ * Convert a base64 data: URL photo into a File, synchronously, via atob() —
+ * confirmed necessary (not just a timing optimization): fetch(dataUrl) on
+ * this same data throws "Load failed" on iOS Safari — a real WebKit
+ * limitation fetching data: URLs, not the async-delay theory an earlier fix
+ * attempt (v188) guessed at. A first atob()-based attempt (also v188) threw
+ * for an undiagnosed reason and got reverted (v190) back to the now-confirmed-
+ * broken fetch() approach; this version's caller no longer swallows the
+ * exception silently, so if this ever fails again the real error surfaces.
  */
 const _MIME_EXT = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif', 'image/heic': 'heic' };
 
+function _b64ToFile(dataUrl, basename) {
+  const commaIdx = dataUrl.indexOf(',');
+  const mime     = dataUrl.slice(5, commaIdx).split(';')[0] || 'image/jpeg';
+  const binary   = atob(dataUrl.slice(commaIdx + 1));
+  const bytes    = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  // The file's extension must match its actual MIME type — some share
+  // targets validate the two against each other and silently refuse a
+  // mismatched attachment (e.g. a .jpg filename on an image/png blob).
+  return new File([bytes], `${basename}.${_MIME_EXT[mime] || 'jpg'}`, { type: mime });
+}
+
+/** fetch()-based fallback for a non-base64 (e.g. already-uploaded Storage) photo URL — a real network URL, unlike a data: URL, so not affected by the fetch(data:) issue above. */
 async function _dataUrlToFile(dataUrl, basename) {
   const res  = await fetch(dataUrl);
   const blob = await res.blob();
   const mime = blob.type || 'image/jpeg';
-  // The file's extension must match its actual MIME type — some share
-  // targets validate the two against each other and silently refuse a
-  // mismatched attachment (e.g. a .jpg filename on an image/png blob).
   return new File([blob], `${basename}.${_MIME_EXT[mime] || 'jpg'}`, { type: mime });
 }
 
@@ -1392,25 +1404,38 @@ async function _shareJournalItem({ tripName, dayLabel, itemLabel, notes, weather
 
   let files = [];
   if (photos.length && navigator.canShare) {
-    // Promise.allSettled, not Promise.all: one photo failing to convert
-    // (stale/expired URL, transient error) can't reject the whole batch and
-    // silently drop every other photo with it.
-    const slice   = photos.slice(0, 10);
-    const results = await Promise.allSettled(
-      slice.map((src, i) => _dataUrlToFile(src, `photo-${i + 1}`))
-    );
-    files = results.filter(r => r.status === 'fulfilled').map(r => r.value);
+    // Base64 photos (the common case — anything added on this device) go
+    // through the synchronous atob() path; only a genuinely remote URL
+    // needs the fetch() fallback. Promise.allSettled, not Promise.all: one
+    // photo failing to convert can't reject the whole batch and silently
+    // drop every other photo with it.
+    const slice      = photos.slice(0, 10);
+    const syncFiles  = [];
+    const asyncPairs = [];
+    let firstError   = null;
+    slice.forEach((src, i) => {
+      if (typeof src === 'string' && src.startsWith('data:')) {
+        try { syncFiles.push(_b64ToFile(src, `photo-${i + 1}`)); }
+        catch (err) { if (!firstError) firstError = err; }
+      } else {
+        asyncPairs.push([src, i]);
+      }
+    });
+    const asyncResults = asyncPairs.length
+      ? await Promise.allSettled(asyncPairs.map(([src, i]) => _dataUrlToFile(src, `photo-${i + 1}`)))
+      : [];
+    for (const r of asyncResults) { if (r.status === 'rejected' && !firstError) firstError = r.reason; }
+    files = [...syncFiles, ...asyncResults.filter(r => r.status === 'fulfilled').map(r => r.value)];
     // Diagnostic notifications: this whole step used to fail completely
     // silently (text-only share, indistinguishable from "there were no
-    // photos to begin with"), which is what let two earlier fix attempts
-    // (v188, v189) ship without actually confirming which step was failing.
+    // photos to begin with"), which is what let earlier fix attempts
+    // (v188-v190) ship without actually confirming which step was failing.
     if (files.length) {
       try {
         if (!navigator.canShare({ files })) { files = []; notify('Photos non partageables sur cet appareil — texte envoyé seul', '⚠️'); }
       } catch (_) { files = []; notify('Photos non partageables sur cet appareil — texte envoyé seul', '⚠️'); }
     } else if (slice.length) {
-      const reason = results.find(r => r.status === 'rejected')?.reason;
-      const detail = reason?.message || String(reason || '');
+      const detail = firstError?.message || firstError?.name || String(firstError || '');
       notify(`Échec préparation photos${detail ? ' : ' + detail.slice(0, 60) : ''}`, '⚠️');
     }
   }
