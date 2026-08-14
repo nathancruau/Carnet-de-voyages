@@ -334,14 +334,46 @@ export function ackJournalSeen(tripId) {
   if (key) localStorage.setItem(key, new Date().toISOString());
 }
 
-/** True if the item was validated after the observer last acknowledged this trip. */
-function _obsIsNew(item, tripId) {
+/**
+ * True if the item was validated after the observer last acknowledged this
+ * trip. Takes the already-read lastSeen timestamp (see _obsLastSeen below)
+ * rather than a tripId — reading it fresh from localStorage per item added
+ * up on a long observer timeline, since this is checked for every item
+ * (_tlItemHtml) and again per day (_tlDayHtml's "any new in this day" check).
+ */
+function _obsIsNew(item, lastSeen) {
   const vAt = item.journalData?.validatedAt;
   if (!vAt) return false;
-  const key      = _obsSeenKey(tripId);
-  const lastSeen = key ? localStorage.getItem(key) : null;
   if (!lastSeen) return true; // never visited — all items are new
   return vAt > lastSeen;
+}
+
+/** Read the observer's last-acknowledged timestamp for this trip, once per render. */
+function _obsLastSeen(tripId) {
+  const key = _obsSeenKey(tripId);
+  return key ? localStorage.getItem(key) : null;
+}
+
+// sharedDoc → Map(itemId → comment[]) — sharedDoc.observerComments is a flat
+// map of every comment across the whole trip, so grouping it by itemId once
+// per snapshot (instead of Object.values(...).filter(itemId === ...) inside
+// the per-item render, _tlItemHtml) avoids an O(items × comments) scan on
+// every timeline render. Keyed by the sharedDoc object reference itself,
+// which is a fresh object on every Firestore snapshot, so the cache never
+// needs explicit invalidation.
+const _commentsByItemCache = new WeakMap();
+
+function _commentsForItem(sharedDoc, itemId) {
+  let map = _commentsByItemCache.get(sharedDoc);
+  if (!map) {
+    map = new Map();
+    for (const c of Object.values(sharedDoc.observerComments || {})) {
+      if (!map.has(c.itemId)) map.set(c.itemId, []);
+      map.get(c.itemId).push(c);
+    }
+    _commentsByItemCache.set(sharedDoc, map);
+  }
+  return map.get(itemId) || [];
 }
 
 // ── Render ────────────────────────────────────────────────────────────────────
@@ -525,13 +557,14 @@ function _renderTimelineView(panel, trip, tripId, isObserver) {
 
 function _buildTimelineHtml(trip, tripId, isObserver, sharedDoc, currentUid) {
   const days = trip.days || [];
+  const lastSeen = isObserver ? _obsLastSeen(tripId) : null;
 
   if (isObserver) {
     let html = '';
     for (const day of days) {
       const items = (day.items || []).filter(it => it.journalData?.validated);
       if (items.length === 0) continue;
-      html += _tlDayHtml(day, items, true, tripId, sharedDoc, currentUid);
+      html += _tlDayHtml(day, items, true, tripId, sharedDoc, currentUid, lastSeen);
     }
     if (!html) return `
       <div class="tl-empty">
@@ -553,15 +586,15 @@ function _buildTimelineHtml(trip, tripId, isObserver, sharedDoc, currentUid) {
   let html = '';
   for (const day of days) {
     if ((day.items || []).length === 0) continue;
-    html += _tlDayHtml(day, day.items, false, tripId, sharedDoc, currentUid);
+    html += _tlDayHtml(day, day.items, false, tripId, sharedDoc, currentUid, null);
   }
   return html;
 }
 
-function _tlDayHtml(day, items, isObserver, tripId, sharedDoc, currentUid) {
+function _tlDayHtml(day, items, isObserver, tripId, sharedDoc, currentUid, lastSeen) {
   const dateLabel = day.date ? fmtDate(day.date) : '';
   const validatedCount = items.filter(i => i.journalData?.validated).length;
-  const hasNewInDay    = isObserver && items.some(it => _obsIsNew(it, tripId));
+  const hasNewInDay    = isObserver && items.some(it => _obsIsNew(it, lastSeen));
 
   let html = `
     <div class="tl-day" id="tl-day-${_esc(day.id)}">
@@ -580,19 +613,19 @@ function _tlDayHtml(day, items, isObserver, tripId, sharedDoc, currentUid) {
       <div class="tl-day-body">`;
 
   items.forEach((item, idx) => {
-    html += _tlItemHtml(day, item, idx, isObserver, tripId, sharedDoc, currentUid);
+    html += _tlItemHtml(day, item, idx, isObserver, tripId, sharedDoc, currentUid, lastSeen);
   });
 
   html += `</div></div>`;
   return html;
 }
 
-function _tlItemHtml(day, item, itemIdx, isObserver, tripId, sharedDoc, currentUid) {
+function _tlItemHtml(day, item, itemIdx, isObserver, tripId, sharedDoc, currentUid, lastSeen) {
   const jd        = item.journalData || {};
   const validated = jd.validated;
   const typeIcon  = _eventTypeIcon(item.type);
   const photos    = jd.photos || [];
-  const isNew     = isObserver && _obsIsNew(item, tripId);
+  const isNew     = isObserver && _obsIsNew(item, lastSeen);
 
   const metaHtml = [];
   if (jd.weather) metaHtml.push(`<span class="tl-meta-pill">${jd.weather}</span>`);
@@ -632,8 +665,7 @@ function _tlItemHtml(day, item, itemIdx, isObserver, tripId, sharedDoc, currentU
   let interactionsHtml = '';
   if (validated && sharedDoc) {
     const itemReactions   = sharedDoc.reactions?.[item.id] || {};
-    const allComments     = sharedDoc.observerComments || {};
-    const itemComments    = Object.values(allComments).filter(c => c.itemId === item.id);
+    const itemComments    = _commentsForItem(sharedDoc, item.id);
     const heartCount      = Object.values(itemReactions).filter(e => e === '❤️').length;
     const commentCount    = itemComments.length;
     const myReacted       = currentUid ? itemReactions[currentUid] === '❤️' : false;
@@ -1936,10 +1968,14 @@ function _openEntryModal(tripId, entryId) {
 
   function reRenderTagsList() {
     const tl = document.getElementById('tags-list');
-    if (tl) {
-      tl.innerHTML = tagsHtml();
-      tl.addEventListener('click', tagRemoveHandler);
-    }
+    // #tags-list itself is a persistent node across calls (only its children
+    // are replaced below) — attachModalEvents() already delegated a single
+    // click listener onto it once, which keeps catching clicks on the newly
+    // rebuilt children via closest(). Re-binding tagRemoveHandler here on
+    // every call stacked one more permanent listener each time a tag was
+    // removed or added, so the 2nd removal fired 2 listeners (splicing 2
+    // tags), the 3rd fired 4, etc.
+    if (tl) tl.innerHTML = tagsHtml();
   }
 
   function tagRemoveHandler(ev) {

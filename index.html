@@ -27,17 +27,22 @@
 
   <!-- Modulepreload: fetch the always-loaded JS graph in parallel instead of the
        nested-import waterfall (parser must fetch+parse a module before it can
-       discover its own imports). mymap.js / share.js / gpx.js and the trip
-       sub-tab modules (mapcal/journal/budget/…) stay lazy — only dynamically
-       imported when the user actually opens "My Map", reaches a shared/invite
-       flow, or uploads a GPX track, since most sessions never touch any of them. -->
-  <link rel="modulepreload" href="js/app.js?v=192" />
+       discover its own imports). mymap.js / gpx.js and the trip sub-tab modules
+       (mapcal/journal/budget/…) stay lazy — only dynamically imported when the
+       user actually opens "My Map" or uploads a GPX track, since most sessions
+       never touch them. share.js is NOT actually lazy despite being dynamically
+       imported from app.js — home.js (always loaded) statically imports it too
+       (openShareModal, isCurrentUserObserver, …), so every session fetches it
+       anyway; preloading it here fetches it in parallel with home.js instead of
+       only being discovered once home.js itself finishes parsing. -->
+  <link rel="modulepreload" href="js/app.js?v=193" />
   <link rel="modulepreload" href="js/store.js" />
   <link rel="modulepreload" href="js/utils.js" />
   <link rel="modulepreload" href="js/auth.js" />
   <link rel="modulepreload" href="js/firebase-config.js" />
   <link rel="modulepreload" href="js/photostore.js" />
   <link rel="modulepreload" href="js/home.js" />
+  <link rel="modulepreload" href="js/share.js" />
   <link rel="modulepreload" href="js/trip/trip.js" />
   <link rel="modulepreload" href="js/notifications.js" />
 
@@ -46,7 +51,7 @@
        in document order — style.css overrides several .leaflet-* rules and
        needs to win the cascade once both are applied. -->
   <link rel="stylesheet" href="vendor/leaflet.css" media="print" onload="this.media='all'" />
-  <link rel="stylesheet" href="style.css?v=192" />
+  <link rel="stylesheet" href="style.css?v=193" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,600;0,700;1,400;1,600;1,700&family=Nunito:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
@@ -222,6 +227,6 @@
       if (bar) bar.style.display = 'none';
     }
   </script>
-<script type="module" src="js/app.js?v=192"></script>
+<script type="module" src="js/app.js?v=193"></script>
 </body>
 </html>

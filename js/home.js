@@ -1551,6 +1551,25 @@ function _lvUnreadCount(observingTrips) {
   return count;
 }
 
+// sharedDoc → Map(itemId → comment[]) — see the identical helper in
+// journal.js for why: observerComments is a flat map across the whole trip,
+// so grouping it once per snapshot avoids an O(items × comments) scan when
+// building the live feed's per-item comment counts.
+const _commentsByItemCache = new WeakMap();
+
+function _commentsForItem(sharedDoc, itemId) {
+  let map = _commentsByItemCache.get(sharedDoc);
+  if (!map) {
+    map = new Map();
+    for (const c of Object.values(sharedDoc.observerComments || {})) {
+      if (!map.has(c.itemId)) map.set(c.itemId, []);
+      map.get(c.itemId).push(c);
+    }
+    _commentsByItemCache.set(sharedDoc, map);
+  }
+  return map.get(itemId) || [];
+}
+
 function _buildLiveFeedHtml(observingTrips) {
   const posts = [];
   for (const trip of observingTrips) {
@@ -1607,8 +1626,7 @@ function _buildLiveFeedHtml(observingTrips) {
     let interactionsHtml = '';
     if (sharedDoc && item.id) {
       const itemReactions   = sharedDoc.reactions?.[item.id] || {};
-      const allComments     = sharedDoc.observerComments || {};
-      const itemComments    = Object.values(allComments).filter(c => c.itemId === item.id);
+      const itemComments    = _commentsForItem(sharedDoc, item.id);
       const heartCount      = Object.values(itemReactions).filter(e => e === '❤️').length;
       const commentCount    = itemComments.length;
       const myReacted       = currentUid ? itemReactions[currentUid] === '❤️' : false;
@@ -2351,11 +2369,19 @@ function _attachListeners(wrap) {
     }
   });
 
+  // Debounced on 'input' (fires per keystroke — _searchAll lowercases and
+  // scans every trip/day/item/expense field in the library on each call);
+  // 'search' (Enter, or the input's native clear ✕) is a single discrete
+  // action and stays instant.
+  let _searchDebounce = null;
   wrap.addEventListener('input', e => {
-    if (e.target.id === 'global-search') _handleSearchInput(e.target.value);
+    if (e.target.id !== 'global-search') return;
+    clearTimeout(_searchDebounce);
+    const q = e.target.value;
+    _searchDebounce = setTimeout(() => _handleSearchInput(q), 200);
   });
   wrap.addEventListener('search', e => {
-    if (e.target.id === 'global-search') _handleSearchInput(e.target.value);
+    if (e.target.id === 'global-search') { clearTimeout(_searchDebounce); _handleSearchInput(e.target.value); }
   });
 }
 
@@ -2396,6 +2422,14 @@ function _updateSortieCoordDisplay() {
     : 'Aucune position — cliquez sur la carte';
 }
 
+// #sm-extra-thumbs itself carries a single delegated click listener (bound
+// once when the modal opens, see the '#sm-extra-thumbs' addEventListener
+// below) that already catches clicks on [data-rm-extra] buttons regenerated
+// here. This function used to ALSO bind a listener directly on each button —
+// since the container persists across calls, that meant one click fired
+// both handlers, splicing the same index twice: the second splice, reading
+// the same (now-stale) index after the first had already shifted the array,
+// removed a different photo than the one the user clicked.
 function _renderExtraThumbs() {
   const container = document.getElementById('sm-extra-thumbs');
   if (!container) return;
@@ -2406,12 +2440,6 @@ function _renderExtraThumbs() {
          style="position:absolute;top:-5px;right:-5px;background:var(--coral);color:#fff;border:none;border-radius:50%;width:17px;height:17px;font-size:10px;cursor:pointer;line-height:1;padding:0;display:flex;align-items:center;justify-content:center">✕</button>
      </div>`
   ).join('');
-  container.querySelectorAll('[data-rm-extra]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      _sortieExtraPhotos.splice(parseInt(btn.dataset.rmExtra), 1);
-      _renderExtraThumbs();
-    });
-  });
 }
 
 function _buildSortieModalHtml(trip) {

@@ -416,10 +416,20 @@ export function downloadFile(filename, content, mimeType = 'application/gpx+xml'
 
 const _gpxKey = id => `cvgpx_${id}`;
 
+// In-memory memo, kept in sync by the two write functions below — resolveGpxPoints()
+// calls getLocalGpxTracks(tripId) once per item that needs it, so a trip with
+// several GPX-tracked items re-parsed (and re-JSON.stringified for the return
+// value) the same localStorage blob once per item without this.
+const _gpxTracksCache = new Map(); // tripId → tracks array
+
 /** Return all locally-stored GPX tracks for a trip, or [] on parse error. */
 export function getLocalGpxTracks(tripId) {
-  try { return JSON.parse(localStorage.getItem(_gpxKey(tripId)) || '[]'); }
-  catch (_) { return []; }
+  if (_gpxTracksCache.has(tripId)) return _gpxTracksCache.get(tripId);
+  let tracks;
+  try { tracks = JSON.parse(localStorage.getItem(_gpxKey(tripId)) || '[]'); }
+  catch (_) { tracks = []; }
+  _gpxTracksCache.set(tripId, tracks);
+  return tracks;
 }
 
 /**
@@ -443,9 +453,9 @@ export function resolveGpxPoints(tripId, item) {
 
 /** Append a track to the stored list and return the updated array. */
 export function saveLocalGpxTrack(tripId, track) {
-  const tracks = getLocalGpxTracks(tripId);
-  tracks.push(track);
+  const tracks = [...getLocalGpxTracks(tripId), track];
   localStorage.setItem(_gpxKey(tripId), JSON.stringify(tracks));
+  _gpxTracksCache.set(tripId, tracks);
   return tracks;
 }
 
@@ -453,6 +463,7 @@ export function saveLocalGpxTrack(tripId, track) {
 export function removeLocalGpxTrack(tripId, trackId) {
   const tracks = getLocalGpxTracks(tripId).filter(t => t.id !== trackId);
   localStorage.setItem(_gpxKey(tripId), JSON.stringify(tracks));
+  _gpxTracksCache.set(tripId, tracks);
   return tracks;
 }
 

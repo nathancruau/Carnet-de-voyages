@@ -27,7 +27,7 @@ function _persistState() {
   try { localStorage.setItem(THEME_KEY, state.settings?.theme || ''); } catch (_) {}
 }
 
-export const APP_VERSION = '192';
+export const APP_VERSION = '193';
 
 export const COMP_COLORS = [
   '#0d9488','#7c3aed','#e85d3e','#d97706',
@@ -235,6 +235,15 @@ export function replaceTripFromNetwork(id, tripData) {
     // instead of silently swapping in the lower-quality one.
     if ((migrated.updatedAt || 0) > (state.trips[idx].updatedAt || 0)) {
       state.trips[idx] = migrated;
+    } else {
+      // Nothing actually changed — skip the persist below. This function is
+      // called on every Firestore snapshot of a shared trip, including the
+      // 45s presence heartbeat from every peer (updatePresence writes to the
+      // same doc, which fires onSnapshot for everyone) — without this guard,
+      // a shared trip with a few participants JSON.stringifies and rewrites
+      // the entire (multi-MB, photo-bearing) localStorage blob roughly every
+      // 15s forever, for snapshots that never touched trip data at all.
+      return;
     }
   } else {
     state.trips.unshift(migrated);

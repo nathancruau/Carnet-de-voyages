@@ -51,13 +51,24 @@ let   _presenceInterval = null;    // heartbeat timer
 
 function _obsRoleCacheKey(uid) { return `_obsroles_${uid}`; }
 
+// In-memory memo of the parsed Set, so repeat calls (isCurrentUserObserver is
+// called several times per trip per renderHome()) don't each re-read and
+// JSON.parse localStorage — this is only a fallback used before the async
+// Firestore doc for a trip has loaded, but on a cold render that's every
+// trip, every time, until each one resolves.
+let _obsCachedIdsMemo = null; // { uid, ids }
+
 function _obsGetCachedIds(uid) {
-  try { return new Set(JSON.parse(localStorage.getItem(_obsRoleCacheKey(uid)) || '[]')); }
-  catch(_) { return new Set(); }
+  if (_obsCachedIdsMemo?.uid === uid) return _obsCachedIdsMemo.ids;
+  let ids;
+  try { ids = new Set(JSON.parse(localStorage.getItem(_obsRoleCacheKey(uid)) || '[]')); }
+  catch(_) { ids = new Set(); }
+  _obsCachedIdsMemo = { uid, ids };
+  return ids;
 }
 
 function _obsUpdateCache(uid, tripId, isObserver) {
-  const ids = _obsGetCachedIds(uid);
+  const ids = _obsGetCachedIds(uid); // same Set reference as the memo, mutated in place below
   isObserver ? ids.add(tripId) : ids.delete(tripId);
   localStorage.setItem(_obsRoleCacheKey(uid), JSON.stringify([...ids]));
 }
@@ -508,8 +519,33 @@ async function _loadAndListen(tripId) {
 
 // ── Sync callbacks ──────────────────────────────────────────────────────────────
 
+// tripId → { timer, tripData, action } — debounces bursts of local edits to a
+// shared trip (e.g. dragging an event, typing in a notes field one keystroke
+// at a time) into a single Firestore write instead of one full activity-log
+// entry + saveSharedTrip() (which deep-clones the trip, walks every photo,
+// and JSON.stringifies the result for the size check) per individual edit.
+// Mirrors the 400ms debounce store.js's own saveData() already uses for the
+// personal-doc sync — this callback had none until now.
+const _sharedEditState = new Map();
+
 /** store.js calls this when a shared trip is mutated locally. */
 function _onLocalSharedTripEdit(tripId, tripData, action = 'a modifié le voyage') {
+  let entry = _sharedEditState.get(tripId);
+  if (!entry) {
+    entry = {};
+    _sharedEditState.set(tripId, entry);
+  } else {
+    clearTimeout(entry.timer);
+  }
+  entry.tripData = tripData;
+  entry.action   = action;
+  entry.timer = setTimeout(() => {
+    _sharedEditState.delete(tripId);
+    _pushSharedTripEdit(tripId, entry.tripData, entry.action);
+  }, 400);
+}
+
+function _pushSharedTripEdit(tripId, tripData, action) {
   // Write an activity log entry so collaborators see who made the change
   const user = getCurrentUser();
   if (user) {

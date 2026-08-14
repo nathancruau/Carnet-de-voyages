@@ -147,12 +147,25 @@ const TIGHT_TIER = { maxSize: 450, quality: 0.5 };
 const _SYNC_TIERS = [GOOD_TIER, TIGHT_TIER, { maxSize: 250, quality: 0.4 }];
 export const FIRESTORE_SIZE_LIMIT = 900 * 1024; // safety margin under Firestore's ~1 MiB cap
 
-const _compressedPhotoCache = new Map(); // `${data: URL}|${maxSize}|${quality}` → compressed data: URL
+const _compressedPhotoCache = new Map(); // hash(data URL)|maxSize|quality → compressed data: URL
+
+// Full-content rolling hash (same shape as photostore.js's own upload cache
+// key, kept separate to avoid a circular import between the two modules).
+// Using this instead of the raw base64 string as the Map key below matters:
+// keying on the full string means every cached tier of every photo holds a
+// second full-resolution copy of that photo alive in memory for the rest of
+// the session (a 200-photo library compressed at even 2 tiers each would
+// retain hundreds of MB of duplicated strings never eligible for GC).
+function _hashStr(str) {
+  let h = 0;
+  for (let i = 0; i < str.length; i++) h = (Math.imul(31, h) + str.charCodeAt(i)) | 0;
+  return str.length + ':' + h;
+}
 
 /** Compress a base64 photo to a JPEG at the given size/quality. Returns null on error. */
 export async function compressPhotoDataUrl(b64, maxSize = GOOD_TIER.maxSize, quality = GOOD_TIER.quality) {
   if (!b64 || !b64.startsWith('data:')) return null;
-  const cacheKey = `${b64}|${maxSize}|${quality}`;
+  const cacheKey = `${_hashStr(b64)}|${maxSize}|${quality}`;
   const cached = _compressedPhotoCache.get(cacheKey);
   if (cached !== undefined) return cached;
   const result = await new Promise(resolve => {
