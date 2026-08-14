@@ -410,19 +410,38 @@ export async function renderJournal(tripId, isObserver = false, forceView = null
     _handlers.delete(panel);
   }
 
+  const isMobile   = window.innerWidth <= 768;
+  const sharedDoc  = isTripShared(tripId) ? _shareMod?.getSharedDocData?.(tripId) : null;
+  const currentUid = getCurrentUser()?.uid || null;
+
   if (isObserver) {
-    // Observer mode already shows timeline/feed and map side by side —
-    // unaffected by the owner/member Carte+Timeline merge below.
-    if (_journalView === 'timeline') {
-      _renderTimelineView(panel, trip, tripId, isObserver);
+    if (isMobile) {
+      // Same two-full-screen-tabs pattern as owner/member mobile below —
+      // the previous single fixed side-by-side layout squeezed the map into
+      // a cramped 260px strip on small screens with no way to see it full-size.
+      const activeTab = _journalMobTab === 'timeline' ? 'timeline' : 'carte';
+      panel.innerHTML = `
+        <div class="jn-mob-tabs">
+          <button class="bm-tab${activeTab === 'carte'    ? ' active' : ''}" data-action="jn-tab" data-tab="carte">🗺 Carte</button>
+          <button class="bm-tab${activeTab === 'timeline' ? ' active' : ''}" data-action="jn-tab" data-tab="timeline">📖 Timeline</button>
+        </div>
+        <div id="jn-mob-body" style="flex:1;min-height:0;overflow:hidden"></div>`;
+      const body = panel.querySelector('#jn-mob-body');
+      if (activeTab === 'timeline') {
+        body.innerHTML = `
+          <div class="tl-wrap" style="height:100%">
+            <div class="tl-scroll" id="tl-scroll">${_buildTimelineHtml(trip, tripId, true, sharedDoc, currentUid)}</div>
+          </div>`;
+        _initCarousels(body);
+      } else {
+        body.innerHTML = `<div class="map-col"><div id="journal-map" style="width:100%;height:100%"></div></div>`;
+        _initJournalMap(tripId);
+      }
     } else {
-      _renderObserverView(panel, trip, tripId);
+      // Desktop: map + timeline shown side by side, same as owner/member.
+      _renderTimelineView(panel, trip, tripId, isObserver);
     }
   } else {
-    const isMobile   = window.innerWidth <= 768;
-    const sharedDoc  = isTripShared(tripId) ? _shareMod?.getSharedDocData?.(tripId) : null;
-    const currentUid = getCurrentUser()?.uid || null;
-
     if (isMobile) {
       // Phone: Carte and Timeline stay as two separate full-screen tabs.
       const activeTab = _journalMobTab === 'timeline' ? 'timeline' : 'carte';
@@ -474,126 +493,9 @@ export async function renderJournal(tripId, isObserver = false, forceView = null
   panel.addEventListener('click', handler);
 }
 
-// ── Observer view ─────────────────────────────────────────────────────────────
-
-function _renderObserverView(panel, trip, tripId) {
-  const days = trip.days || [];
-  const validatedItems = [];
-  for (const day of days) {
-    for (const item of (day.items || [])) {
-      if (item.journalData?.validated) validatedItems.push({ day, item });
-    }
-  }
-  const hasItems   = validatedItems.length > 0;
-  const sharedDoc  = isTripShared(tripId) ? _shareMod?.getSharedDocData?.(tripId) : null;
-  const currentUid = getCurrentUser()?.uid || null;
-
-  panel.innerHTML = `
-    <div class="obs-carnet-layout">
-      <div class="obs-feed-col">
-        <div style="padding:10px 14px 8px;flex-shrink:0;border-bottom:1px solid var(--c3)">
-          <h3 style="font-family:var(--sf);font-size:15px;font-weight:700;color:var(--ink);margin:0">📔 Carnet de voyage</h3>
-          <p style="font-size:11px;color:var(--ink4);margin-top:2px">Publications des voyageurs · mis à jour en direct</p>
-        </div>
-        <div id="observer-feed" style="flex:1;overflow-y:auto;padding:8px 12px">
-          ${hasItems ? _buildObserverFeedHtml(validatedItems, tripId, sharedDoc, currentUid) : _buildObserverEmptyHtml()}
-        </div>
-      </div>
-      <div class="obs-map-col">
-        <div id="journal-map" style="position:absolute;inset:0"></div>
-      </div>
-    </div>`;
-
-  _initJournalMap(tripId);
-
-}
-
-function _buildObserverEmptyHtml() {
-  return `
-    <div style="text-align:center;padding:40px 16px;color:var(--ink4)">
-      <div style="font-size:40px;margin-bottom:12px">📡</div>
-      <p style="font-size:13px;font-weight:600;color:var(--ink3)">En attente de nouvelles publications…</p>
-      <p style="font-size:11px;margin-top:6px">Les voyageurs publieront leurs activités au fil du voyage</p>
-    </div>`;
-}
-
-function _buildObserverFeedHtml(validatedItems, tripId, sharedDoc, currentUid) {
-  // Group by day
-  const groups = new Map();
-  for (const { day, item } of validatedItems) {
-    if (!groups.has(day.id)) groups.set(day.id, { day, items: [] });
-    groups.get(day.id).items.push(item);
-  }
-
-  let html = '';
-  for (const [, { day, items }] of groups) {
-    const dayLabel    = `Jour ${day.num}${day.title ? ' · ' + day.title : ''}`;
-    const hasNewInDay = items.some(it => _obsIsNew(it, tripId));
-    html += `<div class="jn-day-group">
-      <div class="jn-day-label">
-        ${_esc(dayLabel)}${day.date ? `<span style="font-weight:400;font-size:10px;color:var(--ink4);margin-left:5px">${fmtDateShort(day.date)}</span>` : ''}
-        ${hasNewInDay ? `<span class="obs-new-dot"></span>` : ''}
-      </div>`;
-
-    for (const item of items) {
-      const jd       = item.journalData;
-      const typeIcon = _eventTypeIcon(item.type);
-      const photos   = jd.photos || [];
-      const isNew    = _obsIsNew(item, tripId);
-
-      // Interactions (likes + comments)
-      let interactionsHtml = '';
-      if (sharedDoc && item.id) {
-        const itemReactions = sharedDoc.reactions?.[item.id] || {};
-        const allComments   = sharedDoc.observerComments || {};
-        const itemComments  = Object.values(allComments).filter(c => c.itemId === item.id);
-        const heartCount    = Object.values(itemReactions).filter(v => v === '❤️').length;
-        const commentCount  = itemComments.length;
-        const myReacted     = currentUid ? itemReactions[currentUid] === '❤️' : false;
-        interactionsHtml = `
-          <div class="tl-interactions">
-            <button class="tl-react-btn${myReacted ? ' reacted' : ''}"
-                    data-action="toggle-reaction" data-item-id="${_esc(item.id)}">
-              ❤️${heartCount > 0 ? `<span class="tl-react-count">${heartCount}</span>` : ''}
-            </button>
-            <button class="tl-comment-open-btn"
-                    data-action="open-comments"
-                    data-item-id="${_esc(item.id)}"
-                    data-item-text="${_esc(item.text || '')}">
-              💬${commentCount > 0 ? `<span class="tl-react-count">${commentCount}</span>` : ''}
-            </button>
-          </div>`;
-      }
-
-      html += `
-        <div class="obs-entry${isNew ? ' obs-entry-new' : ''}" data-feed-item-id="${_esc(item.id || '')}"
-          <div class="obs-entry-hd">
-            <span style="font-size:16px">${typeIcon}</span>
-            <div style="flex:1;min-width:0">
-              <div style="font-weight:600;font-size:12px;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_esc(item.text || '—')}</div>
-              <div style="font-size:10px;color:var(--ink4);margin-top:1px;display:flex;gap:6px;flex-wrap:wrap">
-                ${jd.weather ? `<span>${jd.weather}</span>` : ''}
-                ${jd.amount  ? `<span>💶 ${jd.amount}€</span>` : ''}
-                ${item.time  ? `<span>🕐 ${_esc(item.time)}</span>` : ''}
-              </div>
-            </div>
-            ${isNew ? `<span class="obs-new-badge">Nouveau</span>` : `<span class="obs-validated-badge">✓</span>`}
-          </div>
-          ${jd.notes ? `<div class="obs-notes">${_esc(jd.notes).replace(/\n/g, '<br>')}</div>` : ''}
-          ${_gpxStatsHtml(item)}
-          ${photos.length > 0 ? `<div class="obs-photos">${photos.map(src =>
-            `<img src="${_esc(src)}" class="obs-photo" onclick="window._pho && window._pho(this.src)">`
-          ).join('')}</div>` : ''}
-          ${interactionsHtml}
-        </div>`;
-    }
-    html += `</div>`;
-  }
-  return html;
-}
-
-// ── Timeline view (observer only — owner/member timeline is merged with the
-//    map directly in renderJournal, see the Carte+Timeline layout above) ──────
+// ── Timeline view (observer desktop only — mobile uses the jn-mob-tabs path
+//    above, owner/member timeline is merged with the map directly in
+//    renderJournal, see the Carte+Timeline layout above) ──────────────────────
 
 function _renderTimelineView(panel, trip, tripId, isObserver) {
   const sharedDoc  = isTripShared(tripId) ? _shareMod?.getSharedDocData?.(tripId) : null;
@@ -1456,11 +1358,14 @@ async function _dataUrlToFile(dataUrl, filename) {
 async function _shareJournalItem({ tripName, dayLabel, itemLabel, notes, weather, photos = [] }) {
   // Deliberately excludes the expense amount — private spending info shouldn't
   // leak through an external share (message, social app, etc.).
-  const lines = [`✈️ ${tripName} — ${dayLabel}`, itemLabel];
+  // `title` already carries "tripName — dayLabel" — many share targets (SMS,
+  // Mail, WhatsApp…) display title and text together, so repeating that same
+  // header as the first line of `text` used to show "Jour X … Jour X" twice.
+  const title = `✈️ ${tripName} — ${dayLabel}`;
+  const lines = [itemLabel];
   if (weather) lines.push(weather);
   if (notes)   lines.push(notes);
   const text  = lines.join('\n');
-  const title = `${tripName} — ${dayLabel}`;
 
   let files = [];
   if (photos.length && navigator.canShare) {
@@ -1472,7 +1377,9 @@ async function _shareJournalItem({ tripName, dayLabel, itemLabel, notes, weather
       photos.slice(0, 10).map((src, i) => _dataUrlToFile(src, `photo-${i + 1}.jpg`))
     );
     files = results.filter(r => r.status === 'fulfilled').map(r => r.value);
-    if (files.length && !navigator.canShare({ files })) files = [];
+    try {
+      if (files.length && !navigator.canShare({ files })) files = [];
+    } catch (_) { files = []; }
   }
 
   if (navigator.share) {

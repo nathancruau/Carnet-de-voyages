@@ -21,6 +21,7 @@
 import { firebaseConfig } from './firebase-config.js';
 import { compressTripsForFirestore, transformTripPhotos, compressPhotoDataUrl, FIRESTORE_SIZE_LIMIT } from './utils.js';
 import { initPhotoStore, isPhotoStoreReady, uploadPhoto, deletePhoto, cleanupOrphanedPhotos } from './photostore.js';
+import { getSharedTripIds } from './store.js';
 
 const FB = 'https://www.gstatic.com/firebasejs/11.1.0';
 
@@ -240,6 +241,27 @@ function _collectStorageUrls(trips) {
   return urls;
 }
 
+/**
+ * Storage URLs referenced by this owner's own shared_trips/{id} documents.
+ * When a trip is shared, transformTripPhotos() leaves already-uploaded
+ * Storage URLs untouched (see its own comment) instead of re-embedding them
+ * as base64 — so the exact same URL can end up written into shared_trips
+ * (read by companions/observers) as is written into this owner's personal
+ * users/{uid} document. Without this, the personal-doc orphan cleanup below
+ * could delete a Storage file the moment it drops out of the OWNER's own
+ * trip data (e.g. re-uploaded with a new id), even though a companion's
+ * still-unsynced shared_trips copy is still pointing at the old URL — the
+ * photo would 404 (render black) for them until their next share update.
+ */
+async function _collectSharedTripsUrls(tripIds) {
+  const urls = new Set();
+  await Promise.all(tripIds.map(async id => {
+    const doc = await loadSharedTrip(id).catch(() => null);
+    if (doc?.trip) for (const url of _collectStorageUrls([doc.trip])) urls.add(url);
+  }));
+  return urls;
+}
+
 export async function syncToFirestore(localState, recentlyDeletedIds = []) {
   if (!_db || !_uid || !_setDocFn || !_docFn) return;
   try {
@@ -273,6 +295,11 @@ export async function syncToFirestore(localState, recentlyDeletedIds = []) {
     if (_lastServerTrips) {
       const prevUrls = _collectStorageUrls(_lastServerTrips);
       const newUrls  = _collectStorageUrls(cloudTrips);
+      const sharedIds = getSharedTripIds().filter(id => cloudTrips.some(t => t.id === id));
+      if (sharedIds.length) {
+        const sharedUrls = await _collectSharedTripsUrls(sharedIds);
+        for (const url of sharedUrls) newUrls.add(url);
+      }
       for (const url of prevUrls) {
         if (!newUrls.has(url)) deletePhoto(url);
       }
@@ -311,6 +338,11 @@ export async function cleanupDuplicatePhotos(localTrips) {
     ..._collectStorageUrls(serverTrips),
     ..._collectStorageUrls(localTrips || []),
   ]);
+  const allIds    = new Set([...serverTrips, ...(localTrips || [])].map(t => t.id));
+  const sharedIds = getSharedTripIds().filter(id => allIds.has(id));
+  if (sharedIds.length) {
+    for (const url of await _collectSharedTripsUrls(sharedIds)) referencedUrls.add(url);
+  }
   return cleanupOrphanedPhotos(_uid, referencedUrls);
 }
 
