@@ -27,7 +27,7 @@ function _persistState() {
   try { localStorage.setItem(THEME_KEY, state.settings?.theme || ''); } catch (_) {}
 }
 
-export const APP_VERSION = '186';
+export const APP_VERSION = '187';
 
 export const COMP_COLORS = [
   '#0d9488','#7c3aed','#e85d3e','#d97706',
@@ -498,10 +498,20 @@ export function getRecentlyDeletedIds() { return new Set(_recentlyDeletedIds); }
  * removed from it). Without this, replaceTripFromNetwork() keeps refusing
  * to re-add it, since the tombstone's timestamp (set when we were removed)
  * is usually newer than the shared trip's last updatedAt.
+ *
+ * Sets the tombstone to 0 rather than deleting the key outright (v186 did
+ * that and regressed — see CLAUDE.md history): deleting it left setState()'s
+ * cloud/local tombstone union vulnerable to a race against its own debounced
+ * cloud push — an app reload landing before that push confirmed still saw
+ * the OLD tombstone server-side, and merged it straight back in since the
+ * key was simply absent locally (nothing to override it with). A 0-valued
+ * entry, by contrast, is a key that's actually PRESENT locally, so it always
+ * wins that union regardless of timing — and every isDeleted() check in this
+ * file already treats 0 as "not deleted" (any real updatedAt is > 0), so
+ * nothing downstream needs to know the difference between absent and 0.
  */
 export function clearDeletedTrip(id) {
   if (!state.deletedTrips || !(id in state.deletedTrips)) return;
-  const { [id]: _omit, ...rest } = state.deletedTrips;
-  state.deletedTrips = rest;
+  state.deletedTrips = { ...state.deletedTrips, [id]: 0 };
   saveData();
 }

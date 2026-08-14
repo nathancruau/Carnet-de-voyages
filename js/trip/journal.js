@@ -202,7 +202,7 @@ function _jNightForDate(trip, isoDate) {
       if (item.type === 'sleep' && item.lat != null && item.lng != null &&
           item.dateFrom && item.dateTo &&
           item.dateFrom <= isoDate && isoDate <= item.dateTo) {
-        return { id: item.id, lat: item.lat, lng: item.lng };
+        return { id: item.id, lat: item.lat, lng: item.lng, validated: !!item.journalData?.validated };
       }
     }
   }
@@ -219,6 +219,11 @@ function _jCollectWaypoints(trip, observerMode = false) {
   // whatever came after, ignoring every following night at the same place.
   const pushNight = (night) => {
     if (!night) return;
+    // Observer: a night stay is just another journal step — it must not
+    // leak into the route line before it's been documented/validated,
+    // otherwise the connecting route revealed the full itinerary (every
+    // upcoming stop) regardless of what had actually been published yet.
+    if (observerMode && !night.validated) return;
     const last = wps[wps.length - 1];
     if (last && last.nightId === night.id) return;
     wps.push({ lat: night.lat, lng: night.lng, mode: 'car', nightId: night.id });

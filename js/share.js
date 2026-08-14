@@ -1010,22 +1010,20 @@ export async function handlePendingInvite(user) {
 
 /**
  * Insert/refresh a trip locally as part of an explicit rejoin (invite link,
- * QR code, companion picker). Bumping updatedAt to right now — rather than
- * relying only on clearing the local deletion tombstone — is what makes
- * this durable: clearDeletedTrip() alone raced against its own debounced
- * cloud push (deletedTrips only reaches the server ~400ms later), so an app
- * reload landing before that push completed still saw the OLD, tombstoned
- * cloud snapshot on the next login — setState() then merged that stale
- * tombstone straight back in (deletedTrips is unioned, local always wins on
- * a shared key, but a key ABSENT locally falls back to the cloud's stale
- * value), silently re-hiding a trip that had just visibly reappeared. A
- * trip whose own updatedAt is provably newer than any past tombstone
- * timestamp is never treated as deleted by replaceTripFromNetwork() /
- * setState(), regardless of whether the tombstone-clear race was won.
+ * QR code, companion picker). clearDeletedTrip() (store.js) now sets the
+ * tombstone to 0 rather than deleting it, so it durably wins setState()'s
+ * cloud/local union even if the debounced cloud push of that change hasn't
+ * landed yet — see its own doc comment for the v186 regression this
+ * replaced. This function no longer touches the trip's own updatedAt: an
+ * earlier version of this fix bumped it to Date.now() instead, which
+ * doubled as an (unneeded) signal that made the very next _loadAndListen()
+ * call below treat the local copy as newer than the shared_trips doc and
+ * re-push it — a real photo-loss regression once, not worth risking again
+ * now that the tombstone fix alone is sufficient on its own.
  */
 function _rejoinTripLocally(tripId, trip) {
   clearDeletedTrip(tripId);
-  replaceTripFromNetwork(tripId, { ...trip, updatedAt: Date.now() });
+  replaceTripFromNetwork(tripId, trip);
 }
 
 /**
