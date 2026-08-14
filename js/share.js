@@ -959,11 +959,7 @@ export async function handlePendingInvite(user) {
     // Already a member — just re-connect
     if (sharedDoc.members?.[user.uid]) {
       markTripShared(tripId);
-      // A prior removal (kicked, or the trip itself deleted then re-shared)
-      // may have left a local tombstone — an explicit rejoin must override it,
-      // otherwise replaceTripFromNetwork() below silently refuses to resurrect it.
-      clearDeletedTrip(tripId);
-      replaceTripFromNetwork(tripId, sharedDoc.trip);
+      _rejoinTripLocally(tripId, sharedDoc.trip);
       _sharedDocData.set(tripId, sharedDoc);
       if (sharedDoc.members[user.uid].role === 'observer') _obsUpdateCache(user.uid, tripId, true);
       await _loadAndListen(tripId).catch(() => {});
@@ -990,8 +986,7 @@ export async function handlePendingInvite(user) {
       // own re-fetch below: if that second read ever fails for any reason,
       // this still makes the trip show up in "Mes observations" immediately.
       markTripShared(tripId);
-      clearDeletedTrip(tripId);
-      replaceTripFromNetwork(tripId, sharedDoc.trip);
+      _rejoinTripLocally(tripId, sharedDoc.trip);
       _sharedDocData.set(tripId, sharedDoc);
       _obsUpdateCache(user.uid, tripId, true);
       await _loadAndListen(tripId).catch(() => {}); // live listener + fresh membership map — best-effort
@@ -1011,6 +1006,26 @@ export async function handlePendingInvite(user) {
     console.error('[share] handlePendingInvite failed:', err);
     notify('Erreur lors du chargement du voyage partagé.', '❌');
   }
+}
+
+/**
+ * Insert/refresh a trip locally as part of an explicit rejoin (invite link,
+ * QR code, companion picker). Bumping updatedAt to right now — rather than
+ * relying only on clearing the local deletion tombstone — is what makes
+ * this durable: clearDeletedTrip() alone raced against its own debounced
+ * cloud push (deletedTrips only reaches the server ~400ms later), so an app
+ * reload landing before that push completed still saw the OLD, tombstoned
+ * cloud snapshot on the next login — setState() then merged that stale
+ * tombstone straight back in (deletedTrips is unioned, local always wins on
+ * a shared key, but a key ABSENT locally falls back to the cloud's stale
+ * value), silently re-hiding a trip that had just visibly reappeared. A
+ * trip whose own updatedAt is provably newer than any past tombstone
+ * timestamp is never treated as deleted by replaceTripFromNetwork() /
+ * setState(), regardless of whether the tombstone-clear race was won.
+ */
+function _rejoinTripLocally(tripId, trip) {
+  clearDeletedTrip(tripId);
+  replaceTripFromNetwork(tripId, { ...trip, updatedAt: Date.now() });
 }
 
 /**
@@ -1087,8 +1102,7 @@ function _showCompanionPicker(trip, members, tripId, user) {
         // opened) — see the identical comment on the observer-invite path
         // above for why this doesn't just rely on _loadAndListen alone.
         markTripShared(tripId);
-        clearDeletedTrip(tripId);
-        replaceTripFromNetwork(tripId, trip);
+        _rejoinTripLocally(tripId, trip);
         if (isObserver) _obsUpdateCache(user.uid, tripId, true);
         await _loadAndListen(tripId).catch(() => {});
         notify(`Bienvenue, ${compName} ! 🎉`);
