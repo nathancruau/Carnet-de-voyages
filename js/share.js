@@ -384,11 +384,16 @@ export async function initSharedTrips(cloudData) {
 
 /**
  * Load a shared trip from Firestore, merge into local state, and start
- * an onSnapshot listener.  Safe to call multiple times (idempotent).
+ * an onSnapshot listener. Safe to call multiple times (idempotent) — but the
+ * local-state sync below must always run, even on a repeat call: bailing out
+ * early just because a listener already exists (as this used to do, checked
+ * first thing) skipped populating _sharedDocData/replaceTripFromNetwork/the
+ * observer cache on any call after the very first one for a given tripId,
+ * which could leave a freshly-joined trip completely invisible locally
+ * (never in "Mes observations") despite the Firestore membership write
+ * having genuinely succeeded.
  */
 async function _loadAndListen(tripId) {
-  if (_listeners.has(tripId)) return;
-
   const doc = await loadSharedTrip(tripId);
   if (!doc?.trip) return;
 
@@ -422,6 +427,7 @@ async function _loadAndListen(tripId) {
       .catch(() => {});
   }
 
+  if (_listeners.has(tripId)) return; // listener already live — don't double-subscribe
   const unsub = listenSharedTrip(tripId, (data, hasPendingWrites) => {
     _onNetworkUpdate(tripId, data, hasPendingWrites);
   });
@@ -874,7 +880,11 @@ export async function handlePendingInvite(user) {
 
     // Already a member — just re-connect
     if (sharedDoc.members?.[user.uid]) {
-      await _loadAndListen(tripId);
+      markTripShared(tripId);
+      replaceTripFromNetwork(tripId, sharedDoc.trip);
+      _sharedDocData.set(tripId, sharedDoc);
+      if (sharedDoc.members[user.uid].role === 'observer') _obsUpdateCache(user.uid, tripId, true);
+      await _loadAndListen(tripId).catch(() => {});
       if (!_sharedTripIds.includes(tripId)) {
         _sharedTripIds.push(tripId);
         setSharedTripIds(_sharedTripIds);
@@ -892,7 +902,16 @@ export async function handlePendingInvite(user) {
         _sharedTripIds.push(tripId);
         setSharedTripIds(_sharedTripIds);
       }
-      await _loadAndListen(tripId);
+      // Reflect locally right away using the trip data already in hand
+      // (fetched above, before we joined — trip.* itself doesn't depend on
+      // our own membership) rather than relying solely on _loadAndListen's
+      // own re-fetch below: if that second read ever fails for any reason,
+      // this still makes the trip show up in "Mes observations" immediately.
+      markTripShared(tripId);
+      replaceTripFromNetwork(tripId, sharedDoc.trip);
+      _sharedDocData.set(tripId, sharedDoc);
+      _obsUpdateCache(user.uid, tripId, true);
+      await _loadAndListen(tripId).catch(() => {}); // live listener + fresh membership map — best-effort
       // Request browser notification permission for future publications
       if (Notification?.permission === 'default') {
         Notification.requestPermission().catch(() => {});
@@ -966,7 +985,14 @@ function _showCompanionPicker(trip, members, tripId, user) {
           setSharedTripIds(_sharedTripIds);
         }
 
-        await _loadAndListen(tripId);
+        // Reflect locally right away with the trip data already in hand
+        // (the `trip` param, fetched by the caller before this picker even
+        // opened) — see the identical comment on the observer-invite path
+        // above for why this doesn't just rely on _loadAndListen alone.
+        markTripShared(tripId);
+        replaceTripFromNetwork(tripId, trip);
+        if (isObserver) _obsUpdateCache(user.uid, tripId, true);
+        await _loadAndListen(tripId).catch(() => {});
         notify(`Bienvenue, ${compName} ! 🎉`);
         if (typeof window._rerenderCurrentView === 'function') window._rerenderCurrentView();
 
