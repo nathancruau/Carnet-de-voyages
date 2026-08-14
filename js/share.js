@@ -231,6 +231,22 @@ export async function deleteObserverReaction(tripId, itemId, targetUid) {
   } catch (_) {}
 }
 
+/** Total photo count across every field a trip can hold photos in. */
+function _countTripPhotos(trip) {
+  if (!trip) return 0;
+  let n = trip.photo ? 1 : 0;
+  n += (trip.photos || []).length;
+  for (const day of (trip.days || [])) {
+    for (const item of (day.items || [])) {
+      if (item.photo) n++;
+      n += (item.photos || []).length;
+      n += (item.journalData?.photos || []).length;
+    }
+  }
+  for (const je of (trip.journalEntries || [])) n += (je.photos || []).length;
+  return n;
+}
+
 /**
  * Prepare a trip's photos for a shared_trips write (1 MB document limit).
  * Tries Storage upload first, exactly like the personal users/{uid} sync
@@ -445,11 +461,21 @@ async function _loadAndListen(tripId) {
   } else if ((doc.trip.updatedAt || 0) < (localTrip.updatedAt || 0)) {
     // Local version is newer — push it to Firestore instead of overwriting
     _compressForSharing(localTrip).then(s => saveSharedTrip(tripId, s)).catch(() => {});
+  } else if (_countTripPhotos(localTrip) > _countTripPhotos(doc.trip)) {
+    // Same updatedAt (our own previously-synced edit) but the shared copy is
+    // missing photos the local trip actually has — a trip shared before
+    // Storage upload existed for shared_trips (v182) could have had ALL its
+    // photos silently stripped from the shared copy once even the tightest
+    // compression tier didn't fit Firestore's 1 MB limit, and nothing
+    // re-triggers that push until the trip is next edited. Re-push once,
+    // now that Storage upload can actually bring it under the limit, instead
+    // of waiting on an unrelated edit to happen to notice.
+    _compressForSharing(localTrip).then(s => saveSharedTrip(tripId, s)).catch(() => {});
   }
-  // else: same updatedAt — this is our own previously-synced edit. Keep the
-  // local copy (full-resolution photos) rather than pulling back the
-  // compressed shared_trips copy, which would silently degrade photo quality
-  // (and cause a visible re-render/"flicker") on every reload for no reason.
+  // else: same updatedAt and photo count — this is our own previously-synced
+  // edit. Keep the local copy (full-resolution photos) rather than pulling
+  // back the compressed shared_trips copy, which would silently degrade
+  // photo quality (and cause a visible re-render/"flicker") for no reason.
   _sharedDocData.set(tripId, doc);
 
   // Persist observer role so isCurrentUserObserver() resolves synchronously on next load
