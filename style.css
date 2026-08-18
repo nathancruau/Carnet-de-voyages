@@ -1037,11 +1037,11 @@ body{height:100%;min-height:-webkit-fill-available;font-family:var(--fn);backgro
 .calc-kp-ov.open{display:flex}
 .calc-kp-sheet{
   width:100%;max-width:420px;background:var(--c);border-radius:16px 16px 0 0;
-  /* Background reaches all the way through the safe-area padding below —
-     flush with the true bottom edge of the screen, no unstyled gap left
-     for the browser/OS chrome to paint through underneath (that gap was
-     showing as a stray white band once this sheet had no background). */
-  padding:14px 14px calc(14px + env(safe-area-inset-bottom));
+  /* Flat 14px bottom padding, no env(safe-area-inset-bottom) — that inset
+     was reporting a much bigger value than the actual home-indicator area
+     on at least one device, leaving a huge dead strip of background below
+     the "✓ Valider" button instead of a small safety margin. */
+  padding:14px;
   box-shadow:0 -4px 24px rgba(0,0,0,.2);font-family:var(--fn);
   /* GPU compositing layer: iOS Safari can otherwise desync the visual
      paint of a position:fixed sheet from the layout used for touch
