@@ -6,6 +6,7 @@ import { getTrip, updateTrip, uid } from '../store.js';
 import { notify, showModal, closeModal, fmtDateShort, esc as _esc, customDayTitle } from '../utils.js';
 import { updateTopStats } from './trip.js';
 import { repairDuplicateCatColors } from './budget.js';
+import { attachCalcKeypad } from '../calckeypad.js';
 
 // ── Module state ──────────────────────────────────────────────────────────────
 
@@ -938,8 +939,8 @@ function _buildParticipantsHtml(state, participants, expAmount) {
                      min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
           ${_esc(p.name)}
         </span>
-        <input type="number" class="tri-part-amount" data-part-id="${_esc(p.id)}"
-          min="0" step="0.01" value="${amt > 0 || incl ? amt.toFixed(2) : ''}"
+        <input type="text" inputmode="decimal" class="tri-part-amount" data-part-id="${_esc(p.id)}"
+          value="${amt > 0 || incl ? amt.toFixed(2) : ''}"
           ${!incl ? 'disabled' : ''}
           style="width:78px;padding:4px 7px;border:1.5px solid var(--c3);border-radius:7px;
                  font-size:12px;text-align:right;background:var(--c);color:var(--ink);
@@ -993,6 +994,7 @@ function _refreshParticipantsSection(state, participants, expAmount) {
   const div = document.createElement('div');
   div.innerHTML = newHtml;
   while (div.firstChild) section.appendChild(div.firstChild);
+  section.querySelectorAll('.tri-part-amount').forEach(attachCalcKeypad);
 }
 
 function _refreshEurEquiv() {
@@ -1137,7 +1139,7 @@ function _openExpenseModal(tripId, expId) {
       <div class="fg">
         <label>Montant</label>
         <div style="display:flex;gap:8px;align-items:center">
-          <input type="number" id="ex-amount" min="0" step="0.01" placeholder="0"
+          <input type="text" inputmode="decimal" id="ex-amount" placeholder="0"
             value="${_esc(exp?.amount ?? '')}" style="flex:1">
           <select id="ex-currency"
             style="width:130px;padding:8px 6px;border:1.5px solid var(--c3);border-radius:8px;
@@ -1363,6 +1365,9 @@ function _openExpenseModal(tripId, expId) {
       closeModal();
       renderTricount(tripId);
     });
+
+    attachCalcKeypad(document.getElementById('ex-amount'));
+    document.querySelectorAll('#ex-split-section .tri-part-amount').forEach(attachCalcKeypad);
   }
 
   showModal(buildHtml());
@@ -1412,7 +1417,7 @@ function _openTransferModal(tripId, expId = null) {
 
     <div class="fg">
       <label>Montant (€)</label>
-      <input type="number" id="tr-amount" min="0.01" step="0.01" placeholder="0" value="${existing ? existing.amount : ''}">
+      <input type="text" inputmode="decimal" id="tr-amount" placeholder="0" value="${existing ? existing.amount : ''}">
     </div>
 
     <div class="fg">
@@ -1430,6 +1435,8 @@ function _openTransferModal(tripId, expId = null) {
       ${isEdit ? `<button class="bc" id="tr-delete" style="color:var(--coral)">🗑 Supprimer</button>` : ''}
       <button class="bs" id="tr-save">Enregistrer</button>
     </div>`);
+
+  attachCalcKeypad(document.getElementById('tr-amount'));
 
   // Default to/from to be different when creating
   if (!isEdit) {
