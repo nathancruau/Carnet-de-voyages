@@ -217,7 +217,7 @@ function _jCollectWaypoints(trip, observerMode = false) {
   // re-injecting it for every date in its dateFrom..dateTo range, the route
   // only ever passed through the first night and skipped straight to
   // whatever came after, ignoring every following night at the same place.
-  const pushNight = (night) => {
+  const pushNight = (night, mode) => {
     if (!night) return;
     // Observer: a night stay is just another journal step — it must not
     // leak into the route line before it's been documented/validated,
@@ -226,15 +226,20 @@ function _jCollectWaypoints(trip, observerMode = false) {
     if (observerMode && !night.validated) return;
     const last = wps[wps.length - 1];
     if (last && last.nightId === night.id) return;
-    wps.push({ lat: night.lat, lng: night.lng, mode: 'car', nightId: night.id });
+    wps.push({ lat: night.lat, lng: night.lng, mode: mode || 'car', nightId: night.id });
   };
 
   for (let di = 0; di < days.length; di++) {
     const day = days[di];
 
-    // Depart from the previous day's night stay, if any.
+    // Depart from the previous day's night stay, if any. day.departNightMode/
+    // returnNightMode (mirrors mapcal.js's _collectAllWaypoints) let the two
+    // night edges be edited independently of each other — without this, every
+    // night-to-night leg was hardcoded to 'car' regardless of what mode the
+    // user actually picked, so a flight or ferry to/from a night stay still
+    // drew as a plain blue road segment.
     if (day.date && di > 0 && days[di - 1].date) {
-      pushNight(_jNightForDate(trip, days[di - 1].date));
+      pushNight(_jNightForDate(trip, days[di - 1].date), day.departNightMode);
     }
 
     if (observerMode) {
@@ -262,7 +267,7 @@ function _jCollectWaypoints(trip, observerMode = false) {
     }
 
     // Return to this day's night stay before moving on to the next day.
-    if (day.date) pushNight(_jNightForDate(trip, day.date));
+    if (day.date) pushNight(_jNightForDate(trip, day.date), day.returnNightMode);
   }
   return wps;
 }
@@ -291,7 +296,7 @@ async function _drawJournalRoutes(tripId) {
 
     if (mode === 'plane' || mode === 'ferry') {
       line = L.polyline([[from.lat, from.lng], [to.lat, to.lng]], {
-        color: mode === 'plane' ? '#7c3aed' : '#0d9488', weight: 2, opacity: 0.6, dashArray: '6 6',
+        color: trCol(mode), weight: 2, opacity: 0.6, dashArray: '6 6',
       });
     } else {
       try {
