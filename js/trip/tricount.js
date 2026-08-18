@@ -552,20 +552,24 @@ function _renderCatDonut(trip, expenses) {
   let arcs = '';
   for (const seg of segments) {
     const dash = (seg.spent / total) * circ;
-    const over = seg.planned > 0 && seg.spent > seg.planned;
     arcs += `<circle cx="${cx}" cy="${cy}" r="${R}" fill="none"
-      stroke="${over ? 'var(--coral)' : _esc(seg.color)}" stroke-width="16"
+      stroke="${_esc(seg.color)}" stroke-width="16"
       stroke-dasharray="${dash.toFixed(2)} ${(circ - dash).toFixed(2)}"
       stroke-dashoffset="${(-offset).toFixed(2)}"
       transform="rotate(-90 ${cx} ${cy})"/>`;
     offset += dash;
   }
 
+  // Overspend is signaled on the amount text alone (coral), never on the arc/dot
+  // itself — two different categories both over budget used to turn coral on
+  // the swatch too, making them visually identical regardless of their actual
+  // distinct cat.color (this is what most reports of "same color" in this donut
+  // turned out to be, not a real palette collision like the one v195 fixed).
   const legend = segments.map(s => {
     const over = s.planned > 0 && s.spent > s.planned;
     return `
       <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
-        <div style="width:10px;height:10px;border-radius:50%;background:${over ? 'var(--coral)' : _esc(s.color)};flex-shrink:0"></div>
+        <div style="width:10px;height:10px;border-radius:50%;background:${_esc(s.color)};flex-shrink:0"></div>
         <div style="font-size:11px;color:var(--ink2);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_esc(s.icon)} ${_esc(s.label)}</div>
         <div style="font-size:11px;font-weight:700;color:${over ? 'var(--coral)' : 'var(--ink)'}">
           ${_fmtEur(s.spent)}${s.planned > 0 ? `<span style="font-weight:400;color:var(--ink4)"> / ${_fmtEur(s.planned)}</span>` : ''}
