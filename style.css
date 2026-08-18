@@ -1036,11 +1036,13 @@ body{height:100%;min-height:-webkit-fill-available;font-family:var(--fn);backgro
 }
 .calc-kp-ov.open{display:flex}
 .calc-kp-sheet{
-  width:100%;max-width:420px;padding:14px 14px calc(14px + env(safe-area-inset-bottom));
-  font-family:var(--fn);
-  /* No card background on purpose: the sheet is just a loose group of
-     buttons floating over the dimmed backdrop, not a boxed panel — each
-     button already carries its own background for definition. */
+  width:100%;max-width:420px;background:var(--c);border-radius:16px 16px 0 0;
+  /* Background reaches all the way through the safe-area padding below —
+     flush with the true bottom edge of the screen, no unstyled gap left
+     for the browser/OS chrome to paint through underneath (that gap was
+     showing as a stray white band once this sheet had no background). */
+  padding:14px 14px calc(14px + env(safe-area-inset-bottom));
+  box-shadow:0 -4px 24px rgba(0,0,0,.2);font-family:var(--fn);
   /* GPU compositing layer: iOS Safari can otherwise desync the visual
      paint of a position:fixed sheet from the layout used for touch
      hit-testing when the viewport shifts underneath it (same fix as the
@@ -1048,25 +1050,26 @@ body{height:100%;min-height:-webkit-fill-available;font-family:var(--fn);backgro
      row off from where the tap actually registered. */
   will-change:transform;-webkit-transform:translateZ(0);transform:translateZ(0);
 }
-.calc-kp-display{padding:10px 6px 14px;text-align:right;border-bottom:1px solid rgba(255,255,255,.18);margin-bottom:10px}
-.calc-kp-expr{font-size:26px;font-weight:700;color:#fff;word-break:break-all}
-.calc-kp-preview{font-size:13px;font-weight:600;color:rgba(255,255,255,.7);min-height:16px;margin-top:2px}
-.calc-kp-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:10px}
-.calc-kp-grid button{
+.calc-kp-display{padding:10px 6px 14px;text-align:right;border-bottom:1px solid var(--c3);margin-bottom:10px}
+.calc-kp-expr{font-size:26px;font-weight:700;color:var(--ink);word-break:break-all}
+.calc-kp-preview{font-size:13px;font-weight:600;color:var(--ink3);min-height:16px;margin-top:2px}
+.calc-kp-ops{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:8px}
+.calc-kp-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:10px}
+.calc-kp-ops button,.calc-kp-grid button{
   padding:14px 0;font-size:18px;font-weight:700;border:none;border-radius:10px;
   background:var(--c2);color:var(--ink);cursor:pointer;font-family:var(--fn);
 }
-.calc-kp-grid button:active{background:var(--c3)}
-.calc-kp-grid button.calc-kp-op{background:var(--tl);color:var(--td)}
+.calc-kp-ops button:active,.calc-kp-grid button:active{background:var(--c3)}
+.calc-kp-ops button.calc-kp-op{background:var(--tl);color:var(--td)}
 .calc-kp-grid button.calc-kp-del{background:var(--crl);color:var(--coral);font-size:16px}
 .calc-kp-ok{
   width:100%;padding:12px;border:none;border-radius:10px;font-size:15px;font-weight:700;
   background:linear-gradient(135deg,var(--teal) 0%,var(--td) 100%);color:#fff;cursor:pointer;
   font-family:var(--fn);box-shadow:0 2px 8px rgba(13,148,136,.25);
 }
-[data-theme="dark"] .calc-kp-grid button{background:var(--c3)}
-[data-theme="dark"] .calc-kp-grid button:active{background:var(--c4)}
-[data-theme="dark"] .calc-kp-grid button.calc-kp-op{background:var(--tl);color:var(--td)}
+[data-theme="dark"] .calc-kp-ops button,[data-theme="dark"] .calc-kp-grid button{background:var(--c3)}
+[data-theme="dark"] .calc-kp-ops button:active,[data-theme="dark"] .calc-kp-grid button:active{background:var(--c4)}
+[data-theme="dark"] .calc-kp-ops button.calc-kp-op{background:var(--tl);color:var(--td)}
 
 /* ── Date picker ── */
 .dp-wrap{padding:4px 0}

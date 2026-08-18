@@ -64,23 +64,25 @@ function _build() {
         <div class="calc-kp-expr" id="calc-kp-expr"></div>
         <div class="calc-kp-preview" id="calc-kp-preview"></div>
       </div>
+      <div class="calc-kp-ops">
+        <button type="button" data-k="÷" class="calc-kp-op">÷</button>
+        <button type="button" data-k="×" class="calc-kp-op">×</button>
+        <button type="button" data-k="-" class="calc-kp-op">−</button>
+        <button type="button" data-k="+" class="calc-kp-op">+</button>
+      </div>
       <div class="calc-kp-grid">
         <button type="button" data-k="7">7</button>
         <button type="button" data-k="8">8</button>
         <button type="button" data-k="9">9</button>
-        <button type="button" data-k="÷" class="calc-kp-op">÷</button>
         <button type="button" data-k="4">4</button>
         <button type="button" data-k="5">5</button>
         <button type="button" data-k="6">6</button>
-        <button type="button" data-k="×" class="calc-kp-op">×</button>
         <button type="button" data-k="1">1</button>
         <button type="button" data-k="2">2</button>
         <button type="button" data-k="3">3</button>
-        <button type="button" data-k="-" class="calc-kp-op">−</button>
         <button type="button" data-k="del" class="calc-kp-del">⌫</button>
         <button type="button" data-k="0">0</button>
         <button type="button" data-k=".">,</button>
-        <button type="button" data-k="+" class="calc-kp-op">+</button>
       </div>
       <button type="button" class="calc-kp-ok" data-k="ok">✓ Valider</button>
     </div>`;
