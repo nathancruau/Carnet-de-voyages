@@ -26,8 +26,20 @@ export function attachCalcKeypad(input) {
   input._calcKp = true;
   input.readOnly = true;
   input.setAttribute('inputmode', 'none');
-  input.addEventListener('focus', () => _open(input));
-  input.addEventListener('click',  () => _open(input));
+  const open = () => {
+    // Blur immediately: a focused input (even readonly/inputmode=none) can
+    // still make iOS Safari scroll it into view / resize the dynamic
+    // toolbar right after our fixed-position keypad has already painted —
+    // a known WebKit desync between the visual viewport and the layout
+    // used for touch hit-testing (same bug family as this app's other
+    // position:fixed iOS issues, see CLAUDE.md v103/v156/v192). That left
+    // the keypad's buttons visually one row off from where taps actually
+    // landed. Blurring before opening means the viewport never moves.
+    input.blur();
+    _open(input);
+  };
+  input.addEventListener('focus', open);
+  input.addEventListener('click', open);
 }
 
 function _open(input) {
@@ -52,23 +64,25 @@ function _build() {
         <div class="calc-kp-expr" id="calc-kp-expr"></div>
         <div class="calc-kp-preview" id="calc-kp-preview"></div>
       </div>
+      <div class="calc-kp-ops">
+        <button type="button" data-k="÷" class="calc-kp-op">÷</button>
+        <button type="button" data-k="×" class="calc-kp-op">×</button>
+        <button type="button" data-k="-" class="calc-kp-op">−</button>
+        <button type="button" data-k="+" class="calc-kp-op">+</button>
+      </div>
       <div class="calc-kp-grid">
         <button type="button" data-k="7">7</button>
         <button type="button" data-k="8">8</button>
         <button type="button" data-k="9">9</button>
-        <button type="button" data-k="÷" class="calc-kp-op">÷</button>
         <button type="button" data-k="4">4</button>
         <button type="button" data-k="5">5</button>
         <button type="button" data-k="6">6</button>
-        <button type="button" data-k="×" class="calc-kp-op">×</button>
         <button type="button" data-k="1">1</button>
         <button type="button" data-k="2">2</button>
         <button type="button" data-k="3">3</button>
-        <button type="button" data-k="-" class="calc-kp-op">−</button>
         <button type="button" data-k="del" class="calc-kp-del">⌫</button>
         <button type="button" data-k="0">0</button>
         <button type="button" data-k=".">,</button>
-        <button type="button" data-k="+" class="calc-kp-op">+</button>
       </div>
       <button type="button" class="calc-kp-ok" data-k="ok">✓ Valider</button>
     </div>`;
