@@ -81,7 +81,7 @@ function _fmtEur(v) {
 
 // ── Participants ──────────────────────────────────────────────────────────────
 
-function getParticipants(trip) {
+export function getParticipants(trip) {
   const moi = { id: 'moi', name: 'Moi', color: '#0d9488' };
   if (!trip.companions || trip.companions.length === 0) return [moi];
   const hasSelf = trip.companions.some(c => c.id === 'moi');

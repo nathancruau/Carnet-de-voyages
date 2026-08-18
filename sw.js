@@ -6,7 +6,7 @@
    - Firebase   : network-only (handles its own offline via IndexedDB)
    ============================================================ */
 
-const SHELL_CACHE = 'cv-shell-202';
+const SHELL_CACHE = 'cv-shell-203';
 const TILE_CACHE  = 'cv-tiles-1';
 
 const SHELL_URLS = [
@@ -38,6 +38,7 @@ const SHELL_URLS = [
   '/js/trip/sortie.js',
   '/js/trip/tricount.js',
   '/js/trip/trip.js',
+  '/js/trip/tripstats.js',
 ];
 
 // Install: cache app shell

@@ -18,7 +18,7 @@ Quatre endroits à synchroniser, toujours le même numéro N :
 | `sw.js` | `const SHELL_CACHE = 'cv-shell-N'` |
 | `store.js` | `export const APP_VERSION = 'N'` |
 
-Version actuelle : **202**
+Version actuelle : **203**
 
 ---
 
@@ -51,6 +51,7 @@ js/
     tricount.js         Onglet Dépenses partagées
     packing.js          Onglet Bagages
     sortie.js           Onglet Sorties
+    tripstats.js        Modale Statistiques (menu ⋯ d'un voyage, accueil)
 ```
 
 ---
@@ -310,3 +311,4 @@ uid()          // ID court aléatoire
 | v200 | Suite du v199 : le fond beige de `.calc-kp-sheet` lui-même donnait l'impression que le clavier était "dans un bloc" (pas juste un souci de marge) ; demande de revenir à la disposition du v197 (opérateurs en 4ᵉ colonne) plutôt que la rangée du v198 | **Disposition** : retour au grid 4 colonnes d'origine (7 8 9 ÷ / 4 5 6 × / 1 2 3 − / ⌫ 0 , +), la rangée d'opérateurs séparée du v198 est retirée. **"Bloc"** : `.calc-kp-sheet` n'a plus de fond/`box-shadow`/coins arrondis — ce n'était pas seulement le padding de sécurité (déjà corrigé en v199) mais le panneau beige lui-même qui donnait cet effet de boîte. Les boutons flottent maintenant individuellement sur le fond assombri de l'overlay, chacun gardant son propre fond pour rester distinguable ; le texte de l'expression/aperçu passe en blanc (au lieu de `var(--ink)`/`var(--ink3)`, pensés pour un fond clair) pour rester lisible sur ce fond sombre |
 | v201 | Suite du v200 : demande de remettre les opérateurs au-dessus (v198) et le fond du clavier (v197/v199) — l'absence de fond du v200 laissait apparaître une bande blanche sous le clavier au lieu du bas de l'écran | Retour à la disposition v198 (rangée d'opérateurs ÷ × − + au-dessus de la grille 3 colonnes de chiffres) et au fond plein `var(--c)` du sheet (coins arrondis en haut, ombre, texte `var(--ink)`/`var(--ink3)` à nouveau). Root cause de la bande blanche : sans fond sur `.calc-kp-sheet` (v200), l'espace réservé par son padding de sécurité (`env(safe-area-inset-bottom)`) restait entièrement transparent — ce qui se trouvait dessous (la modale blanche `.mbox` ouverte en arrière-plan, ou le chrome du navigateur au tout bas de l'écran) apparaissait donc à nu au lieu d'être masqué. Le fond plein, réappliqué jusqu'au bord réel de l'écran via ce même padding de sécurité, recouvre entièrement cette zone — le clavier colle maintenant au bas du téléphone sans aucune bande d'une autre couleur en dessous |
 | v202 | Suite du v201 (capture d'écran à l'appui) : grand espace (fond du clavier, pas une bande d'une autre couleur) entre le bouton "✓ Valider" et le bas réel de l'écran | `env(safe-area-inset-bottom)` retournait une valeur bien plus grande que la zone de l'encoche/barre du bas sur cet appareil (probablement un artefact lié au clavier système ou au mode d'affichage), gonflant le padding-bottom du sheet bien au-delà des ~14px prévus. Padding ramené à 14px fixe sur les 4 côtés, sans dépendance à `env()` — le bouton "✓ Valider" colle maintenant directement au bas de l'écran |
+| v203 | Demande : statistiques de voyage accessibles depuis le menu ⋯ d'un voyage (accueil), avec dépenses par personne et distance parcourue | Nouvelle entrée "📊 Statistiques" dans `_openTripMenu` (home.js), ouvrant une modale en lecture seule (**tripstats.js**, nouveau, chargé à la demande). Réutilise les classes `.stat-card`/`.stat-kpi-*` déjà stylées pour la page de statistiques globales — pas de nouveau CSS. Contenu : aperçu (jours, nuits, voyageurs, activités, lieux distincts, distance), dépenses (total, moyenne/jour, % du budget prévu, catégorie la plus chère, répartition payé par personne — `getParticipants` exporté de tricount.js pour être réutilisé), activités par type (top 6, icônes des types d'événement), carnet (nombre de photos tous champs confondus, jours documentés/total), bagages (% d'articles emballés, si une liste existe). Distance = somme des distances à vol d'oiseau entre points géolocalisés consécutifs (jours puis heure, même mesure de base `_haversineMeters` que mapcal.js) — clairement une estimation, pas un tracé routier. Non applicable aux sorties (déjà leur propre écran GPX dédié) : message court à la place |

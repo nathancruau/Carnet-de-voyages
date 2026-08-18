@@ -3987,6 +3987,7 @@ function _openTripMenu(tripId, btn) {
   menu.className = 'tc-dropdown';
   menu.innerHTML = `
     <button data-tm="edit">✎ Modifier</button>
+    <button data-tm="stats">📊 Statistiques</button>
     <button data-tm="share">🔗 Partager</button>
     <button data-tm="duplicate">⧉ Dupliquer</button>
     <button data-tm="export-planning">📋 Exporter Planning</button>
@@ -4019,6 +4020,11 @@ function _openTripMenu(tripId, btn) {
       case 'edit':
         openEditTripModal(tripId);
         break;
+      case 'stats': {
+        const { openTripStatsModal } = await import('./trip/tripstats.js');
+        openTripStatsModal(tripId);
+        break;
+      }
       case 'share':
         openShareModal(tripId);
         break;
