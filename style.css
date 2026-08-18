@@ -1037,7 +1037,7 @@ body{height:100%;min-height:-webkit-fill-available;font-family:var(--fn);backgro
 .calc-kp-ov.open{display:flex}
 .calc-kp-sheet{
   width:100%;max-width:420px;background:var(--c);border-radius:16px 16px 0 0;
-  padding:14px 14px calc(14px + env(safe-area-inset-bottom));
+  padding:14px;
   box-shadow:0 -4px 24px rgba(0,0,0,.2);font-family:var(--fn);
   /* GPU compositing layer: iOS Safari can otherwise desync the visual
      paint of a position:fixed sheet from the layout used for touch
@@ -1059,7 +1059,7 @@ body{height:100%;min-height:-webkit-fill-available;font-family:var(--fn);backgro
 .calc-kp-ops button.calc-kp-op{background:var(--tl);color:var(--td)}
 .calc-kp-grid button.calc-kp-del{background:var(--crl);color:var(--coral);font-size:16px}
 .calc-kp-ok{
-  width:100%;padding:12px;border:none;border-radius:10px;font-size:15px;font-weight:700;
+  width:100%;padding:12px 12px calc(12px + env(safe-area-inset-bottom));border:none;border-radius:10px;font-size:15px;font-weight:700;
   background:linear-gradient(135deg,var(--teal) 0%,var(--td) 100%);color:#fff;cursor:pointer;
   font-family:var(--fn);box-shadow:0 2px 8px rgba(13,148,136,.25);
 }
