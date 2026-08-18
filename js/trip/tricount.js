@@ -5,6 +5,7 @@
 import { getTrip, updateTrip, uid } from '../store.js';
 import { notify, showModal, closeModal, fmtDateShort, esc as _esc, customDayTitle } from '../utils.js';
 import { updateTopStats } from './trip.js';
+import { repairDuplicateCatColors } from './budget.js';
 
 // ── Module state ──────────────────────────────────────────────────────────────
 
@@ -201,8 +202,10 @@ export function renderTricount(tripId) {
   const panel = document.getElementById('panel-tricount');
   if (!panel) return;
 
-  const trip = getTrip(tripId);
+  let trip = getTrip(tripId);
   if (!trip) return;
+  repairDuplicateCatColors(tripId, trip);
+  trip = getTrip(tripId); // re-read: repair may have just persisted a fix
 
   if (_handlers.has(panel)) {
     panel.removeEventListener('click', _handlers.get(panel));

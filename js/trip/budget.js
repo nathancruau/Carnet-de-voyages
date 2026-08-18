@@ -45,8 +45,10 @@ export function renderBudget(tripId) {
   const panel = document.getElementById('panel-budget');
   if (!panel) return;
 
-  const trip = getTrip(tripId);
+  let trip = getTrip(tripId);
   if (!trip) return;
+  repairDuplicateCatColors(tripId, trip);
+  trip = getTrip(tripId); // re-read: repair may have just persisted a fix
 
   if (_handlers.has(panel)) {
     panel.removeEventListener('click', _handlers.get(panel));
@@ -572,7 +574,33 @@ function _openLineModal(tripId, lineId) {
 
 // ── Add/Edit Category Modal ───────────────────────────────────────────────────
 
-const _CAT_COLORS = ['#0d9488','#7c3aed','#e85d3e','#d97706','#db2777','#0284c7','#16a34a','#f59e0b'];
+export const CAT_COLORS = ['#0d9488','#7c3aed','#e85d3e','#d97706','#db2777','#0284c7','#16a34a','#f59e0b'];
+
+/**
+ * Reassign any budget category sharing its color with an earlier one to the
+ * next unused palette color, persisting the fix once if anything changed.
+ * Repairs trips created before _openCatModal's selColor started avoiding
+ * collisions below: every category added without manually picking a swatch
+ * used to default to the exact same first palette color, which made
+ * Tricount's "Répartition par catégorie" donut show several categories as
+ * one indistinguishable slice. Called once per render from both budget.js
+ * and tricount.js, since they share the same trip.budgetCats.
+ */
+export function repairDuplicateCatColors(tripId, trip) {
+  const cats = trip.budgetCats || [];
+  if (cats.length < 2) return;
+  const used = new Set();
+  let changed = false;
+  const fixed = cats.map(cat => {
+    if (!used.has(cat.color)) { used.add(cat.color); return cat; }
+    const next = CAT_COLORS.find(c => !used.has(c));
+    if (!next) return cat; // palette exhausted — leave the collision rather than reuse a color
+    used.add(next);
+    changed = true;
+    return { ...cat, color: next };
+  });
+  if (changed) updateTrip(tripId, { budgetCats: fixed });
+}
 const _CAT_ICONS  = ['🚗','🏨','🍽️','🎯','🛍️','💡','✈️','🎪','🏖️','🎵','📸','🏃','🚢','🌿'];
 
 function _openCatModal(tripId, catId) {
@@ -581,7 +609,15 @@ function _openCatModal(tripId, catId) {
   const isEdit = !!catId;
   const cat    = isEdit ? cats.find(c => c.id === catId) : null;
 
-  let selColor = cat?.color || _CAT_COLORS[0];
+  // For a new category, default to the first palette color not already used
+  // by an existing one — always falling back to CAT_COLORS[0] regardless of
+  // how many categories existed meant every category added without manually
+  // picking a different swatch ended up the exact same color, which is
+  // exactly what made the Tricount "Répartition par catégorie" donut show
+  // several categories sharing one indistinguishable color/slice.
+  let selColor = cat?.color
+    || CAT_COLORS.find(c => !cats.some(existing => existing.color === c))
+    || CAT_COLORS[0];
   let selIcon  = cat?.icon  || '📦';
 
   function buildHtml() {
@@ -607,7 +643,7 @@ function _openCatModal(tripId, catId) {
       <div class="fg">
         <label>Couleur</label>
         <div class="col-opts" id="bc-colors">
-          ${_CAT_COLORS.map(c =>
+          ${CAT_COLORS.map(c =>
             `<div class="col-o${selColor === c ? ' sel' : ''}" style="background:${c}" data-bc-color="${c}"></div>`
           ).join('')}
         </div>
