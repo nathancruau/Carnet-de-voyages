@@ -47,17 +47,14 @@ function _kv(label, value, valueColor) {
     </div>`;
 }
 
-function _personBar(p, amount, maxAmount) {
-  const pct   = maxAmount > 0 ? Math.round((amount / maxAmount) * 100) : 0;
-  const color = p.color || '#0d9488';
+function _barRow(iconHtml, label, amount, color, maxAmount) {
+  const pct = maxAmount > 0 ? Math.round((amount / maxAmount) * 100) : 0;
   return `
     <div style="margin-bottom:9px">
       <div style="display:flex;justify-content:space-between;align-items:center;font-size:12px;margin-bottom:4px">
         <span style="display:flex;align-items:center;gap:6px;min-width:0">
-          <span class="comp-avatar" style="background:${_esc(color)};width:20px;height:20px;font-size:9px;flex-shrink:0">
-            ${_esc((p.name || '?').slice(0, 2).toUpperCase())}
-          </span>
-          <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_esc(p.name)}</span>
+          ${iconHtml}
+          <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_esc(label)}</span>
         </span>
         <b style="flex-shrink:0;margin-left:8px">${_fmtEur(amount)}</b>
       </div>
@@ -65,6 +62,18 @@ function _personBar(p, amount, maxAmount) {
         <div style="height:100%;width:${pct}%;background:${_esc(color)}"></div>
       </div>
     </div>`;
+}
+
+function _personBar(p, amount, maxAmount) {
+  const color  = p.color || '#0d9488';
+  const avatar = `<span class="comp-avatar" style="background:${_esc(color)};width:20px;height:20px;font-size:9px;flex-shrink:0">${_esc((p.name || '?').slice(0, 2).toUpperCase())}</span>`;
+  return _barRow(avatar, p.name, amount, color, maxAmount);
+}
+
+function _catBar(cat, amount, maxAmount) {
+  const color = cat.color || '#0d9488';
+  const icon  = `<span style="font-size:14px;flex-shrink:0">${_esc(cat.icon || '📦')}</span>`;
+  return _barRow(icon, cat.name, amount, color, maxAmount);
 }
 
 function _typeRow(icon, label, count) {
@@ -128,19 +137,36 @@ export function openTripStatsModal(tripId) {
     if (!e.catId) continue;
     catTotals[e.catId] = (catTotals[e.catId] || 0) + (Number(e.amountEur ?? e.amount) || 0);
   }
-  let topCat = null;
-  for (const cat of (trip.budgetCats || [])) {
-    const v = catTotals[cat.id] || 0;
-    if (v > 0 && (!topCat || v > topCat.value)) topCat = { cat, value: v };
-  }
+  const catRows = (trip.budgetCats || [])
+    .map(cat => ({ cat, amount: catTotals[cat.id] || 0 }))
+    .filter(r => r.amount > 0)
+    .sort((a, b) => b.amount - a.amount);
+  const maxCatAmount = catRows.length ? catRows[0].amount : 0;
 
-  const paidByPerson = {};
+  // Each participant's true share of spending, as if every reimbursement had
+  // already happened — not who fronted the card. Same debit-only logic as
+  // computeBalances (tricount.js): prefer exp.splits (custom per-person
+  // amounts), falling back to an equal split across exp.sharedWith when a
+  // (rare, older) expense has no splits recorded. Transfers are excluded —
+  // a reimbursement settles a debt, it isn't spending.
+  const spentByPerson = {};
   for (const e of realExpenses) {
-    if (!e.paidById) continue;
-    paidByPerson[e.paidById] = (paidByPerson[e.paidById] || 0) + (Number(e.amountEur ?? e.amount) || 0);
+    const eurAmt = e.currency && e.currency !== 'EUR'
+      ? (Number(e.amountEur) || Number(e.amount) || 0)
+      : (Number(e.amount) || 0);
+    if (e.splits && e.splits.length > 0) {
+      for (const split of e.splits) {
+        spentByPerson[split.id] = (spentByPerson[split.id] || 0) + (Number(split.amount) || 0);
+      }
+    } else {
+      const ids = e.sharedWith || [];
+      if (ids.length === 0) continue;
+      const share = eurAmt / ids.length;
+      for (const pid of ids) spentByPerson[pid] = (spentByPerson[pid] || 0) + share;
+    }
   }
   const personRows = participants
-    .map(p => ({ p, amount: paidByPerson[p.id] || 0 }))
+    .map(p => ({ p, amount: spentByPerson[p.id] || 0 }))
     .filter(r => r.amount > 0)
     .sort((a, b) => b.amount - a.amount);
   const maxPersonAmount = personRows.length ? personRows[0].amount : 0;
@@ -205,12 +231,13 @@ export function openTripStatsModal(tripId) {
       expenseHtml += _kv('Budget prévu', `${_fmtEur(totalPlanned)} <span style="font-weight:400;color:var(--ink4)">(${plannedPct}%)</span>`,
         plannedPct > 100 ? 'var(--coral)' : 'var(--ink)');
     }
-    if (topCat) {
-      expenseHtml += _kv('Catégorie la plus chère', `${_esc(topCat.cat.icon || '📦')} ${_esc(topCat.cat.name)} — ${_fmtEur(topCat.value)}`);
-    }
     if (personRows.length > 1) {
-      expenseHtml += `<div style="margin-top:12px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--ink4);margin-bottom:8px">Payé par personne</div>`;
+      expenseHtml += `<div style="margin-top:12px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--ink4);margin-bottom:8px">Dépensé par personne (remboursements faits)</div>`;
       expenseHtml += personRows.map(r => _personBar(r.p, r.amount, maxPersonAmount)).join('');
+    }
+    if (catRows.length) {
+      expenseHtml += `<div style="margin-top:12px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--ink4);margin-bottom:8px">Répartition par catégorie</div>`;
+      expenseHtml += catRows.map(r => _catBar(r.cat, r.amount, maxCatAmount)).join('');
     }
   }
   expenseHtml += `</div>`;
