@@ -76,6 +76,21 @@ function _catBar(cat, amount, maxAmount) {
   return _barRow(icon, cat.name, amount, color, maxAmount);
 }
 
+/** Compact wrapped pills for one person's own per-category breakdown ("🏨 120,00 €"),
+ *  shown under their bar row instead of a full nested bar list (keeps N people ×
+ *  M categories from turning into a very tall list). */
+function _catPillsHtml(catRows) {
+  if (!catRows.length) return '';
+  return `
+    <div style="display:flex;flex-wrap:wrap;gap:5px;margin:2px 0 9px 26px">
+      ${catRows.map(r => `
+        <span style="font-size:10.5px;font-weight:600;color:var(--ink3);background:var(--c);
+                     border:1px solid var(--c3);border-radius:999px;padding:2px 8px;white-space:nowrap">
+          ${_esc(r.cat.icon || '📦')} ${_esc(r.cat.name)} <b style="color:var(--ink2)">${_fmtEur(r.amount)}</b>
+        </span>`).join('')}
+    </div>`;
+}
+
 function _typeRow(icon, label, count) {
   return `
     <div style="display:flex;align-items:center;gap:9px;margin-bottom:8px;font-size:12px">
@@ -148,25 +163,41 @@ export function openTripStatsModal(tripId) {
   // computeBalances (tricount.js): prefer exp.splits (custom per-person
   // amounts), falling back to an equal split across exp.sharedWith when a
   // (rare, older) expense has no splits recorded. Transfers are excluded —
-  // a reimbursement settles a debt, it isn't spending.
-  const spentByPerson = {};
+  // a reimbursement settles a debt, it isn't spending. Also bucketed by
+  // category (spentByPersonCat) for the per-person breakdown below —
+  // expenses without a catId simply don't show up in that sub-breakdown,
+  // same as the trip-wide catRows above.
+  const spentByPerson    = {};
+  const spentByPersonCat = {};
   for (const e of realExpenses) {
     const eurAmt = e.currency && e.currency !== 'EUR'
       ? (Number(e.amountEur) || Number(e.amount) || 0)
       : (Number(e.amount) || 0);
-    if (e.splits && e.splits.length > 0) {
-      for (const split of e.splits) {
-        spentByPerson[split.id] = (spentByPerson[split.id] || 0) + (Number(split.amount) || 0);
+    const addTo = (pid, amt) => {
+      spentByPerson[pid] = (spentByPerson[pid] || 0) + amt;
+      if (e.catId) {
+        const byCat = (spentByPersonCat[pid] ||= {});
+        byCat[e.catId] = (byCat[e.catId] || 0) + amt;
       }
+    };
+    if (e.splits && e.splits.length > 0) {
+      for (const split of e.splits) addTo(split.id, Number(split.amount) || 0);
     } else {
       const ids = e.sharedWith || [];
       if (ids.length === 0) continue;
       const share = eurAmt / ids.length;
-      for (const pid of ids) spentByPerson[pid] = (spentByPerson[pid] || 0) + share;
+      for (const pid of ids) addTo(pid, share);
     }
   }
   const personRows = participants
-    .map(p => ({ p, amount: spentByPerson[p.id] || 0 }))
+    .map(p => ({
+      p,
+      amount: spentByPerson[p.id] || 0,
+      catRows: (trip.budgetCats || [])
+        .map(cat => ({ cat, amount: (spentByPersonCat[p.id] || {})[cat.id] || 0 }))
+        .filter(r => r.amount > 0)
+        .sort((a, b) => b.amount - a.amount),
+    }))
     .filter(r => r.amount > 0)
     .sort((a, b) => b.amount - a.amount);
   const maxPersonAmount = personRows.length ? personRows[0].amount : 0;
@@ -233,7 +264,7 @@ export function openTripStatsModal(tripId) {
     }
     if (personRows.length > 1) {
       expenseHtml += `<div style="margin-top:12px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--ink4);margin-bottom:8px">Dépensé par personne (remboursements faits)</div>`;
-      expenseHtml += personRows.map(r => _personBar(r.p, r.amount, maxPersonAmount)).join('');
+      expenseHtml += personRows.map(r => _personBar(r.p, r.amount, maxPersonAmount) + _catPillsHtml(r.catRows)).join('');
     }
     if (catRows.length) {
       expenseHtml += `<div style="margin-top:12px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--ink4);margin-bottom:8px">Répartition par catégorie</div>`;
