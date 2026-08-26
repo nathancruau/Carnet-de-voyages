@@ -7,7 +7,7 @@
  */
 
 import { getTrip, updateTrip, saveData, uid, getEventTypes, getLanguage, isTripShared } from '../store.js';
-import { parseGpx, generateGpx, downloadFile, getLocalGpxTracks, saveLocalGpxTrack, removeLocalGpxTrack, computeGpxStats, downsampleGpxPoints } from '../gpx.js';
+import { parseGpx, generateGpx, downloadFile, getLocalGpxTracks, saveLocalGpxTrack, removeLocalGpxTrack, computeGpxStats, downsampleGpxPoints, haversineMeters } from '../gpx.js';
 import { getSharedDocData, submitComment, deleteDayComment } from '../share.js';
 import { getCurrentUser } from '../auth.js';
 import {
@@ -96,22 +96,12 @@ async function _geocodeRegion(text) {
   }
 }
 
-function _haversineMeters(from, to) {
-  const R = 6371000;
-  const toRad = x => x * Math.PI / 180;
-  const dLat = toRad(to.lat - from.lat);
-  const dLng = toRad(to.lng - from.lng);
-  const a = Math.sin(dLat / 2) ** 2
-    + Math.cos(toRad(from.lat)) * Math.cos(toRad(to.lat)) * Math.sin(dLng / 2) ** 2;
-  return 2 * R * Math.asin(Math.sqrt(a));
-}
-
 async function _fetchDuration(from, to, mode) {
   // Train: estimate via haversine + 130 km/h average
   if (mode === 'train') {
     const key = `${from.lat},${from.lng}→${to.lat},${to.lng}:train`;
     if (key in _durCache) return _durCache[key];
-    const meters  = _haversineMeters(from, to);
+    const meters  = haversineMeters(from, to);
     const seconds = Math.round(meters / (130_000 / 3600));
     const result  = { seconds, meters };
     _durCache[key] = result;
@@ -121,14 +111,14 @@ async function _fetchDuration(from, to, mode) {
   if (mode === 'foot') {
     const key = `${from.lat},${from.lng}→${to.lat},${to.lng}:foot`;
     if (key in _durCache) return _durCache[key];
-    const meters = _haversineMeters(from, to);
+    const meters = haversineMeters(from, to);
     return (_durCache[key] = { seconds: Math.round(meters / (5000 / 3600)), meters });
   }
   // Bike: haversine + 15 km/h cycling speed
   if (mode === 'bike') {
     const key = `${from.lat},${from.lng}→${to.lat},${to.lng}:bike`;
     if (key in _durCache) return _durCache[key];
-    const meters = _haversineMeters(from, to);
+    const meters = haversineMeters(from, to);
     return (_durCache[key] = { seconds: Math.round(meters / (15000 / 3600)), meters });
   }
   const osrmProfile = { car:'driving', bus:'driving', ferry:'driving', plane:null }[mode] || 'driving';
@@ -136,7 +126,7 @@ async function _fetchDuration(from, to, mode) {
   if (mode === 'plane' || osrmProfile === null) {
     const key = `${from.lat},${from.lng}→${to.lat},${to.lng}:plane`;
     if (key in _durCache) return _durCache[key];
-    const meters  = _haversineMeters(from, to);
+    const meters  = haversineMeters(from, to);
     const seconds = Math.round(meters / (800_000 / 3600));
     const result  = { seconds, meters };
     _durCache[key] = result;
@@ -1271,7 +1261,7 @@ async function _drawRoutes(trip, _days, myGen) {
 
     if (mode === 'plane' || mode === 'ferry') {
       const speedKph = mode === 'plane' ? 800 : 30;
-      const meters   = _haversineMeters(from, to);
+      const meters   = haversineMeters(from, to);
       dur = { seconds: Math.round(meters / (speedKph * 1000 / 3600)), meters };
       line = L.polyline([[from.lat, from.lng], [to.lat, to.lng]], {
         color:     trCol(mode),
@@ -1291,7 +1281,7 @@ async function _drawRoutes(trip, _days, myGen) {
           // Train: use OSRM geometry for the visual path but estimate duration via
           // haversine×1.15 (rail is more direct than roads) at 150 km/h average.
           if (mode === 'train') {
-            const straightM = _haversineMeters(from, to) * 1.15;
+            const straightM = haversineMeters(from, to) * 1.15;
             dur = { seconds: Math.round(straightM / (150_000 / 3600)), meters: Math.round(straightM) };
           } else {
             dur = { seconds: route.duration, meters: route.distance };
@@ -2014,7 +2004,7 @@ function _openEDP(dayId, evtIdx, tripId) {
       const t0 = pts[0].time ? new Date(pts[0].time).getTime() : null;
       for (let i = 0; i < pts.length; i++) {
         if (i > 0) {
-          const seg = _haversineMeters(pts[i - 1], pts[i]);
+          const seg = haversineMeters(pts[i - 1], pts[i]);
           cumDist += seg;
           if (pts[i - 1].time && pts[i].time) {
             const dt = (new Date(pts[i].time).getTime() - new Date(pts[i - 1].time).getTime()) / 1000;
@@ -3509,6 +3499,18 @@ function _openAddEventModal(dayId, tripId, prefill = null) {
       const prevLabel = saveBtn.textContent;
       saveBtn.textContent = 'Localisation du pays…';
       const geo = await reverseGeocodeCountry(pickedLat, pickedLng);
+
+      // The lookup above can take up to ~6s — if the user cancelled/closed
+      // this form (or opened a different modal entirely) while it was in
+      // flight, bail out instead of silently adding the event anyway.
+      // #ae-save no longer being *this* button covers both a replaced
+      // modal (desktop showModal overwrites innerHTML) and the mobile
+      // sheet (removed outright on close); the overlay-class check catches
+      // a plain desktop close that leaves the hidden markup untouched.
+      const stillOpen = document.getElementById('ae-save') === saveBtn &&
+        (_isMob || document.getElementById('modal-overlay')?.classList.contains('open'));
+      if (!stillOpen) return;
+
       if (geo) { event.countryCode = geo.code; event.countryFlag = geo.flag; }
       saveBtn.disabled = false;
       saveBtn.textContent = prevLabel;

@@ -98,7 +98,7 @@ export function computeGpxStats(points) {
   for (let i = 1; i < points.length; i++) {
     const a = points[i - 1];
     const b = points[i];
-    const seg = _haversineM(a, b);
+    const seg = haversineMeters(a, b);
     distanceM += seg;
 
     // Accumulate elevation gain/loss when both points have altitude data
@@ -150,8 +150,12 @@ export function computeGpxStats(points) {
 /**
  * Haversine formula — great-circle distance between two lat/lng points in metres.
  * Accuracy is ~0.3 % (spherical Earth assumption); sufficient for GPX stats display.
+ * Exported so mapcal.js (transport duration estimates) and tripstats.js
+ * (straight-line trip distance) share this instead of keeping their own
+ * copy — three independent copies of the exact same formula had already
+ * accumulated across the codebase.
  */
-function _haversineM(a, b) {
+export function haversineMeters(a, b) {
   const R     = 6371000; // Earth mean radius in metres
   const toRad = x => x * Math.PI / 180;
   const dLat  = toRad(b.lat - a.lat);
@@ -187,7 +191,7 @@ export function buildGpxChartSeries(points) {
   const t0 = points[0].time ? new Date(points[0].time).getTime() : null;
   for (let i = 0; i < points.length; i++) {
     if (i > 0) {
-      const seg = _haversineM(points[i - 1], points[i]);
+      const seg = haversineMeters(points[i - 1], points[i]);
       cumDist += seg;
       if (points[i - 1].time && points[i].time) {
         const dt = (new Date(points[i].time).getTime() - new Date(points[i - 1].time).getTime()) / 1000;

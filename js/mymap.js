@@ -46,16 +46,10 @@ const _TR_MODES = [
 const _OSRM_PROFILE = { car: 'driving', bus: 'driving', foot: 'foot', bike: 'cycling' };
 
 // ── Country color mapping ──────────────────────────────────────────────────────
-
-/** Extract ISO-2 country code from a flag emoji or plain ISO text ("FR"). */
-function _isoFromFlag(flag) {
-  if (!flag) return '';
-  const trimmed = flag.trim();
-  const pts = [...trimmed].map(c => c.codePointAt(0)).filter(cp => cp >= 0x1F1E6 && cp <= 0x1F1FF);
-  if (pts.length >= 2) return pts.slice(0, 2).map(cp => String.fromCharCode(cp - 0x1F1E6 + 65)).join('');
-  if (/^[A-Za-z]{2}$/.test(trimmed)) return trimmed.toUpperCase();
-  return '';
-}
+// ISO-2 extraction itself lives in utils.js's fmtFlag(flag, strict) — this
+// file previously kept its own byte-for-byte copy, which is exactly the
+// "same lookup implemented twice, drifts later" bug class this codebase has
+// hit before (transport-mode colors, category palettes…).
 
 /** Return only the flag emoji characters (no ISO text suffix) for compact display. */
 function _flagEmojiOnly(flag) {
@@ -92,7 +86,7 @@ const _countryColors = {};
 
 /** Return a stable color for a given flag emoji. */
 function _colorForFlag(flag) {
-  const iso = _isoFromFlag(flag) || flag || '??';
+  const iso = fmtFlag(flag, true) || flag || '??';
   if (!_countryColors[iso]) {
     _countryColors[iso] = _COLOR_PALETTE[_hashStr(iso)];
   }
@@ -187,7 +181,7 @@ function _geoCluster(mergedPins, map, threshold = 52) {
   // Country key per merged-pin: used to prevent cross-country clustering
   const countryOf = mergedPins.map(mp => {
     const flag = mp.entries[0]?.entry?.dayFlag || mp.entries[0]?.trip?.flag || '';
-    return _isoFromFlag(flag) || flag || '?';
+    return fmtFlag(flag, true) || flag || '?';
   });
   const assigned = new Uint8Array(mergedPins.length);
   const result   = [];
@@ -418,6 +412,9 @@ function _buildAllPins() {
             // Prefer the pin's own auto-detected/overridden country — falls
             // back to the old per-day flag for pins saved before this existed.
             dayFlag:     item.countryFlag || day.flag || null,
+            // Not consumed anywhere yet (only dayFlag is, for coloring) —
+            // kept on the pin entry for the "group Mes destinations by
+            // country" follow-up noted in the v206 changelog.
             countryCode: item.countryCode || null,
             lat, lng,
             photos:     (jd.photos || []).map(p => ({ url: p })),
@@ -551,7 +548,7 @@ function _buildSidebarTree(pins) {
             <span class="mm-trip-chevron" style="pointer-events:none;cursor:default">▶</span>
             <span style="font-size:15px">${typeInfo.icon}</span>
             <span class="mm-trip-name${isFocused ? ' mm-trip-focused' : ''}" style="cursor:pointer">
-              ${_isoFromFlag(trip.flag)} ${_esc(trip.name)}
+              ${fmtFlag(trip.flag, true)} ${_esc(trip.name)}
             </span>
             <span style="font-size:11px;flex-shrink:0">${pinEmoji}</span>
             ${dateStr ? `<span style="font-size:9px;color:var(--ink4);flex-shrink:0;margin-left:2px">${dateStr}</span>` : ''}
@@ -588,7 +585,7 @@ function _buildSidebarTree(pins) {
           <span class="mm-trip-name${isFocused ? ' mm-trip-focused' : ''}"
                 onclick="_mmFocusTrip('${trip.id}')"
                 title="${isFocused ? 'Voir tous les voyages' : 'Filtrer sur ce voyage'}"
-                style="cursor:pointer">${_isoFromFlag(trip.flag)} ${_esc(trip.name)}</span>
+                style="cursor:pointer">${fmtFlag(trip.flag, true)} ${_esc(trip.name)}</span>
           <span class="mm-pin-count">${tPins.length}</span>
         </div>
         <div class="mm-trip-body">${pinsHtml || '<div style="padding:4px 12px 4px 28px;font-size:10px;color:var(--ink4)">Aucun PIN visible</div>'}</div>
@@ -816,7 +813,7 @@ async function _redrawRoutes() {
       }
 
       if (!_map || !line) return;
-      line.bindTooltip(`${_isoFromFlag(trip.flag)} ${trip.name}`, { sticky: true, className: 'mm-route-tooltip' });
+      line.bindTooltip(`${fmtFlag(trip.flag, true)} ${trip.name}`, { sticky: true, className: 'mm-route-tooltip' });
       line.addTo(_map);
       _routeLayers.push(line);
     }

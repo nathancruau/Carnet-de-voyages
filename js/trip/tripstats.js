@@ -8,6 +8,7 @@
 import { getTrip, getEventTypes } from '../store.js';
 import { showModal, esc as _esc } from '../utils.js';
 import { getParticipants } from './tricount.js';
+import { haversineMeters } from '../gpx.js';
 
 function _fmtEur(v) {
   const n = Number(v) || 0;
@@ -17,17 +18,6 @@ function _fmtEur(v) {
 function _fmtDist(meters) {
   if (meters >= 1000) return (meters / 1000).toLocaleString('fr-FR', { maximumFractionDigits: 1 }) + ' km';
   return Math.round(meters) + ' m';
-}
-
-/** Great-circle distance in meters between two {lat,lng} points. */
-function _haversineMeters(a, b) {
-  const R = 6371000;
-  const toRad = d => d * Math.PI / 180;
-  const dLat = toRad(b.lat - a.lat);
-  const dLng = toRad(b.lng - a.lng);
-  const s = Math.sin(dLat / 2) ** 2 +
-    Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLng / 2) ** 2;
-  return 2 * R * Math.asin(Math.sqrt(s));
 }
 
 function _kpi(icon, val, lbl) {
@@ -140,15 +130,15 @@ export function openTripStatsModal(tripId) {
   }
 
   // Straight-line distance between consecutive geolocated points, in
-  // chronological order — an estimate (not routed roads), same base
-  // measure the app already uses elsewhere (_haversineMeters in mapcal.js).
+  // chronological order — an estimate (not routed roads), same shared
+  // formula the app uses everywhere else (gpx.js's haversineMeters).
   const geoPoints = allItems
     .filter(it => it.lat != null && it.lng != null)
     .sort((a, b) =>
       (a._day.date || '').localeCompare(b._day.date || '') ||
       (a.time || '').localeCompare(b.time || ''));
   let totalMeters = 0;
-  for (let i = 1; i < geoPoints.length; i++) totalMeters += _haversineMeters(geoPoints[i - 1], geoPoints[i]);
+  for (let i = 1; i < geoPoints.length; i++) totalMeters += haversineMeters(geoPoints[i - 1], geoPoints[i]);
 
   // ── Expenses ──────────────────────────────────────────────────────────────
   const totalSpent   = realExpenses.reduce((s, e) => s + (Number(e.amountEur ?? e.amount) || 0), 0);

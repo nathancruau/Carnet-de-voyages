@@ -15,7 +15,7 @@ import {
   dpInit, dpGetDates, renderDp,
   typeBadge,
   generateDays, customDayTitle,
-  reverseGeocodeCountry,
+  reverseGeocodeCountry, fmtFlag,
 } from './utils.js';
 // navigateToTrip / goMyMap accessed via window globals (set by app.js) to avoid circular import
 // import.js / export.js / gpx.js are dynamically imported at their few call sites below —
@@ -247,21 +247,12 @@ const _A2_CONTINENT = {
 const _CONTINENT_LABEL = { EU:'Europe',AF:'Afrique',AM:'Amériques',AS:'Asie',OC:'Océanie' };
 const _CONTINENT_COLOR = { EU:'#0d9488',AF:'#d97706',AM:'#7c3aed',AS:'#0891b2',OC:'#16a34a' };
 
-function _isoFromFlag(flag) {
-  if (!flag) return '';
-  const trimmed = flag.trim();
-  const pts = [...trimmed].map(c => c.codePointAt(0)).filter(cp => cp >= 0x1F1E6 && cp <= 0x1F1FF);
-  if (pts.length >= 2) return pts.slice(0, 2).map(cp => String.fromCharCode(cp - 0x1F1E6 + 65)).join('');
-  if (/^[A-Za-z]{2}$/.test(trimmed)) return trimmed.toUpperCase();
-  return '';
-}
-
 function _tripIsoCodes(trip) {
   const codes = new Set();
-  const tripIso = _isoFromFlag(trip.flag);
+  const tripIso = fmtFlag(trip.flag, true);
   if (tripIso) codes.add(tripIso);
   for (const day of (trip.days || [])) {
-    if (day.flag) { const iso = _isoFromFlag(day.flag); if (iso) codes.add(iso); }
+    if (day.flag) { const iso = fmtFlag(day.flag, true); if (iso) codes.add(iso); }
   }
   if (trip.countryCode) { codes.add(trip.countryCode.toUpperCase()); return codes; }
   const dest = (trip.destination || '').toLowerCase().trim();
@@ -2263,49 +2254,44 @@ function _openSettingsModal() {
  * reverse-geocodes every geolocated event still missing a countryCode, one
  * at a time with a ~1.1s gap between requests (Nominatim's usage policy caps
  * free reverse-geocoding at ~1 req/s) — a trip with many pins can take a
- * while, hence the progress callback for the button label. Writes are
- * batched per trip (not per pin) to avoid a full sync on every single PIN.
+ * while, hence the progress callback for the button label.
+ *
+ * Each write re-reads the trip fresh and locates the item by id (not array
+ * index) right before saving it, rather than accumulating changes against a
+ * days snapshot captured once at the start — this whole pass can take
+ * minutes for a trip with many pins, long enough for a real edit (from this
+ * device or, for a shared trip, a companion's) to land in between. Writing
+ * against a stale snapshot at the end would silently overwrite that edit;
+ * writing per-pin, always against the latest data, can't.
  */
 async function _backfillPinCountries(onProgress) {
   const targets = [];
   for (const trip of getTrips()) {
     for (const day of (trip.days || [])) {
-      (day.items || []).forEach((item, idx) => {
+      for (const item of (day.items || [])) {
         if (item.lat != null && item.lng != null && !item.countryCode) {
-          targets.push({ tripId: trip.id, dayId: day.id, idx });
+          targets.push({ tripId: trip.id, dayId: day.id, itemId: item.id });
         }
-      });
+      }
     }
-  }
-
-  const byTrip = new Map();
-  for (const t of targets) {
-    if (!byTrip.has(t.tripId)) byTrip.set(t.tripId, []);
-    byTrip.get(t.tripId).push(t);
   }
 
   let done = 0, updated = 0;
-  for (const [tripId, items] of byTrip) {
+  for (const { tripId, dayId, itemId } of targets) {
     const trip = getTrip(tripId);
-    if (!trip) { done += items.length; continue; }
-    let days = trip.days;
-    for (const { dayId, idx } of items) {
-      const day  = days.find(d => d.id === dayId);
-      const item = day?.items?.[idx];
-      if (item && item.lat != null && item.lng != null && !item.countryCode) {
-        const geo = await reverseGeocodeCountry(item.lat, item.lng);
-        if (geo) {
-          const newItems = [...day.items];
-          newItems[idx] = { ...item, countryCode: geo.code, countryFlag: geo.flag };
-          days = days.map(d => d.id === dayId ? { ...d, items: newItems } : d);
-          updated++;
-        }
+    const day  = trip?.days?.find(d => d.id === dayId);
+    const item = day?.items?.find(it => it.id === itemId);
+    if (item && item.lat != null && item.lng != null && !item.countryCode) {
+      const geo = await reverseGeocodeCountry(item.lat, item.lng);
+      if (geo) {
+        const newItems = day.items.map(it => it.id === itemId ? { ...it, countryCode: geo.code, countryFlag: geo.flag } : it);
+        updateTrip(tripId, { days: trip.days.map(d => d.id === dayId ? { ...d, items: newItems } : d) });
+        updated++;
       }
-      done++;
-      onProgress?.(done, targets.length);
-      await new Promise(r => setTimeout(r, 1100));
     }
-    updateTrip(tripId, { days });
+    done++;
+    onProgress?.(done, targets.length);
+    await new Promise(r => setTimeout(r, 1100));
   }
 
   return { scanned: targets.length, updated };
@@ -3717,13 +3703,19 @@ function _handleSave() {
       const dateChanged = data.startDate !== oldStart || data.endDate !== oldEnd;
 
       if (dateChanged && data.startDate && data.endDate) {
-        // Regenerate day skeleton and merge with existing day data by date
+        // Regenerate day skeleton and merge with existing day data by date.
+        // Only id/num/date come from the fresh skeleton (they depend on the
+        // new range) — everything else on the old day is kept as-is via a
+        // blacklist rather than a hand-picked whitelist, so a field added
+        // later (day.departNightMode/returnNightMode, the transport mode
+        // editor's routeMode…) survives a date-range edit without needing
+        // to be remembered here too.
         const newDays    = generateDays(updated);
         const mergedDays = newDays.map(nd => {
           const old = oldDays.find(od => od.date === nd.date);
-          return old
-            ? { ...nd, title: old.title, region: old.region, lat: old.lat, lng: old.lng, color: old.color, photo: old.photo, items: old.items }
-            : nd;
+          if (!old) return nd;
+          const { id, num, date, ...oldContent } = old;
+          return { ...nd, ...oldContent };
         });
         updateTrip(_editingId, { days: mergedDays });
       } else if (!hadDays) {

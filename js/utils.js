@@ -429,9 +429,14 @@ export function trCol(m) {
 
 /**
  * Extract the two-letter country code from a flag emoji, plain ISO text, or globe.
- * Examples: '🇫🇷' → 'FR',  'fr' → 'FR',  '🌍' → '🌍' (returned as-is).
+ * Examples: '🇫🇷' → 'FR',  'fr' → 'FR',  '🌍' → '🌍' (returned as-is, unless strict).
+ * @param {boolean} [strict] - return '' instead of the raw input when it isn't
+ *   a recognisable 2-letter code (used by callers that need to tell "no
+ *   country" apart from an unparseable value, e.g. mymap.js/home.js's ISO
+ *   lookups — kept as an option here, not a separate copy of this function,
+ *   so the flag-parsing rules never have a chance to drift between them).
  */
-export function fmtFlag(flag) {
+export function fmtFlag(flag, strict = false) {
   if (!flag) return '';
   const trimmed = flag.trim();
   // Regional indicator symbols (flag emoji) sit in U+1F1E6–U+1F1FF
@@ -439,7 +444,7 @@ export function fmtFlag(flag) {
   if (pts.length >= 2)
     return String.fromCharCode(pts[0] - 0x1F1E6 + 65) + String.fromCharCode(pts[1] - 0x1F1E6 + 65);
   if (/^[A-Za-z]{2}$/.test(trimmed)) return trimmed.toUpperCase();
-  return trimmed;
+  return strict ? '' : trimmed;
 }
 
 /**

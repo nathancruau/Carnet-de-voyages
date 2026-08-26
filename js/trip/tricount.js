@@ -79,6 +79,20 @@ function _fmtEur(v) {
   return n.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
 }
 
+/**
+ * An expense's amount normalised to EUR — exp.amount is in the expense's
+ * own currency, exp.amountEur is the pre-converted value computed at save
+ * time (see _openExpenseModal). Aggregate totals (category donut, tab
+ * headers, Budget vs Dépenses) must use this, never exp.amount directly,
+ * or a single foreign-currency expense silently throws off every total by
+ * treating e.g. "50 USD" as "50 €".
+ */
+function _eurAmount(exp) {
+  return exp.currency && exp.currency !== 'EUR'
+    ? (Number(exp.amountEur) || Number(exp.amount) || 0)
+    : (Number(exp.amount) || 0);
+}
+
 // ── Participants ──────────────────────────────────────────────────────────────
 
 export function getParticipants(trip) {
@@ -117,9 +131,7 @@ function computeBalances(trip) {
     }
 
     // Normalise to EUR: use pre-computed amountEur when currency differs, else use amount directly
-    const eurAmt = exp.currency && exp.currency !== 'EUR'
-      ? (Number(exp.amountEur) || Number(exp.amount) || 0)
-      : (Number(exp.amount) || 0);
+    const eurAmt = _eurAmount(exp);
 
     // Credit the payer
     if (balances[exp.paidById] !== undefined) {
@@ -342,7 +354,7 @@ function _renderDepenses(trip, participants) {
   const realOnly    = expenses.filter(e => e.type !== 'transfer');
   const cats        = trip.budgetCats   || [];
   const days        = trip.days         || [];
-  const totalSpent  = realOnly.reduce((s, e) => s + (Number(e.amount) || 0), 0);
+  const totalSpent  = realOnly.reduce((s, e) => s + _eurAmount(e), 0);
   const isMobile    = window.innerWidth <= 768;
 
   if (expenses.length === 0) {
@@ -522,12 +534,12 @@ function _renderDepenses(trip, participants) {
 
 function _renderCatDonut(trip, expenses) {
   const cats  = trip.budgetCats || [];
-  const total = expenses.reduce((s, e) => s + (Number(e.amount) || 0), 0);
+  const total = expenses.reduce((s, e) => s + _eurAmount(e), 0);
   if (cats.length === 0 || total === 0) return '';
 
   const spentByCat = {};
   for (const exp of expenses) {
-    if (exp.catId) spentByCat[exp.catId] = (spentByCat[exp.catId] || 0) + (Number(exp.amount) || 0);
+    if (exp.catId) spentByCat[exp.catId] = (spentByCat[exp.catId] || 0) + _eurAmount(exp);
   }
 
   const budgetByCat = {};
@@ -587,46 +599,6 @@ function _renderCatDonut(trip, expenses) {
           ${arcs}
         </svg>
         <div style="flex:1;min-width:140px">${legend}</div>
-      </div>
-    </div>`;
-}
-
-// ── Budget vs real comparison ─────────────────────────────────────────────────
-
-function _renderBudgetComparison(trip, totalSpent) {
-  const budgetLines = trip.budgetLines || [];
-  const totalBudget = budgetLines.reduce((s, l) => s + (Number(l.amount) || 0), 0);
-
-  if (totalBudget === 0) return '';
-
-  const diff      = totalBudget - totalSpent;
-  const underBudget = diff >= 0;
-  const pct       = Math.min(100, Math.round((totalSpent / totalBudget) * 100));
-  const barColor  = underBudget ? 'var(--grn)' : 'var(--coral)';
-
-  return `
-    <div style="margin-top:16px;background:var(--c);border:1.5px solid var(--c3);border-radius:10px;padding:14px 16px">
-      <div style="font-size:12px;font-weight:700;color:var(--ink2);margin-bottom:12px">Comparaison budget / r&eacute;el</div>
-      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px">
-        <div style="flex:1;min-width:100px;background:var(--c2);border-radius:8px;padding:10px 12px;border:1px solid var(--c3)">
-          <div style="font-size:10px;color:var(--ink4);margin-bottom:3px">Budget pr&eacute;vu</div>
-          <div style="font-size:14px;font-weight:800;color:var(--ink)">${_fmtEur(totalBudget)}</div>
-        </div>
-        <div style="flex:1;min-width:100px;background:var(--c2);border-radius:8px;padding:10px 12px;border:1px solid var(--c3)">
-          <div style="font-size:10px;color:var(--ink4);margin-bottom:3px">D&eacute;penses r&eacute;elles</div>
-          <div style="font-size:14px;font-weight:800;color:var(--ink)">${_fmtEur(totalSpent)}</div>
-        </div>
-        <div style="flex:1;min-width:100px;background:${underBudget ? 'var(--tl)' : '#fff0ee'};border-radius:8px;padding:10px 12px;border:1px solid ${underBudget ? 'var(--teal)' : 'var(--coral)'}44">
-          <div style="font-size:10px;color:var(--ink4);margin-bottom:3px">&Eacute;cart</div>
-          <div style="font-size:14px;font-weight:800;color:${underBudget ? 'var(--grn)' : 'var(--coral)'}">
-            ${underBudget ? '-' : '+'}${_fmtEur(Math.abs(diff))}
-          </div>
-          <div style="font-size:10px;color:${underBudget ? 'var(--grn)' : 'var(--coral)'}">${underBudget ? 'sous le budget' : 'hors budget'}</div>
-        </div>
-      </div>
-      <div style="font-size:10px;color:var(--ink4);margin-bottom:5px">${pct}% du budget utilis&eacute;</div>
-      <div style="background:var(--c3);border-radius:6px;height:10px;overflow:hidden">
-        <div style="width:${pct}%;height:100%;background:${barColor};border-radius:6px;transition:width .3s"></div>
       </div>
     </div>`;
 }
@@ -715,7 +687,7 @@ function _renderBudgetVsDep(trip) {
   const spentByCat = {};
   for (const exp of expenses) {
     if (exp.catId) {
-      spentByCat[exp.catId] = (spentByCat[exp.catId] || 0) + (Number(exp.amount) || 0);
+      spentByCat[exp.catId] = (spentByCat[exp.catId] || 0) + _eurAmount(exp);
     }
   }
 
@@ -1026,10 +998,19 @@ function _openExpenseModal(tripId, expId) {
 
   const defaultPayer  = participants[0]?.id || 'moi';
 
-  // Build initial participant splits
+  // Build initial participant splits. The split editor works entirely in the
+  // expense's own currency (same as #ex-amount and the sum validation below),
+  // but exp.splits[].amount is stored in EUR (see the save handler) so that
+  // computeBalances/tripstats can add it straight to an EUR-denominated
+  // payer credit without a second conversion — convert back to native
+  // currency here for editing.
+  const _rate      = exp?.exchangeRate || 1;
+  const _isForeign = !!(exp?.currency && exp.currency !== 'EUR');
+  const _toNative  = eur => _isForeign ? Math.round((eur / _rate) * 100) / 100 : eur;
+
   function _initSplits(amount) {
     if (exp?.splits?.length) {
-      return exp.splits.map(s => ({ id: s.id, amount: Number(s.amount) || 0 }));
+      return exp.splits.map(s => ({ id: s.id, amount: _toNative(Number(s.amount) || 0) }));
     }
     if (exp?.sharedWith?.length) {
       const share = amount / exp.sharedWith.length;
@@ -1335,20 +1316,33 @@ function _openExpenseModal(tripId, expId) {
       const newExp    = [...(freshTrip.realExpenses || [])];
 
       // Compute EUR amount for cross-currency balance calculations
-      const amountEur = state.currency !== 'EUR'
+      const isForeign = state.currency !== 'EUR';
+      const amountEur = isForeign
         ? Math.round(amount * state.exchangeRate * 100) / 100
         : amount;
+
+      // splits[].amount is stored in EUR, not the expense's own currency —
+      // computeBalances (and tripstats' per-person/per-category totals) add
+      // it directly to the payer's EUR-denominated credit, so a value still
+      // in e.g. USD would silently corrupt every balance/settlement for this
+      // expense. The split editor itself stays in native currency (matches
+      // #ex-amount and the sum check just above); only convert at this
+      // final persistence boundary.
+      const splitsEur = state.participantSplits.map(ps => ({
+        id:     ps.id,
+        amount: isForeign ? Math.round(ps.amount * state.exchangeRate * 100) / 100 : ps.amount,
+      }));
 
       const expData = {
         desc,
         amount,
         amountEur,
-        currency:     state.currency !== 'EUR' ? state.currency : undefined,
-        exchangeRate: state.currency !== 'EUR' ? state.exchangeRate : undefined,
+        currency:     isForeign ? state.currency      : undefined,
+        exchangeRate: isForeign ? state.exchangeRate   : undefined,
         catId:        catId  || null,
         paidById:     state.paidById,
         sharedWith:   state.participantSplits.map(ps => ps.id),
-        splits:       state.participantSplits,
+        splits:       splitsEur,
         date,
         dayId:        dayId  || null,
         note,

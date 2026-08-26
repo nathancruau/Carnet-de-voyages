@@ -177,10 +177,14 @@ function _evalExpr(expr) {
 
 function _commit() {
   if (!_kpInput) return;
+  // Blank only when nothing was ever entered (_kpExpr empty) — a genuinely
+  // computed/typed 0 should still show "0", not fall back to the "0"
+  // placeholder as if the field were untouched.
+  const hadInput = _kpExpr !== '';
   const val = _kpFresh ? (parseFloat(_kpExpr) || 0) : (_evalExpr(_kpExpr) ?? 0);
   const input = _kpInput;
   _close();
-  input.value = val ? String(val) : '';
+  input.value = hadInput ? String(val) : '';
   input.dispatchEvent(new Event('input',  { bubbles: true }));
   input.dispatchEvent(new Event('change', { bubbles: true }));
 }
