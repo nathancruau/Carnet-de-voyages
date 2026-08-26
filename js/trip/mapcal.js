@@ -2140,6 +2140,12 @@ function _openEDP(dayId, evtIdx, tripId) {
         <div class="edp-sect-lbl">Notes</div>
         <textarea class="notes-ta" id="edp-notes" placeholder="Vos notes…" style="min-height:55px">${_esc(item.notes || '')}</textarea>
       </div>
+      ${item.lat != null ? `
+      <div class="edp-sect">
+        <div class="edp-sect-lbl">Pays du PIN</div>
+        <input type="text" id="edp-country-flag" value="${_esc(item.countryFlag || '')}" placeholder="🇫🇷" maxlength="8"
+          style="${inputStyle};width:70px" title="Détecté automatiquement depuis la position — modifiable si besoin">
+      </div>` : ''}
       ${gpxSectionHtml}
     </div>
     <div class="edp-actions">
@@ -2358,6 +2364,13 @@ function _openEDP(dayId, evtIdx, tripId) {
       if (_edpEnd   && sleepTo   > _edpEnd)   { notify('La date de fin est après le voyage',   '⚠️'); return; }
     }
 
+    // Country override: only rendered (so only present) for a geolocated pin.
+    // fmtFlag() re-derives the ISO code from whatever the user typed (emoji or
+    // plain 2-letter text) so country-based grouping/stats stay usable even
+    // after a manual correction of the auto-detected flag.
+    const countryFlagInput = document.getElementById('edp-country-flag');
+    const countryFlag = countryFlagInput ? (countryFlagInput.value.trim() || null) : undefined;
+
     d2.items[evtIdx] = {
       ...oldItem,
       type:      edpType,
@@ -2369,6 +2382,7 @@ function _openEDP(dayId, evtIdx, tripId) {
       cost,
       notes,
       ...(edpType === 'sleep' ? { dateFrom: sleepFrom, dateTo: sleepTo } : {}),
+      ...(countryFlag !== undefined ? { countryFlag, countryCode: countryFlag ? fmtFlag(countryFlag) : null } : {}),
     };
 
     updateTrip(tripId, { days: t2.days });

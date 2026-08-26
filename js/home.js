@@ -2077,6 +2077,10 @@ function _openSettingsModal() {
             style="background:var(--c2);border:1.5px solid var(--c3);border-radius:7px;padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer;color:var(--ink3)">
             🧹 Nettoyer les photos en double
           </button>` : ''}
+          <button type="button" id="settings-backfill-countries"
+            style="background:var(--c2);border:1.5px solid var(--c3);border-radius:7px;padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer;color:var(--ink3)">
+            🌍 Détecter les pays des PINs existants
+          </button>
         </div>
       </div>
 
@@ -2218,6 +2222,80 @@ function _openSettingsModal() {
       btn.textContent = original;
     }
   });
+
+  // ── Backfill country detection on pins added before this existed ───────────────
+
+  document.getElementById('settings-backfill-countries')?.addEventListener('click', async e => {
+    const btn = e.currentTarget;
+    const original = btn.textContent;
+    btn.disabled = true;
+    try {
+      const { scanned, updated } = await _backfillPinCountries((done, total) => {
+        btn.textContent = `⏳ Détection… ${done}/${total}`;
+      });
+      notify(scanned > 0
+        ? `${updated} PIN(s) mis à jour sur ${scanned} analysé(s)`
+        : 'Aucun PIN à mettre à jour', '🌍');
+    } catch (err) {
+      notify('Échec de la détection : ' + err.message, '⚠️');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = original;
+    }
+  });
+}
+
+/**
+ * One-off repair for pins added before per-PIN country detection existed:
+ * reverse-geocodes every geolocated event still missing a countryCode, one
+ * at a time with a ~1.1s gap between requests (Nominatim's usage policy caps
+ * free reverse-geocoding at ~1 req/s) — a trip with many pins can take a
+ * while, hence the progress callback for the button label. Writes are
+ * batched per trip (not per pin) to avoid a full sync on every single PIN.
+ */
+async function _backfillPinCountries(onProgress) {
+  const targets = [];
+  for (const trip of getTrips()) {
+    for (const day of (trip.days || [])) {
+      (day.items || []).forEach((item, idx) => {
+        if (item.lat != null && item.lng != null && !item.countryCode) {
+          targets.push({ tripId: trip.id, dayId: day.id, idx });
+        }
+      });
+    }
+  }
+
+  const byTrip = new Map();
+  for (const t of targets) {
+    if (!byTrip.has(t.tripId)) byTrip.set(t.tripId, []);
+    byTrip.get(t.tripId).push(t);
+  }
+
+  let done = 0, updated = 0;
+  for (const [tripId, items] of byTrip) {
+    const trip = getTrip(tripId);
+    if (!trip) { done += items.length; continue; }
+    let days = trip.days;
+    for (const { dayId, idx } of items) {
+      const day  = days.find(d => d.id === dayId);
+      const item = day?.items?.[idx];
+      if (item && item.lat != null && item.lng != null && !item.countryCode) {
+        const geo = await reverseGeocodeCountry(item.lat, item.lng);
+        if (geo) {
+          const newItems = [...day.items];
+          newItems[idx] = { ...item, countryCode: geo.code, countryFlag: geo.flag };
+          days = days.map(d => d.id === dayId ? { ...d, items: newItems } : d);
+          updated++;
+        }
+      }
+      done++;
+      onProgress?.(done, targets.length);
+      await new Promise(r => setTimeout(r, 1100));
+    }
+    updateTrip(tripId, { days });
+  }
+
+  return { scanned: targets.length, updated };
 }
 
 // ── Event delegation ───────────────────────────────────────────────────────────
