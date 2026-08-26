@@ -3103,10 +3103,8 @@ async function _handleSortieSave() {
 function _buildModalHtml(trip) {
   const name         = trip?.name         || '';
   const destination  = trip?.destination  || '';
-  const flag         = trip?.flag         || '';
   const photo        = trip?.photo        || '';
   const status       = trip?.status       || 'done';
-  const multiCountry = trip?.multiCountry || false;
 
   // Color swatches (using class names from CSS: .col-opts, .col-o, .sel)
   const colors = ['#0d9488','#7c3aed','#e85d3e','#d97706','#db2777','#0284c7','#16a34a'];
@@ -3186,16 +3184,10 @@ function _buildModalHtml(trip) {
         <input type="text" id="m-name" value="${_esc(name)}"
                placeholder="Mon beau voyage…" autocomplete="off">
       </div>
-      <div class="fg">
+      <div class="fg" style="grid-column:1/-1">
         <label>Destination</label>
         <input type="text" id="m-dest" value="${_esc(destination)}"
                placeholder="Paris, Tokyo…" autocomplete="off">
-      </div>
-      <div class="fg">
-        <label>Drapeau (emoji)</label>
-        <input type="text" id="m-flag" value="${_esc(flag)}"
-               placeholder="🇫🇷" maxlength="2" autocomplete="off"
-               style="font-size:20px;text-align:center">
       </div>
     </div>
 
@@ -3229,17 +3221,6 @@ function _buildModalHtml(trip) {
         <button class="comp-add-btn" id="m-comp-add">Ajouter</button>
       </div>
       <div id="m-comp-suggest">${_compSuggestChipsHtml(_modalComps)}</div>
-    </div>
-
-    <div class="fg">
-      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:600">
-        <input type="checkbox" id="m-multicountry" ${multiCountry ? 'checked' : ''}
-          style="width:16px;height:16px;accent-color:var(--teal);cursor:pointer;flex-shrink:0">
-        Voyage multi-pays
-      </label>
-      <div style="font-size:11px;color:var(--ink4);margin-top:3px;padding-left:24px">
-        Permet d'assigner un drapeau différent à chaque étape (pour MyMap)
-      </div>
     </div>
 
     <div class="ma">
@@ -3678,7 +3659,6 @@ function _handleSave() {
   }
 
   const destination = (document.getElementById('m-dest')?.value  || '').trim();
-  const flag        = (document.getElementById('m-flag')?.value  || '').trim() || '🌍';
   const { start, end } = dpGetDates();
 
   // Resolve photo: base64 takes priority (from file upload or URL crop)
@@ -3692,7 +3672,6 @@ function _handleSave() {
   const data = {
     name,
     destination,
-    flag,
     photo,
     color:        _modalColor,
     type:         _modalType,
@@ -3700,7 +3679,6 @@ function _handleSave() {
     startDate:    start || null,
     endDate:      end   || null,
     companions:   _modalComps,
-    multiCountry: document.getElementById('m-multicountry')?.checked || false,
   };
 
   if (_editingId) {

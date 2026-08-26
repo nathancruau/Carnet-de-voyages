@@ -1606,16 +1606,6 @@ function _dayItemHtml(day, sharedDocData = null, trip = null) {
         </button>`;
     }
 
-    const _tripMC = getTrip(_tripId)?.multiCountry;
-    const flagRowHtml = _tripMC ? `
-        <div style="padding:4px 8px 6px;display:flex;align-items:center;gap:6px;border-top:1px solid var(--c3);margin-top:4px">
-          <span style="font-size:11px;color:var(--ink4)">🏳 Pays :</span>
-          <input class="day-flag-input" data-day-id="${day.id}" type="text"
-            value="${_esc(day.flag || '')}" placeholder="🇫🇷" maxlength="8"
-            style="width:56px;font-size:14px;border:1px solid var(--c3);border-radius:4px;padding:1px 4px;background:var(--bg);color:var(--ink)"
-            title="Emoji drapeau du pays pour cette étape (utilisé dans MyMap)">
-        </div>` : '';
-
     const nightBadge = (() => {
       if (!trip || !day.date) return '';
       const n = _nightForDate(trip, day.date);
@@ -1631,7 +1621,6 @@ function _dayItemHtml(day, sharedDocData = null, trip = null) {
         <div class="evt-list">${evtRows}</div>
         ${nightBadge}
         <div class="add-evt" data-action="add-event" data-day-id="${day.id}">＋ Ajouter</div>
-        ${flagRowHtml}
         ${commentsHtml}
       </div>`;
   }
@@ -1654,7 +1643,6 @@ function _dayItemHtml(day, sharedDocData = null, trip = null) {
         <span class="di-t" style="margin-left:4px">${isSelected ? '▲' : '▼'}</span>
       </div>
       <div class="di-s">
-        ${day.flag && getTrip(_tripId)?.multiCountry ? `<span class="day-flag-chip">${fmtFlag(day.flag)}</span>` : ''}
         ${day.date ? fmtDateShort(day.date) : ''}
         ${day.region ? `<span style="color:var(--ink4)"> · ${_esc(day.region)}</span>` : ''}
         <span id="wx-${day.id}" style="margin-left:4px;font-size:11px;color:var(--ink3)"></span>
@@ -2549,7 +2537,7 @@ function _attachLeftPanelListeners(panel) {
 
     if (action === 'select-day') {
       // Don't trigger select when clicking inputs or interactive elements inside the body
-      if (e.target.closest('.day-flag-input, .dc-toggle, .add-evt')) return;
+      if (e.target.closest('.dc-toggle, .add-evt')) return;
       const dayId = target.dataset.dayId;
       if (dayId) _selectDay(dayId, _tripId);
 
@@ -2732,24 +2720,6 @@ function _attachLeftPanelListeners(panel) {
     _dragEvt = null;
   });
 
-  // Inline day flag editor
-  panel.addEventListener('change', e => {
-    if (!e.target.classList.contains('day-flag-input')) return;
-    const dayId = e.target.dataset.dayId;
-    const trip  = getTrip(_tripId);
-    if (!trip) return;
-    const day = (trip.days || []).find(d => d.id === dayId);
-    if (!day) return;
-    day.flag = e.target.value.trim() || null;
-    updateTrip(_tripId, { days: trip.days });
-    // Refresh subtitle (flag display) without full re-render
-    const diS = document.querySelector(`[data-day-id="${dayId}"][data-action="select-day"] .di-s`);
-    if (diS) {
-      const flagSpan = diS.querySelector('.day-flag-chip');
-      if (flagSpan) flagSpan.textContent = day.flag ? fmtFlag(day.flag) : '';
-    }
-    _refreshMapPins(_tripId);
-  });
 }
 
 // ─── Move event between days ──────────────────────────────────────────────────
@@ -3107,11 +3077,6 @@ function _openAddDayModal(tripId) {
       <label>Région / Ville</label>
       <input type="text" id="ad-region" value="${_esc(trip?.destination || '')}" placeholder="Ex : Kyoto, Japon" autocomplete="off">
     </div>
-    ${trip?.multiCountry ? `<div class="fg">
-      <label>Drapeau pays <span style="color:var(--ink4);font-weight:400">(pays de cette étape)</span></label>
-      <input type="text" id="ad-flag" value="${_esc(trip?.flag || '')}" placeholder="🇫🇷" maxlength="8"
-        style="width:64px;font-size:16px">
-    </div>` : ''}
     <div class="fg">
       <label>Date</label>
       <input type="date" id="ad-date" value="${trip?.startDate || ''}">
@@ -3184,7 +3149,6 @@ function _openAddDayModal(tripId) {
       date,
       title:  title || `Jour ${days.length + 1}`,
       region,
-      flag:   (document.getElementById('ad-flag')?.value || '').trim() || null,
       lat:    pickedLat != null ? Number(pickedLat) : null,
       lng:    pickedLng != null ? Number(pickedLng) : null,
       color:  selColor,
@@ -3221,11 +3185,6 @@ function _openAddDayModalWithCoords(tripId, lat, lng) {
       <label>Région / Ville</label>
       <input type="text" id="ad-region" value="${_esc(trip?.destination || '')}" placeholder="Ex : Kyoto, Japon" autocomplete="off">
     </div>
-    ${trip?.multiCountry ? `<div class="fg">
-      <label>Drapeau pays <span style="color:var(--ink4);font-weight:400">(pays de cette étape)</span></label>
-      <input type="text" id="ad-flag" value="${_esc(trip?.flag || '')}" placeholder="🇫🇷" maxlength="8"
-        style="width:64px;font-size:16px">
-    </div>` : ''}
     <div class="fg">
       <label>Date</label>
       <input type="date" id="ad-date" value="${trip?.startDate || ''}">
@@ -3298,7 +3257,6 @@ function _openAddDayModalWithCoords(tripId, lat, lng) {
       date,
       title:  title || `Jour ${days.length + 1}`,
       region,
-      flag:   (document.getElementById('ad-flag')?.value || '').trim() || null,
       lat:    Number(pickedLat),
       lng:    Number(pickedLng),
       color:  selColor,

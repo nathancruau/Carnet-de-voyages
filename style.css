@@ -652,9 +652,6 @@ body{height:100%;min-height:-webkit-fill-available;font-family:var(--fn);backgro
 .dc-toggle-active{background:var(--tl);border-color:var(--teal);color:var(--td)}
 .dc-count{font-weight:700;color:var(--teal)}
 
-/* Flag chip in day subtitle */
-.day-flag-chip{font-size:11px;font-weight:600;color:var(--ink3);margin-right:4px;letter-spacing:.01em}
-
 /* Leaflet popup overrides */
 .leaflet-popup-content-wrapper{
   border-radius:10px;border:1px solid var(--c3);
