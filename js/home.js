@@ -377,9 +377,16 @@ async function _initGlobe(trips) {
   if (!canvas) return;
   try {
     if (!_globeFeaturesCache) {
+      // 50m resolution, not 110m: at 110m, Natural Earth drops small
+      // countries entirely below a land-area threshold (Singapore, Malta,
+      // Bahrain…) — those never appeared as a feature at all, so the globe
+      // never colored them and clicking their "Drapeaux collectés" badge
+      // found no centroid to focus on (_focusGlobeOnCountry bailed out
+      // before even showing the name). 50m is a larger download but still
+      // reasonable for this lazy-loaded stats-only fetch.
       const [topoMod, worldData] = await Promise.all([
         import('https://cdn.jsdelivr.net/npm/topojson-client@3/+esm'),
-        fetch('https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json').then(r => r.json()),
+        fetch('https://cdn.jsdelivr.net/npm/world-atlas@2/countries-50m.json').then(r => r.json()),
       ]);
       _globeFeaturesCache  = topoMod.feature(worldData, worldData.objects.countries).features;
       _globeCentroidsCache = _countryCentroidsLonLat(_globeFeaturesCache);
@@ -637,14 +644,20 @@ function _attachGlobeInteraction(canvas) {
 /** Smoothly rotate the globe so the given ISO-2 country faces the viewer. */
 function _focusGlobeOnCountry(code) {
   const canvas = document.getElementById('globe-canvas');
-  const centroid = _globeCentroidsCache?.get(code);
-  if (!canvas || !centroid) return;
+  if (!canvas) return;
 
+  // Always show the name, even if this country has no polygon in the
+  // topojson (still possible for a very small territory) — a missing
+  // centroid should only skip the rotation animation below, not silently
+  // drop the whole click as if it never happened.
   const label = document.getElementById('globe-country-label');
   if (label) {
     label.style.display = '';
     label.innerHTML = `${_isoToFlag(code)} <b>${_esc(_A2_NAME[code] || code)}</b>`;
   }
+
+  const centroid = _globeCentroidsCache?.get(code);
+  if (!centroid) return;
 
   _globeTarget = { lambda: centroid.lon, phi: centroid.lat };
   if (_globeAnimId) cancelAnimationFrame(_globeAnimId);

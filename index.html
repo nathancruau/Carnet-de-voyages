@@ -35,7 +35,7 @@
        (openShareModal, isCurrentUserObserver, …), so every session fetches it
        anyway; preloading it here fetches it in parallel with home.js instead of
        only being discovered once home.js itself finishes parsing. -->
-  <link rel="modulepreload" href="js/app.js?v=208" />
+  <link rel="modulepreload" href="js/app.js?v=209" />
   <link rel="modulepreload" href="js/store.js" />
   <link rel="modulepreload" href="js/utils.js" />
   <link rel="modulepreload" href="js/auth.js" />
@@ -51,7 +51,7 @@
        in document order — style.css overrides several .leaflet-* rules and
        needs to win the cascade once both are applied. -->
   <link rel="stylesheet" href="vendor/leaflet.css" media="print" onload="this.media='all'" />
-  <link rel="stylesheet" href="style.css?v=208" />
+  <link rel="stylesheet" href="style.css?v=209" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,600;0,700;1,400;1,600;1,700&family=Nunito:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
@@ -227,6 +227,6 @@
       if (bar) bar.style.display = 'none';
     }
   </script>
-<script type="module" src="js/app.js?v=208"></script>
+<script type="module" src="js/app.js?v=209"></script>
 </body>
 </html>
