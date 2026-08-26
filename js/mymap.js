@@ -415,7 +415,10 @@ function _buildAllPins() {
             date:       day.date   || null,
             dayLabel:   `Jour ${day.num}${customDayTitle(day) ? ' · ' + customDayTitle(day) : ''}`,
             pinType:    item.type  || null,
-            dayFlag:    day.flag   || null,
+            // Prefer the pin's own auto-detected/overridden country — falls
+            // back to the old per-day flag for pins saved before this existed.
+            dayFlag:     item.countryFlag || day.flag || null,
+            countryCode: item.countryCode || null,
             lat, lng,
             photos:     (jd.photos || []).map(p => ({ url: p })),
             content:    jd.notes   || '',

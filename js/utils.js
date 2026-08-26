@@ -442,6 +442,38 @@ export function fmtFlag(flag) {
   return trimmed;
 }
 
+/**
+ * Reverse-geocode a lat/lng into its country (ISO-2 code + flag emoji) via
+ * Nominatim, so a pin's country can be filled in automatically instead of
+ * requiring the user to type a flag by hand. Same endpoint/timeout pattern
+ * already used for a sortie's pin (home.js) — extracted here so mapcal.js's
+ * planning pins can use it too without duplicating the fetch/abort logic.
+ * Returns null on any failure (offline, timeout, no result) — callers should
+ * treat a missing country as "unknown", never block saving on this.
+ */
+export async function reverseGeocodeCountry(lat, lng) {
+  if (lat == null || lng == null) return null;
+  try {
+    const controller = new AbortController();
+    const timeoutId  = setTimeout(() => controller.abort(), 6000);
+    const r = await fetch(
+      `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`,
+      { signal: controller.signal }
+    );
+    clearTimeout(timeoutId);
+    const d  = await r.json();
+    const cc = (d.address?.country_code || '').toUpperCase();
+    if (cc.length !== 2) return null;
+    const flag = String.fromCodePoint(
+      cc.charCodeAt(0) - 65 + 0x1F1E6,
+      cc.charCodeAt(1) - 65 + 0x1F1E6
+    );
+    return { code: cc, flag };
+  } catch (_) {
+    return null; // includes the 6s timeout abort
+  }
+}
+
 // ── Date picker ────────────────────────────────────────────────────────────────
 // Single-instance calendar widget.  dpInit() attaches it to a container element;
 // dpGetDates() returns the selected start/end ISO strings.

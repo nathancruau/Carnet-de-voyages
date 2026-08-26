@@ -15,6 +15,7 @@ import {
   dpInit, dpGetDates, renderDp,
   typeBadge,
   generateDays, customDayTitle,
+  reverseGeocodeCountry,
 } from './utils.js';
 // navigateToTrip / goMyMap accessed via window globals (set by app.js) to avoid circular import
 // import.js / export.js / gpx.js are dynamically imported at their few call sites below —
@@ -2950,23 +2951,8 @@ async function _handleSortieSave() {
 
   let flag = _locationUnchanged ? (_existingTrip.flag || '🎯') : '🎯';
   if (!_locationUnchanged && _sortieLat != null && _sortieLng != null) {
-    try {
-      const controller = new AbortController();
-      const timeoutId  = setTimeout(() => controller.abort(), 6000);
-      const r = await fetch(
-        `https://nominatim.openstreetmap.org/reverse?lat=${_sortieLat}&lon=${_sortieLng}&format=json`,
-        { signal: controller.signal }
-      );
-      clearTimeout(timeoutId);
-      const d = await r.json();
-      const cc = (d.address?.country_code || '').toUpperCase();
-      if (cc.length === 2) {
-        flag = String.fromCodePoint(
-          cc.charCodeAt(0) - 65 + 0x1F1E6,
-          cc.charCodeAt(1) - 65 + 0x1F1E6
-        );
-      }
-    } catch (_) { /* keep default — includes the 6s timeout abort */ }
+    const geo = await reverseGeocodeCountry(_sortieLat, _sortieLng);
+    if (geo) flag = geo.flag;
   }
 
   // GPX — resolve final state (new upload / existing / deleted). gpx.js is only

@@ -130,6 +130,15 @@ export function openTripStatsModal(tripId) {
     if (it.lat != null && it.lng != null) placeKeys.add(it.lat.toFixed(3) + ',' + it.lng.toFixed(3));
   }
 
+  // Countries visited — from each pin's own auto-detected/overridden
+  // countryCode (mapcal.js). Pins saved before that field existed simply
+  // don't count towards this — no fallback flag guess here since a wrong
+  // guess would be worse than just omitting the tile for older trips.
+  const countryCodes = new Set();
+  for (const it of allItems) {
+    if (it.countryCode) countryCodes.add(it.countryCode);
+  }
+
   // Straight-line distance between consecutive geolocated points, in
   // chronological order — an estimate (not routed roads), same base
   // measure the app already uses elsewhere (_haversineMeters in mapcal.js).
@@ -249,6 +258,7 @@ export function openTripStatsModal(tripId) {
       ${_kpi('🎯', nEvents, nEvents > 1 ? 'Activités' : 'Activité')}
       ${_kpi('📍', placeKeys.size, placeKeys.size > 1 ? 'Lieux' : 'Lieu')}
       ${_kpi('🗺️', totalMeters > 0 ? _fmtDist(totalMeters) : '—', 'Distance')}
+      ${countryCodes.size > 1 ? _kpi('🌍', countryCodes.size, 'Pays') : ''}
     </div>`;
 
   let expenseHtml = `<div class="stat-card" style="margin-bottom:14px">

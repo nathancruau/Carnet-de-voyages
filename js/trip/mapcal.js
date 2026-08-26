@@ -16,6 +16,7 @@ import {
   isoToDate, dateToIso, generateDays,
   tCol, tIc, trIc, trNm, trCol, fmtFlag,
   MNS, DOW, customDayTitle,
+  reverseGeocodeCountry,
 } from '../utils.js';
 import { updateTopStats } from './trip.js';
 
@@ -1821,6 +1822,12 @@ function _openEditEventModal(dayId, evtIdx, tripId) {
       <label>Notes</label>
       <textarea id="ee-notes" class="notes-ta" placeholder="Vos notes…" style="min-height:55px">${_esc(item.notes || '')}</textarea>
     </div>
+    ${item.lat != null ? `
+    <div class="fg">
+      <label>Pays du PIN</label>
+      <input type="text" id="ee-country-flag" value="${_esc(item.countryFlag || '')}" placeholder="🇫🇷" maxlength="8"
+        style="width:70px" title="Détecté automatiquement depuis la position — modifiable si besoin">
+    </div>` : ''}
     <div class="ma" style="justify-content:space-between">
       <button class="bc" id="ee-del" style="color:#e85d3e;border-color:#e85d3e">🗑 Supprimer</button>
       <div style="display:flex;gap:8px">
@@ -1895,6 +1902,13 @@ function _openEditEventModal(dayId, evtIdx, tripId) {
     const oldItem  = freshDay.items[evtIdx];
     const newEt    = getEventTypes().find(et => et.key === selType);
 
+    // Country override: only rendered (so only present) for a geolocated pin.
+    // fmtFlag() re-derives the ISO code from whatever the user typed (emoji or
+    // plain 2-letter text) so country-based grouping/stats stay usable even
+    // after a manual correction of the auto-detected flag.
+    const countryFlagInput = document.getElementById('ee-country-flag');
+    const countryFlag = countryFlagInput ? (countryFlagInput.value.trim() || null) : undefined;
+
     const updatedItems = [...(freshDay.items || [])];
     updatedItems[evtIdx] = {
       ...oldItem,
@@ -1907,6 +1921,7 @@ function _openEditEventModal(dayId, evtIdx, tripId) {
       cost,
       notes,
       ...(selType === 'sleep' ? { dateFrom: sleepFrom, dateTo: sleepTo } : {}),
+      ...(countryFlag !== undefined ? { countryFlag, countryCode: countryFlag ? fmtFlag(countryFlag) : null } : {}),
     };
 
     updateTrip(tripId, { days: freshTrip.days.map(d => d.id === dayId ? { ...d, items: updatedItems } : d) });
@@ -3484,7 +3499,8 @@ function _openAddEventModal(dayId, tripId, prefill = null) {
 
   document.getElementById('ae-cancel')?.addEventListener('click', _close);
 
-  document.getElementById('ae-save')?.addEventListener('click', () => {
+  document.getElementById('ae-save')?.addEventListener('click', async ev => {
+    const saveBtn = ev.currentTarget;
     const text  = (document.getElementById('ae-text')?.value  || '').trim();
     const time  = (document.getElementById('ae-time')?.value  || '').trim() || null;
     const cost  = parseFloat(document.getElementById('ae-cost')?.value || '0') || 0;
@@ -3511,19 +3527,29 @@ function _openAddEventModal(dayId, tripId, prefill = null) {
       } : {}),
     };
 
+    // Store location on the event; auto-detect its country (ISO code + flag)
+    // via reverse geocoding so pins no longer need a flag typed in by hand —
+    // stays editable afterwards from the event's edit modal if it got it wrong.
+    if (pickedLat != null && pickedLng != null) {
+      event.lat = pickedLat;
+      event.lng = pickedLng;
+      saveBtn.disabled = true;
+      const prevLabel = saveBtn.textContent;
+      saveBtn.textContent = 'Localisation du pays…';
+      const geo = await reverseGeocodeCountry(pickedLat, pickedLng);
+      if (geo) { event.countryCode = geo.code; event.countryFlag = geo.flag; }
+      saveBtn.disabled = false;
+      saveBtn.textContent = prevLabel;
+    }
+
     const trip2 = getTrip(tripId);
     if (!trip2) return;
     const day = (trip2.days || []).find(d => d.id === dayId);
     if (!day) return;
 
-    // Store location on the event; update day PIN only for non-sleep events
-    if (pickedLat != null && pickedLng != null) {
-      event.lat = pickedLat;
-      event.lng = pickedLng;
-      if (selType !== 'sleep' && day.lat == null) {
-        day.lat = pickedLat;
-        day.lng = pickedLng;
-      }
+    if (pickedLat != null && pickedLng != null && selType !== 'sleep' && day.lat == null) {
+      day.lat = pickedLat;
+      day.lng = pickedLng;
     }
 
     // Date validation for sleep events

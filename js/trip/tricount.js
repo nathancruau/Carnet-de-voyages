@@ -1290,7 +1290,11 @@ function _openExpenseModal(tripId, expId) {
       const ok = amount > 0 && Math.abs(rounded - amount) < 0.01;
       const totalEl = document.getElementById('tri-part-total-val');
       if (totalEl) {
-        totalEl.textContent = _fmtEur(rounded) + (amount > 0 ? ' / ' + _fmtEur(amount) : '');
+        // Just the running total here — the " / montant total" part is a
+        // separate sibling <span> already in the initial markup
+        // (_buildParticipantsHtml); appending it here too duplicated it
+        // ("12,00 € / 20,00 € / 20,00 €") once this listener started firing.
+        totalEl.textContent = _fmtEur(rounded);
         totalEl.style.color = ok ? 'var(--grn)' : amount > 0 ? 'var(--coral)' : 'var(--ink4)';
       }
     });
