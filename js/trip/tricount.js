@@ -93,6 +93,28 @@ function _eurAmount(exp) {
     : (Number(exp.amount) || 0);
 }
 
+/** Plain-text "who paid" label — one name, or several joined with " + " for a compte commun. */
+function _payerLabel(exp, participants) {
+  if (exp.payers && exp.payers.length > 0) {
+    return exp.payers.map(pp => participants.find(p => p.id === pp.id)?.name || pp.id).join(' + ');
+  }
+  return participants.find(p => p.id === exp.paidById)?.name || exp.paidById || '?';
+}
+
+/** One payer-chip per contributor for a compte commun, or the classic single chip otherwise. */
+function _payerChipsHtml(exp, participants) {
+  if (exp.payers && exp.payers.length > 0) {
+    return exp.payers.map(pp => {
+      const p = participants.find(pt => pt.id === pp.id);
+      return `<span class="payer-chip" style="background:${_esc(p?.color || '#888')}" title="${_esc((p?.name || pp.id) + ' : ' + _fmtEur(pp.amount))}">${_esc(p ? p.name : pp.id)}</span>`;
+    }).join(' ');
+  }
+  const payer = participants.find(p => p.id === exp.paidById);
+  return payer
+    ? `<span class="payer-chip" style="background:${_esc(payer.color || '#0d9488')}">${_esc(payer.name)}</span>`
+    : `<span class="payer-chip" style="background:var(--c4);color:var(--ink3)">${_esc(exp.paidById || '?')}</span>`;
+}
+
 // ── Participants ──────────────────────────────────────────────────────────────
 
 export function getParticipants(trip) {
@@ -109,7 +131,9 @@ export function getParticipants(trip) {
  * Positive = owed money back; Negative = owes money to others.
  *
  * Algorithm:
- *  1. Payer is credited the full EUR amount.
+ *  1a. If exp.payers exists (compte commun — paid jointly), each listed
+ *      payer is credited their own EUR contribution.
+ *  1b. Otherwise the single exp.paidById is credited the full EUR amount.
  *  2a. If custom splits exist, each person is debited their specific share.
  *  2b. Otherwise the amount is divided equally among `sharedWith` participants.
  *  3. Transfers are handled as a direct credit/debit pair.
@@ -133,8 +157,13 @@ function computeBalances(trip) {
     // Normalise to EUR: use pre-computed amountEur when currency differs, else use amount directly
     const eurAmt = _eurAmount(exp);
 
-    // Credit the payer
-    if (balances[exp.paidById] !== undefined) {
+    // Credit the payer(s) — a compte commun (exp.payers) credits each
+    // contributor their own share instead of crediting exp.paidById in full.
+    if (exp.payers && exp.payers.length > 0) {
+      for (const payer of exp.payers) {
+        if (balances[payer.id] !== undefined) balances[payer.id] += Number(payer.amount) || 0;
+      }
+    } else if (balances[exp.paidById] !== undefined) {
       balances[exp.paidById] += eurAmt;
     }
 
@@ -396,11 +425,10 @@ function _renderDepenses(trip, participants) {
         continue;
       }
 
-      const payer = participants.find(p => p.id === exp.paidById);
       const cat   = cats.find(c => c.id === exp.catId);
       const day   = days.find(d => d.id === exp.dayId);
       const refHtml = [exp.date ? fmtDateShort(exp.date) : '', day ? 'Jour ' + day.num : ''].filter(Boolean).join(' · ');
-      const payerName = payer?.name || exp.paidById || '?';
+      const payerName = _payerLabel(exp, participants);
       const amountHtml = exp.currency && exp.currency !== 'EUR'
         ? `${Number(exp.amount).toLocaleString('fr-FR', {minimumFractionDigits:2,maximumFractionDigits:2})} ${exp.currency}`
         : _fmtEur(exp.amount);
@@ -456,13 +484,10 @@ function _renderDepenses(trip, participants) {
       continue;
     }
 
-    const payer = participants.find(p => p.id === exp.paidById);
     const cat   = cats.find(c => c.id === exp.catId);
     const day   = days.find(d => d.id === exp.dayId);
 
-    const payerHtml = payer
-      ? `<span class="payer-chip" style="background:${_esc(payer.color || '#0d9488')}">${_esc(payer.name)}</span>`
-      : `<span class="payer-chip" style="background:var(--c4);color:var(--ink3)">${_esc(exp.paidById || '?')}</span>`;
+    const payerHtml = _payerChipsHtml(exp, participants);
 
     let sharedHtml;
     if (exp.splits && exp.splits.length > 0) {
@@ -499,7 +524,7 @@ function _renderDepenses(trip, participants) {
             ? `${Number(exp.amount).toLocaleString('fr-FR', {minimumFractionDigits:2,maximumFractionDigits:2})} ${exp.currency}<div style="font-size:10px;color:var(--ink4)">${_fmtEur(exp.amountEur || exp.amount)}</div>`
             : _fmtEur(exp.amount)}
         </td>
-        <td>${payerHtml}</td>
+        <td><div class="split-chips">${payerHtml}</div></td>
         <td><div class="split-chips">${sharedHtml || '—'}</div></td>
         <td>${catHtml}</td>
         <td style="font-size:10px;color:var(--ink4);white-space:nowrap">${_esc(refHtml)}</td>
@@ -887,12 +912,22 @@ function _refreshMain(tripId) {
   if (mainEl) mainEl.innerHTML = _renderMain(trip, participants, balances, settlements);
 }
 
-// ── Participants split helpers ────────────────────────────────────────────────
+// ── Split editor (shared) ─────────────────────────────────────────────────────
 
-function _buildParticipantsHtml(state, participants, expAmount) {
-  const curSym = CURRENCIES.find(c => c.code === state.currency)?.symbol || '€';
+/**
+ * Checklist of participants, each optionally included with an editable
+ * amount, plus an "Égaliser" button and a running total vs. the target
+ * amount. Shared by two independent uses in the expense modal: "Participants
+ * & répartition" (who owes what, list = state.participantSplits) and "Payé
+ * par plusieurs personnes" (who contributed how much to a joint/compte-commun
+ * payment, list = state.payers) — same UI and validation, different backing
+ * list and element ids (passed in via `ids` so the two don't collide in the
+ * DOM or in each other's delegated event listeners).
+ */
+function _buildSplitEditorHtml(list, participants, expAmount, currency, ids) {
+  const curSym = CURRENCIES.find(c => c.code === currency)?.symbol || '€';
   const rows = participants.map(p => {
-    const split = state.participantSplits.find(s => s.id === p.id);
+    const split = list.find(s => s.id === p.id);
     const incl  = !!split;
     const amt   = split ? split.amount : 0;
     return `
@@ -900,7 +935,7 @@ function _buildParticipantsHtml(state, participants, expAmount) {
                     margin-bottom:3px;cursor:pointer;user-select:none;
                     background:${incl ? 'var(--tl)' : 'var(--c)'};
                     border:1.5px solid ${incl ? 'var(--teal)' : 'var(--c3)'}">
-        <input type="checkbox" class="tri-part-check" data-part-id="${_esc(p.id)}"
+        <input type="checkbox" class="${ids.checkClass}" data-part-id="${_esc(p.id)}"
           ${incl ? 'checked' : ''}
           style="width:16px;height:16px;cursor:pointer;accent-color:var(--teal);flex-shrink:0">
         <div class="comp-avatar"
@@ -911,7 +946,7 @@ function _buildParticipantsHtml(state, participants, expAmount) {
                      min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
           ${_esc(p.name)}
         </span>
-        <input type="text" inputmode="decimal" class="tri-part-amount" data-part-id="${_esc(p.id)}"
+        <input type="text" inputmode="decimal" class="${ids.amountClass}" data-part-id="${_esc(p.id)}"
           value="${amt > 0 || incl ? amt.toFixed(2) : ''}"
           ${!incl ? 'disabled' : ''}
           style="width:78px;padding:4px 7px;border:1.5px solid var(--c3);border-radius:7px;
@@ -921,21 +956,21 @@ function _buildParticipantsHtml(state, participants, expAmount) {
       </label>`;
   }).join('');
 
-  const total   = state.participantSplits.reduce((s, ps) => s + ps.amount, 0);
+  const total   = list.reduce((s, ps) => s + ps.amount, 0);
   const rounded = Math.round(total * 100) / 100;
   const ok      = expAmount > 0 && Math.abs(rounded - expAmount) < 0.01;
 
   return `
-    <div id="tri-participants-list">${rows}</div>
+    <div id="${ids.listId}">${rows}</div>
     <div style="display:flex;align-items:center;justify-content:space-between;margin-top:5px;
                 padding:6px 10px;background:var(--c2);border-radius:8px;border:1px solid var(--c3)">
-      <button type="button" id="parts-equal"
+      <button type="button" id="${ids.equalBtnId}"
         style="background:var(--teal);border:none;border-radius:5px;padding:3px 10px;
                font-size:10px;font-weight:700;cursor:pointer;color:#fff;font-family:var(--fn)">
         Égaliser
       </button>
       <div style="font-size:12px;font-weight:700">
-        <span id="tri-part-total-val"
+        <span id="${ids.totalId}"
           style="color:${ok ? 'var(--grn)' : expAmount > 0 ? 'var(--coral)' : 'var(--ink4)'}">
           ${_fmtEur(rounded)}
         </span>
@@ -944,16 +979,27 @@ function _buildParticipantsHtml(state, participants, expAmount) {
     </div>`;
 }
 
-function _equalizeParticipants(state, amount) {
-  const n = state.participantSplits.length;
+function _equalizeSplitList(list, amount) {
+  const n = list.length;
   if (n === 0) return;
   const share = Math.round((amount / n) * 100) / 100;
   // Distribute rounding remainder to first participant
   let total = share * n;
   const remainder = Math.round((amount - total) * 100) / 100;
-  state.participantSplits.forEach((ps, i) => {
+  list.forEach((ps, i) => {
     ps.amount = i === 0 ? share + remainder : share;
   });
+}
+
+const _PART_IDS  = { checkClass: 'tri-part-check',  amountClass: 'tri-part-amount',  listId: 'tri-participants-list', equalBtnId: 'parts-equal',  totalId: 'tri-part-total-val' };
+const _PAYER_IDS = { checkClass: 'tri-payer-check', amountClass: 'tri-payer-amount', listId: 'tri-payers-list',       equalBtnId: 'payers-equal', totalId: 'tri-payer-total-val' };
+
+function _buildParticipantsHtml(state, participants, expAmount) {
+  return _buildSplitEditorHtml(state.participantSplits, participants, expAmount, state.currency, _PART_IDS);
+}
+
+function _equalizeParticipants(state, amount) {
+  _equalizeSplitList(state.participantSplits, amount);
 }
 
 function _refreshParticipantsSection(state, participants, expAmount) {
@@ -967,6 +1013,19 @@ function _refreshParticipantsSection(state, participants, expAmount) {
   div.innerHTML = newHtml;
   while (div.firstChild) section.appendChild(div.firstChild);
   section.querySelectorAll('.tri-part-amount').forEach(attachCalcKeypad);
+}
+
+// ── Payers split helpers (compte commun) ──────────────────────────────────────
+
+function _buildPayersHtml(state, participants, expAmount) {
+  return _buildSplitEditorHtml(state.payers, participants, expAmount, state.currency, _PAYER_IDS);
+}
+
+function _refreshPayersSection(state, participants, expAmount) {
+  const section = document.getElementById('ex-payer-split-section');
+  if (!section) return;
+  section.innerHTML = _buildPayersHtml(state, participants, expAmount);
+  section.querySelectorAll('.tri-payer-amount').forEach(attachCalcKeypad);
 }
 
 function _refreshEurEquiv() {
@@ -1020,9 +1079,22 @@ function _openExpenseModal(tripId, expId) {
     return participants.map(p => ({ id: p.id, amount: Math.round(share * 100) / 100 }));
   }
 
+  // Same native-currency conversion as _initSplits, for a compte commun
+  // (exp.payers). When the expense isn't a compte commun (or is new), seed
+  // with just the single payer at the full amount — a sane, valid starting
+  // point once "Compte commun" gets checked, instead of an empty/invalid split.
+  function _initPayers(amount) {
+    if (exp?.payers?.length) {
+      return exp.payers.map(pp => ({ id: pp.id, amount: _toNative(Number(pp.amount) || 0) }));
+    }
+    return [{ id: exp?.paidById || defaultPayer, amount }];
+  }
+
   const initAmount = Number(exp?.amount) || 0;
   const state = {
     paidById:          exp?.paidById   || defaultPayer,
+    multiPayer:        !!(exp?.payers && exp.payers.length > 0), // "compte commun" toggle
+    payers:            _initPayers(initAmount),  // [{ id, amount }] — used only when multiPayer
     participantSplits: _initSplits(initAmount),  // [{ id, amount }] — only included participants
     receipt:           exp?.receipt    || null,
     currency:          exp?.currency   || 'EUR',
@@ -1152,8 +1224,17 @@ function _openExpenseModal(tripId, expId) {
       </div>
 
       <div class="fg">
-        <label>Payé par</label>
-        <select id="ex-payer">${payerOptions}</select>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+          <label style="margin:0;display:block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:var(--ink3)">Payé par</label>
+          <label style="display:flex;align-items:center;gap:5px;font-size:11px;font-weight:600;color:var(--ink3);cursor:pointer;margin:0;text-transform:none">
+            <input type="checkbox" id="ex-multi-payer" ${state.multiPayer ? 'checked' : ''} style="accent-color:var(--teal)">
+            Compte commun
+          </label>
+        </div>
+        <select id="ex-payer" style="${state.multiPayer ? 'display:none' : ''}">${payerOptions}</select>
+        <div id="ex-payer-split-section" style="${state.multiPayer ? '' : 'display:none'};margin-top:6px">
+          ${_buildPayersHtml(state, participants, expAmount || 0)}
+        </div>
       </div>
 
       <div class="fg" id="ex-split-section">
@@ -1192,12 +1273,75 @@ function _openExpenseModal(tripId, expId) {
       state.paidById = ev.target.value;
     });
 
-    // Amount change → auto-equalize participants
+    // "Compte commun" toggle — swap the single payer <select> for the
+    // multi-payer split editor (same widget as "Participants & répartition",
+    // just backed by state.payers instead of state.participantSplits).
+    document.getElementById('ex-multi-payer')?.addEventListener('change', ev => {
+      state.multiPayer = ev.target.checked;
+      const sel = document.getElementById('ex-payer');
+      const sec = document.getElementById('ex-payer-split-section');
+      if (sel) sel.style.display = state.multiPayer ? 'none' : '';
+      if (sec) sec.style.display = state.multiPayer ? '' : 'none';
+      const amount = parseFloat(document.getElementById('ex-amount')?.value || '0') || 0;
+      if (state.multiPayer && state.payers.length === 0) {
+        state.payers = [{ id: state.paidById, amount }];
+      }
+      _refreshPayersSection(state, participants, amount);
+    });
+
+    // Amount change → auto-equalize participants (and payers, if compte commun)
     document.getElementById('ex-amount')?.addEventListener('input', () => {
       const amount = parseFloat(document.getElementById('ex-amount')?.value || '0') || 0;
       _equalizeParticipants(state, amount);
       _refreshParticipantsSection(state, participants, amount);
+      if (state.multiPayer) {
+        _equalizeSplitList(state.payers, amount);
+        _refreshPayersSection(state, participants, amount);
+      }
       _refreshEurEquiv();
+    });
+
+    // Payer checkbox change (compte commun)
+    document.getElementById('ex-payer-split-section')?.addEventListener('change', ev => {
+      const cb = ev.target.closest('.tri-payer-check');
+      if (!cb) return;
+      const pid    = cb.dataset.partId;
+      const amount = parseFloat(document.getElementById('ex-amount')?.value || '0') || 0;
+      if (cb.checked) {
+        if (!state.payers.find(s => s.id === pid)) state.payers.push({ id: pid, amount: 0 });
+      } else {
+        state.payers = state.payers.filter(s => s.id !== pid);
+      }
+      _equalizeSplitList(state.payers, amount);
+      _refreshPayersSection(state, participants, amount);
+    });
+
+    // Payer amount change (manual, compte commun)
+    document.getElementById('ex-payer-split-section')?.addEventListener('input', ev => {
+      const input = ev.target.closest('.tri-payer-amount');
+      if (!input) return;
+      const pid = input.dataset.partId;
+      const val = parseFloat(input.value) || 0;
+      const ps  = state.payers.find(s => s.id === pid);
+      if (ps) ps.amount = val;
+      const amount  = parseFloat(document.getElementById('ex-amount')?.value || '0') || 0;
+      const total   = state.payers.reduce((s, p) => s + p.amount, 0);
+      const rounded = Math.round(total * 100) / 100;
+      const ok      = amount > 0 && Math.abs(rounded - amount) < 0.01;
+      const totalEl = document.getElementById('tri-payer-total-val');
+      if (totalEl) {
+        totalEl.textContent = _fmtEur(rounded);
+        totalEl.style.color = ok ? 'var(--grn)' : amount > 0 ? 'var(--coral)' : 'var(--ink4)';
+      }
+    });
+
+    // Payer "Égaliser" button (compte commun)
+    document.getElementById('ex-payer-split-section')?.addEventListener('click', ev => {
+      if (ev.target.closest('#payers-equal')) {
+        const amount = parseFloat(document.getElementById('ex-amount')?.value || '0') || 0;
+        _equalizeSplitList(state.payers, amount);
+        _refreshPayersSection(state, participants, amount);
+      }
     });
 
     // Currency change
@@ -1219,6 +1363,10 @@ function _openExpenseModal(tripId, expId) {
       }
       _refreshParticipantsSection(state, participants,
         parseFloat(document.getElementById('ex-amount')?.value || '0') || 0);
+      if (state.multiPayer) {
+        _refreshPayersSection(state, participants,
+          parseFloat(document.getElementById('ex-amount')?.value || '0') || 0);
+      }
       _refreshEurEquiv();
     });
 
@@ -1312,6 +1460,16 @@ function _openExpenseModal(tripId, expId) {
         return;
       }
 
+      // Validate payer split sum (compte commun)
+      if (state.multiPayer) {
+        if (state.payers.length === 0) { notify('Sélectionnez au moins une personne ayant payé', '⚠️'); return; }
+        const payersTotal = state.payers.reduce((s, ps) => s + ps.amount, 0);
+        if (Math.abs(payersTotal - amount) > 0.01) {
+          notify(`La somme payée (${_fmtEur(payersTotal)}) doit égaler le montant (${_fmtEur(amount)})`, '⚠️');
+          return;
+        }
+      }
+
       const freshTrip = getTrip(tripId);
       const newExp    = [...(freshTrip.realExpenses || [])];
 
@@ -1333,6 +1491,18 @@ function _openExpenseModal(tripId, expId) {
         amount: isForeign ? Math.round(ps.amount * state.exchangeRate * 100) / 100 : ps.amount,
       }));
 
+      // payers[].amount is EUR too, same conversion/rationale as splitsEur —
+      // computeBalances credits each payer their own contribution directly.
+      // Only set when "Compte commun" is on; otherwise cleared (undefined)
+      // so editing a former compte-commun expense back to a single payer
+      // actually drops the old payers array instead of leaving it stale.
+      const payersEur = state.multiPayer
+        ? state.payers.map(ps => ({
+            id:     ps.id,
+            amount: isForeign ? Math.round(ps.amount * state.exchangeRate * 100) / 100 : ps.amount,
+          }))
+        : undefined;
+
       const expData = {
         desc,
         amount,
@@ -1340,7 +1510,8 @@ function _openExpenseModal(tripId, expId) {
         currency:     isForeign ? state.currency      : undefined,
         exchangeRate: isForeign ? state.exchangeRate   : undefined,
         catId:        catId  || null,
-        paidById:     state.paidById,
+        paidById:     state.multiPayer ? (payersEur[0]?.id || state.paidById) : state.paidById,
+        payers:       payersEur,
         sharedWith:   state.participantSplits.map(ps => ps.id),
         splits:       splitsEur,
         date,
@@ -1366,6 +1537,7 @@ function _openExpenseModal(tripId, expId) {
 
     attachCalcKeypad(document.getElementById('ex-amount'));
     document.querySelectorAll('#ex-split-section .tri-part-amount').forEach(attachCalcKeypad);
+    document.querySelectorAll('#ex-payer-split-section .tri-payer-amount').forEach(attachCalcKeypad);
   }
 
   showModal(buildHtml());
