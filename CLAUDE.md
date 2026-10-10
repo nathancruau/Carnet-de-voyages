@@ -27,7 +27,7 @@ Version actuelle : **212**
 | Environnement | Branche | Déploiement | URL |
 |---------------|---------|-------------|-----|
 | Production | `main` | `.github/workflows/firebase-hosting.yml` (canal `live`) | `carnet-de-voyage-2dc04.web.app` |
-| Bêta | `beta` | `.github/workflows/firebase-beta.yml` (canal preview `beta`) | `carnet-de-voyage-2dc04--beta-<hash>.web.app` |
+| Bêta | `beta` | `.github/workflows/firebase-beta.yml` (canal preview `beta`) | `carnet-de-voyage-2dc04--beta-qtq9hw84.web.app` |
 
 - **Même projet Firebase** : même Auth, même Firestore → la bêta lit et écrit les **vraies données**.
   Toute modif du format des données dans la bêta doit rester rétro-compatible avec la prod
