@@ -284,6 +284,20 @@ window.addEventListener('online',  () => _setOfflineBar(false));
 window.addEventListener('offline', () => _setOfflineBar(true));
 if (!navigator.onLine) _setOfflineBar(true);
 
+// ── Beta indicator ─────────────────────────────────────────────────────────────
+// Le serveur bêta est le canal Firebase « beta » (URL …--beta-xxxx.web.app).
+// Même code partout : le badge n'apparaît que sur ce domaine, donc rien à
+// retirer au moment de merger beta → main.
+
+if (location.hostname.includes('--beta')) {
+  document.documentElement.classList.add('is-beta');
+  document.title = 'β ' + document.title;
+  const badge = document.createElement('div');
+  badge.className = 'beta-badge';
+  badge.textContent = 'BÊTA';
+  document.body.appendChild(badge);
+}
+
 // ── Firestore sync error ───────────────────────────────────────────────────────
 // Notify user when a sync write to Firestore fails (e.g. network error, quota).
 // We debounce to show at most one warning per 30 s so we don't spam.

@@ -2215,6 +2215,19 @@ a.tl-sv-pill:hover{background:var(--c3);color:var(--ink)}
 }
 .offline-bar.visible{transform:translateY(0)}
 
+/* ── Beta badge (canal Firebase « beta » uniquement) ───────────────────────── */
+.beta-badge{
+  position:fixed;
+  bottom:max(10px,env(safe-area-inset-bottom));left:10px;
+  background:#7c3aed;color:#fff;
+  font:800 10px/1 var(--fn);letter-spacing:.08em;
+  padding:5px 8px;border-radius:999px;
+  box-shadow:var(--sh);
+  z-index:99998;
+  pointer-events:none;
+  opacity:.85;
+}
+
 /* ── Home library tabs ────────────────────────────────────────────────────── */
 .hl-tabs{display:flex;gap:6px;margin-bottom:0;align-items:center;overflow-x:auto;flex-wrap:nowrap;-webkit-overflow-scrolling:touch;scrollbar-width:none}
 .hl-tabs::-webkit-scrollbar{display:none}
