@@ -18,7 +18,24 @@ Quatre endroits à synchroniser, toujours le même numéro N :
 | `sw.js` | `const SHELL_CACHE = 'cv-shell-N'` |
 | `store.js` | `export const APP_VERSION = 'N'` |
 
-Version actuelle : **146**
+Version actuelle : **147**
+
+---
+
+## Serveur bêta
+
+| Environnement | Branche | Déploiement | URL |
+|---------------|---------|-------------|-----|
+| Production | `main` | `.github/workflows/firebase-hosting.yml` (canal `live`) | `carnet-de-voyage-2dc04.web.app` |
+| Bêta | `beta` | `.github/workflows/firebase-beta.yml` (canal preview `beta`) | `carnet-de-voyage-2dc04--beta-<hash>.web.app` |
+
+- **Même projet Firebase** : même Auth, même Firestore → la bêta lit et écrit les **vraies données**.
+  Toute modif du format des données dans la bêta doit rester rétro-compatible avec la prod
+  (ajouter des champs OK ; renommer/supprimer/changer le type d'un champ existant = interdit tant que ce n'est pas en prod).
+- Origine différente → localStorage et service worker séparés (pas de conflit de cache).
+- Badge violet « BÊTA » + titre préfixé « β » quand `location.hostname` contient `--beta` (`app.js`). Même code partout, rien à retirer au merge.
+- Le canal expire 30 j après le dernier déploiement (relancer via « Run workflow » si besoin).
+- Workflow : développer sur `beta` (ou des branches mergées dans `beta`) → tester sur l'URL bêta → PR `beta` → `main`.
 
 ---
 

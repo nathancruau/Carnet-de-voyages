@@ -1,0 +1,41 @@
+name: Deploy beta to Firebase Hosting
+
+# Serveur bêta : chaque push sur la branche `beta` est déployé sur le canal
+# de prévisualisation Firebase « beta ». Même projet Firebase que la prod
+# → même Auth Google, même Firestore, mêmes données. Seul le code change.
+# URL stable : https://carnet-de-voyage-2dc04--beta-<hash>.web.app
+# (affichée dans le résumé du job GitHub Actions après le premier déploiement).
+
+on:
+  push:
+    branches:
+      - beta
+  workflow_dispatch:
+
+concurrency:
+  group: firebase-beta
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy to Firebase Hosting (beta channel)
+        id: deploy
+        uses: FirebaseExtended/action-hosting-deploy@v0
+        with:
+          repoToken: ${{ secrets.GITHUB_TOKEN }}
+          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_CARNET_DE_VOYAGE_2DC04 }}
+          channelId: beta
+          # Durée max d'un canal Firebase ; chaque nouveau déploiement la renouvelle.
+          expires: 30d
+          projectId: carnet-de-voyage-2dc04
+
+      - name: Afficher l'URL bêta
+        run: |
+          echo "### 🧪 Bêta déployée" >> "$GITHUB_STEP_SUMMARY"
+          echo "${{ steps.deploy.outputs.details_url }}" >> "$GITHUB_STEP_SUMMARY"
