@@ -68,7 +68,14 @@ export async function initAuth(onReady) {
       import(`${FB}/firebase-firestore.js`),
     ]);
 
-    const app = appMod.initializeApp(firebaseConfig);
+    // Serveur bêta (canal Firebase « beta ») : le redirect OAuth doit revenir
+    // sur la même origine que l'app, sinon Safari/Chrome (partitionnement du
+    // stockage tiers) perdent le résultat et on retombe sur l'écran de login
+    // sans erreur. Firebase Hosting sert /__/auth/handler sur chaque canal.
+    const config = location.hostname.includes('--beta')
+      ? { ...firebaseConfig, authDomain: location.hostname }
+      : firebaseConfig;
+    const app = appMod.initializeApp(config);
     _auth = authMod.getAuth(app);
     // Non-blocking — sync falls back to embedding compressed photos in
     // Firestore directly if Storage never becomes ready.
@@ -109,6 +116,7 @@ export async function initAuth(onReady) {
       if (code === 'auth/unauthorized-domain') {
         msg = 'Domaine non autorisé — vérifiez Firebase → Authentication → Authorized domains.';
       }
+      msg += ` (${code || 'inconnu'})`;
       console.warn('[auth] redirect error:', code, msg);
       sessionStorage.setItem('_authRedirectError', msg);
     });
