@@ -6,7 +6,7 @@
    - Firebase   : network-only (handles its own offline via IndexedDB)
    ============================================================ */
 
-const SHELL_CACHE = 'cv-shell-213';
+const SHELL_CACHE = 'cv-shell-214';
 const TILE_CACHE  = 'cv-tiles-1';
 
 const SHELL_URLS = [
@@ -83,6 +83,13 @@ self.addEventListener('fetch', e => {
 
   // Firebase / Google APIs: network-only (Firebase manages its own IndexedDB offline cache)
   if (url.hostname.includes('firebase') || url.hostname.includes('googleapis') || url.hostname.includes('gstatic')) {
+    return;
+  }
+
+  // Firebase Hosting reserved URLs (/__/auth/handler, /__/firebase/init.json…):
+  // network-only. Sinon le retour OAuth (authDomain = même origine, cf. auth.js)
+  // reçoit index.html depuis le cache au lieu de la page de Firebase.
+  if (url.origin === self.location.origin && url.pathname.startsWith('/__/')) {
     return;
   }
 

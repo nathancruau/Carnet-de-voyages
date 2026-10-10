@@ -18,7 +18,7 @@ Quatre endroits à synchroniser, toujours le même numéro N :
 | `sw.js` | `const SHELL_CACHE = 'cv-shell-N'` |
 | `store.js` | `export const APP_VERSION = 'N'` |
 
-Version actuelle : **213**
+Version actuelle : **214**
 
 ---
 
@@ -34,7 +34,7 @@ Version actuelle : **213**
   (ajouter des champs OK ; renommer/supprimer/changer le type d'un champ existant = interdit tant que ce n'est pas en prod).
 - Origine différente → localStorage et service worker séparés (pas de conflit de cache).
 - Badge violet « BÊTA » + titre préfixé « β » quand `location.hostname` contient `--beta` (`app.js`). Même code partout, rien à retirer au merge.
-- **Connexion Google sur la bêta** : `auth.js` utilise `authDomain = location.hostname` sur le domaine bêta (redirect OAuth même origine, sinon Safari/Chrome perdent le résultat). Prérequis côté console : domaine bêta dans Firebase → Authentication → Domaines autorisés, et `https://<domaine bêta>/__/auth/handler` dans les URI de redirection du client OAuth Web (Google Cloud → API et services → Identifiants).
+- **Connexion Google sur la bêta** : `auth.js` utilise `authDomain = location.hostname` sur le domaine bêta (redirect OAuth même origine, sinon Safari/Chrome perdent le résultat). Prérequis côté console : domaine bêta dans Firebase → Authentication → Domaines autorisés, et `https://<domaine bêta>/__/auth/handler` dans les URI de redirection du client OAuth Web (Google Cloud → API et services → Identifiants). `sw.js` laisse passer les URLs `/__/*` sans les intercepter (sinon le retour OAuth reçoit index.html du cache).
 - Le canal expire 30 j après le dernier déploiement (relancer via « Run workflow » si besoin).
 - Workflow : développer sur `beta` (ou des branches mergées dans `beta`) → tester sur l'URL bêta → PR `beta` → `main`.
 
