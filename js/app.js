@@ -223,14 +223,22 @@ function _onAuthReady(user, cloudData) {
     // share.js itself is only needed once a session actually reaches this
     // point (a signed-in user), so it's loaded on demand rather than eagerly.
     const _sigBeforeShared = _tripsSignature(getState().trips);
-    import('./share.js').then(({ initSharedTrips, handlePendingInvite }) =>
-      initSharedTrips(cloudData).then(() => {
-        if (currentScreen === 'home' && _tripsSignature(getState().trips) !== _sigBeforeShared) {
+    // Le rôle observateur compte aussi : sur un appareil neuf (cache localStorage
+    // vide), le 1er rendu range les voyages observés dans "Mes voyages" ; il faut
+    // re-rendre une fois les docs partagés chargés, même si trips n'a pas changé.
+    import('./share.js').then(({ initSharedTrips, handlePendingInvite, isCurrentUserObserver }) => {
+      const _obsSig = () => getState().trips.filter(t => isCurrentUserObserver(t.id)).map(t => t.id).join(',');
+      const _obsBeforeShared = _obsSig();
+      return initSharedTrips(cloudData).then(() => {
+        if (currentScreen === 'home' && (
+          _tripsSignature(getState().trips) !== _sigBeforeShared ||
+          _obsSig() !== _obsBeforeShared
+        )) {
           renderHome();
         }
         return handlePendingInvite(user);
-      })
-    );
+      });
+    });
   } catch (err) {
     console.error('[app] render failed after login:', err);
     // The login form may not exist yet (spinner is still showing).
