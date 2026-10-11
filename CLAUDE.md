@@ -18,7 +18,7 @@ Quatre endroits à synchroniser, toujours le même numéro N :
 | `sw.js` | `const SHELL_CACHE = 'cv-shell-N'` |
 | `store.js` | `export const APP_VERSION = 'N'` |
 
-Version actuelle : **216**
+Version actuelle : **217**
 
 ---
 
@@ -55,7 +55,7 @@ js/
   store.js              État local (localStorage 'carnet_voyages_v1'), helpers
   utils.js              notify(), showModal(), closeModal(), date helpers, date picker
   home.js               Écran d'accueil (globe + feuille profil, liste voyages)
-  homeglobe.js          Globe plein écran de l'accueil (canvas, PINs des voyages réalisés)
+  homemap.js            Carte de l'accueil (MapLibre GL : globe/plate, fonds Standard/Relief/Satellite, PINs regroupés)
   mymap.js              Écran Ma Carte (carte globale + destinations)
   gpx.js                Parse/génère GPX, stockage local GPX
   calckeypad.js          Clavier calculatrice pour les champs montant (Tricount)
@@ -77,11 +77,13 @@ js/
 
 ## Accueil v2 (refonte, en cours sur la bêta)
 
-- `renderHome()` (home.js) → `_renderHomeV2()` : `.hv2` en `position:fixed;inset:0` (pas de body-scroll sur l'accueil), globe `homeglobe.js` en fond, feuille profil `.hv2-sheet` glissable à 3 crans (`_hv2Snap` : `peek` / `mid` / `full`, conservé entre re-renders), barre d'onglets flottante `.hv2-nav` (Mes voyages / Observations / En direct + recherche).
-- La liste ne défile (`.hv2-scroll`) qu'en cran `full` ; en `peek`/`mid` tout glissé déplace la feuille. Le bouton ☰ (visible en `peek`) ouvre Mes destinations directement sur la liste : `goMyMap({ tab: 'destinations' })`.
-- Desktop > 900px : la feuille devient un panneau fixe à gauche (440px), le globe occupe le reste.
-- Globe : `collectGlobePins()` applique les mêmes règles que `_buildAllPins` (mymap.js) — voyages `done` uniquement. Tap sur un PIN = popup (déclenchée au `click`, pas au `pointerup`, sinon la popup reçoit le click et ouvre le voyage).
-- Styles : tout est préfixé `.hv2-*` en fin de style.css, avec ses propres tokens (`--hv-*`, redéfinis en dark).
+- `renderHome()` (home.js) → `_renderHomeV2()` : `.hv2` en `position:fixed;inset:0` (pas de body-scroll sur l'accueil), carte `homemap.js` en fond, feuille profil `.hv2-sheet` glissable à 3 crans (`_hv2Snap` : `peek` = seule la poignée dépasse au-dessus de la barre d'onglets / `mid` / `full` = plein écran, la carte disparaît, avec en-tête ⌄ + ⚙️), barre d'onglets flottante `.hv2-nav` (Mes voyages / Observations / En direct + recherche).
+- La liste ne défile (`.hv2-scroll`) qu'en cran `full` ; en `peek`/`mid` tout glissé déplace la feuille. La position de la feuille est répercutée sur la carte via `setHomeMapPadding()` (le globe se recentre dans la zone visible).
+- Bouton ☰ (visible en `peek`) → panneau `_hv2OpenDestinations()` : filtres type de voyage / type de lieu / un seul voyage (« Isoler ») + liste des lieux par voyage (tap → la carte vole vers le PIN). Les filtres (`_currentFilter`, `_hv2PinType`, `_hv2TripId`) s'appliquent à la carte ; `_currentFilter` filtre aussi la liste. Lien vers l'ancienne « Carte détaillée » (mymap.js : itinéraires, export KML).
+- **homemap.js** : MapLibre GL 5 vendorisé (`vendor/maplibre-gl.js`, chargé à la demande, mis en cache par le SW au 1er accès). La carte est créée une seule fois, son conteneur `.hm-host` est re-déplacé dans chaque rendu (pas de nouveau contexte WebGL à chaque `renderHome()`). Un `ResizeObserver` recadre quand l'écran devient visible (le 1er rendu se fait écran masqué, taille 0). Fonds raster : Standard = CARTO Voyager, Relief = Esri World Physical (≤ z7.5) puis World Topo, Satellite = Esri World Imagery + libellés. PINs : source GeoJSON `cluster:true` rendue en marqueurs HTML (`_syncMarkers` sur `render`) — épingles `.hm-pin`, groupes `.hm-cluster` (tap = zoom, ou liste si les points sont superposés). `collectMapPins()` = mêmes règles que `_buildAllPins` (mymap.js), voyages `done` uniquement.
+- Réglages : `settings.homeMap = { projection: 'globe'|'flat', base: 'standard'|'relief'|'satellite' }` (Paramètres → Carte de l'accueil).
+- Modales v2 : `showModal(html, { boxClass: 'hv2-modal', fullscreenMobile: true })` — Paramètres, Destinations, Ajouter, Plus. Interrupteurs `.hv2-switch`, contrôles segmentés `.hv2-seg` (radios natives stylées : la logique d'enregistrement des paramètres est inchangée).
+- Styles : préfixés `.hv2-*` / `.hm-*` en fin de style.css, tokens `--hv-*` (redéfinis en dark). `env(safe-area-inset-*)` plafonné via `--hv-safe-t/b` (cf. v202). Fond html/body de l'écran accueil = couleur de la feuille (une éventuelle bande iOS sous les éléments fixes se fond dedans).
 - Mode grands-parents et page Statistiques gardent l'ancien rendu pour l'instant.
 
 ---

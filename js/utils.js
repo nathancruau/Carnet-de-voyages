@@ -78,7 +78,7 @@ let _bodyLocked  = false;
  *   the generic sheet. Reset on every call so it never leaks into the next,
  *   unrelated modal that reuses the same .mbox element.
  */
-export function showModal(htmlContent, { onClose, fullscreenMobile = false } = {}) {
+export function showModal(htmlContent, { onClose, fullscreenMobile = false, boxClass = '' } = {}) {
   _modalCloseCallback    = onClose || null;
   window._closeModalOnBg = true;
 
@@ -92,7 +92,8 @@ export function showModal(htmlContent, { onClose, fullscreenMobile = false } = {
     box.className = 'mbox';
     ov.appendChild(box);
   }
-  box.classList.toggle('mbox-fullscreen-mobile', fullscreenMobile);
+  // className réinitialisé à chaque ouverture : un boxClass d'une modale précédente ne déborde pas
+  box.className = 'mbox' + (fullscreenMobile ? ' mbox-fullscreen-mobile' : '') + (boxClass ? ' ' + boxClass : '');
   box.innerHTML = htmlContent;
   ov.classList.add('open');
 

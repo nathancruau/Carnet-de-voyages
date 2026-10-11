@@ -22,7 +22,7 @@ import {
 // so none of them should be in the boot bundle.
 import { getCurrentUser, logout, syncToFirestore, isFirebaseConfigured, cleanupDuplicatePhotos } from './auth.js';
 import { requestNotificationPermission, notificationPermissionGranted } from './notifications.js';
-import { collectGlobePins, mountHomeGlobe } from './homeglobe.js';
+import { collectMapPins, attachHomeMap, setHomeMapPins, setHomeMapPadding, flyToPin } from './homemap.js';
 import { openShareModal, leaveSharedTrip, deleteOwnerSharedTrip, removeSharedTripMember, isCurrentUserObserver, getSharedDocData, addObserverReaction, deleteObserverReaction, addObserverComment, deleteObserverComment, handlePendingInvite } from './share.js';
 
 // ── Module state ───────────────────────────────────────────────────────────────
@@ -1531,14 +1531,16 @@ function _openLiveCommentsModal(tripId, itemId, itemText) {
 
 // ── Accueil v2 (refonte bêta) : globe plein écran + feuille profil ──────────────
 //
-// Mise en page : globe (homeglobe.js) en fond, feuille « profil » glissable par-
+// Mise en page : carte globe/plate (homemap.js) en fond, feuille « profil » glissable par-
 // dessus (3 crans : peek / mid / full), barre d'onglets flottante en bas
 // (Mes voyages / Mes observations / En direct). Sur desktop large, la feuille est
 // un panneau fixe à gauche et le globe occupe le reste.
 
 let _hv2Snap       = 'mid';    // 'peek' | 'mid' | 'full' — conservé entre les re-renders
 let _hv2SearchOpen = false;
-let _hv2Globe      = null;     // instance mountHomeGlobe courante
+let _hv2PinType    = 'all';    // filtre carte : type de PIN (visite, nuit…)
+let _hv2TripId     = 'all';    // filtre carte : un seul voyage
+let _hv2Pins       = [];       // PINs (filtrés) actuellement sur la carte
 let _hv2Translate  = null;     // translateY courant de la feuille (px)
 
 const _HV2_WIDE = () => window.innerWidth > 900;
@@ -1748,17 +1750,15 @@ function _hv2LiveHtml(observingTrips) {
 // ── Feuille glissable ──────────────────────────────────────────────────────────
 
 function _hv2Metrics() {
-  const H     = window.innerHeight;
-  const sheet = document.getElementById('hv2-sheet');
-  const top   = document.getElementById('hv2-top');
-  const sheetH = sheet?.offsetHeight || H;
-  const topH   = top ? top.getBoundingClientRect().bottom : 70;
+  const H      = window.innerHeight;
+  const sheetH = document.getElementById('hv2-sheet')?.offsetHeight || H;
+  const navTop = document.querySelector('.hv2-nav')?.getBoundingClientRect().top || H - 80;
   return {
-    H, sheetH, topH,
+    H, sheetH,
     snaps: {
-      full: 0,
+      full: 0,                                                  // la carte disparaît
       mid:  Math.max(0, sheetH - Math.round(H * 0.5)),
-      peek: Math.max(0, sheetH - 210),
+      peek: Math.max(0, sheetH - Math.round(H - navTop + 30)),  // seule la poignée dépasse de la barre d'onglets
     },
   };
 }
@@ -1781,25 +1781,22 @@ function _hv2SetSnap(snap, animate = true) {
   _hv2ApplySheet(_hv2Metrics().snaps[snap], animate);
 }
 
-function _hv2UpdateGlobeArea(animate) {
-  if (!_hv2Globe) return;
+function _hv2MapPadding() {
   const W = window.innerWidth, H = window.innerHeight;
   const topH = document.getElementById('hv2-top')?.getBoundingClientRect().bottom || 70;
   if (_HV2_WIDE()) {
-    const panelW = document.getElementById('hv2-sheet')?.offsetWidth || 440;
-    _hv2Globe.setArea({ x: panelW, y: 0, w: W - panelW, h: H });
-    return;
+    const panelW = document.getElementById('hv2-sheet')?.offsetWidth || 400;
+    return { top: topH, bottom: 20, left: panelW, right: 0 };
   }
-  const set = () => {
-    const sheet = document.getElementById('hv2-sheet');
-    const sheetTop = sheet ? sheet.getBoundingClientRect().top : H * 0.5;
-    const y = topH - 10;
-    _hv2Globe?.setArea({ x: 0, y, w: W, h: Math.max(80, sheetTop - y + 20) });
-  };
-  if (!animate) { set(); return; }
+  const sheetTop = document.getElementById('hv2-sheet')?.getBoundingClientRect().top ?? H * 0.5;
+  return { top: topH, bottom: Math.max(0, Math.min(H - topH - 80, H - sheetTop)), left: 0, right: 0 };
+}
+
+function _hv2UpdateGlobeArea(animate) {
+  if (!animate) { setHomeMapPadding(_hv2MapPadding()); return; }
   // Suit l'animation CSS de la feuille pendant sa durée
   const t0 = performance.now();
-  const step = () => { set(); if (performance.now() - t0 < 360) requestAnimationFrame(step); };
+  const step = () => { setHomeMapPadding(_hv2MapPadding()); if (performance.now() - t0 < 360) requestAnimationFrame(step); };
   requestAnimationFrame(step);
 }
 
@@ -1823,7 +1820,7 @@ function _hv2BindSheet() {
     vel = (y - lastY) / Math.max(1, now - lastT);
     lastY = y; lastT = now;
     const { snaps } = _hv2Metrics();
-    _hv2ApplySheet(Math.max(0, Math.min(snaps.peek + 40, startT + dy)), false);
+    _hv2ApplySheet(Math.max(0, Math.min(snaps.peek + 20, startT + dy)), false);
   };
   const end = () => {
     if (mode !== 'sheet') { mode = null; return; }
@@ -1861,7 +1858,7 @@ function _hv2BindSheet() {
     window.addEventListener('pointermove', mm);
     window.addEventListener('pointerup', mu);
   });
-  // Tap sur la poignée : cycle peek → mid → full
+  // Tap sur la poignée : peek → mid → full → mid
   grab?.addEventListener('click', () => {
     if (_HV2_WIDE()) return;
     _hv2SetSnap(_hv2Snap === 'peek' ? 'mid' : _hv2Snap === 'mid' ? 'full' : 'mid');
@@ -1890,14 +1887,14 @@ function _hv2ShowPinPop(pins) {
 
 function _hv2OpenAddMenu() {
   showModal(`
-    <button class="mc" onclick="closeModal()">✕</button>
-    <h3>Ajouter</h3>
+    <div class="hv2-modal-head"><h3>Ajouter</h3>
+      <button class="hv2-round hv2-round-light" onclick="closeModal()" title="Fermer">✕</button></div>
     <div class="hv2-add-grid">
       <button data-type="voyage"><span>✈️</span><b>Voyage</b><small>Plusieurs jours, itinéraire</small></button>
       <button data-type="weekend"><span>🌿</span><b>Week-end</b><small>Court séjour</small></button>
       <button data-type="sortie"><span>📍</span><b>Sortie</b><small>Un lieu, une journée</small></button>
       <button data-join="1"><span>🔭</span><b>Rejoindre</b><small>Lien ou QR code</small></button>
-    </div>`);
+    </div>`, { boxClass: 'hv2-modal' });
   document.querySelector('.hv2-add-grid')?.addEventListener('click', e => {
     const b = e.target.closest('button');
     if (!b) return;
@@ -1909,17 +1906,17 @@ function _hv2OpenAddMenu() {
 function _hv2OpenMoreMenu() {
   const isStandalone = window.matchMedia('(display-mode:standalone)').matches || !!navigator.standalone;
   showModal(`
-    <button class="mc" onclick="closeModal()">✕</button>
-    <h3>Mon carnet</h3>
-    <div class="hv2-more-list">
-      <button data-do="search">🔍 Rechercher</button>
-      <button data-do="mymap">🗺 Mes destinations</button>
-      <button data-do="import">⬆ Importer</button>
-      <button data-do="export">⬇ Exporter</button>
-      ${isStandalone ? '' : '<button data-do="install">📲 Installer l\'application</button>'}
-      ${getCurrentUser() ? '<button data-do="logout" class="hv2-more-danger">Déconnexion</button>' : ''}
+    <div class="hv2-modal-head"><h3>Mon carnet</h3>
+      <button class="hv2-round hv2-round-light" onclick="closeModal()" title="Fermer">✕</button></div>
+    <div class="hv2-card-group hv2-more-list">
+      <button class="hv2-row hv2-row-btn" data-do="search"><span>🔍 Rechercher</span><i>›</i></button>
+      <button class="hv2-row hv2-row-btn" data-do="mymap"><span>🗺 Carte détaillée</span><i>›</i></button>
+      <button class="hv2-row hv2-row-btn" data-do="import"><span>⬆ Importer</span><i>›</i></button>
+      <button class="hv2-row hv2-row-btn" data-do="export"><span>⬇ Exporter</span><i>›</i></button>
+      ${isStandalone ? '' : '<button class="hv2-row hv2-row-btn" data-do="install"><span>📲 Installer l\'application</span><i>›</i></button>'}
+      ${getCurrentUser() ? '<button class="hv2-row hv2-row-btn hv2-row-danger" data-do="logout"><span>Déconnexion</span><i>›</i></button>' : ''}
     </div>
-    <div style="text-align:center;font-size:11px;color:var(--ink4);margin-top:10px">Carnet de Voyages v${APP_VERSION}</div>`);
+    <div class="hv2-version">Carnet de Voyages v${APP_VERSION}</div>`, { boxClass: 'hv2-modal' });
   document.querySelector('.hv2-more-list')?.addEventListener('click', e => {
     const b = e.target.closest('button[data-do]');
     if (!b) return;
@@ -1952,63 +1949,162 @@ function _hv2OpenSearch() {
 
 // ── Rendu ──────────────────────────────────────────────────────────────────────
 
+const _HV2_ICONS = {
+  menu:   '<svg viewBox="0 0 24 24" width="19" height="19"><path d="M4 7h16M4 12h16M4 17h16" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>',
+  gear:   '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.9"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1.1-1.55 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.55-1H3a2 2 0 1 1 0-4h.09A1.7 1.7 0 0 0 4.6 8.9a1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.6h.01A1.7 1.7 0 0 0 10 3.05V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.55 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 9v.01a1.7 1.7 0 0 0 1.55 1H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.55 1z"/></svg>',
+  down:   '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>',
+  search: '<svg viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.6-3.6"/></svg>',
+  mine:   '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><rect x="4" y="7" width="16" height="13" rx="2.5"/><path d="M9 7V5.5A1.5 1.5 0 0 1 10.5 4h3A1.5 1.5 0 0 1 15 5.5V7M4 12h16"/></svg>',
+  obs:    '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 19a5.5 5.5 0 0 1 11 0"/><circle cx="17" cy="9" r="2.4"/><path d="M15.5 14.2A4.5 4.5 0 0 1 21 18.5"/></svg>',
+  live:   '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="2.2"/><path d="M7.8 7.8a6 6 0 0 0 0 8.4M16.2 7.8a6 6 0 0 1 0 8.4M5 5a10 10 0 0 0 0 14M19 5a10 10 0 0 1 0 14"/></svg>',
+};
+
+/** PINs à afficher sur la carte selon les filtres (type de voyage, type de PIN, voyage). */
+function _hv2FilteredPins(myTrips) {
+  const pins = collectMapPins(myTrips, getEventTypes());
+  return pins.filter(p =>
+    (_currentFilter === 'all' || p.tripType === _currentFilter) &&
+    (_hv2PinType === 'all' || p.pinType === _hv2PinType) &&
+    (_hv2TripId === 'all' || p.tripId === _hv2TripId));
+}
+
+function _hv2MapSettings() {
+  const hm = getSettings().homeMap || {};
+  return { projection: hm.projection === 'flat' ? 'flat' : 'globe',
+           base: ['standard', 'relief', 'satellite'].includes(hm.base) ? hm.base : 'relief' };
+}
+
 function _renderHomeV2(wrap, { myTrips, observingTrips, filter }) {
   const prevScroll = document.getElementById('hv2-scroll')?.scrollTop || 0;
   const unreadLive = _lvUnreadCount(observingTrips);
   const content = _homeLibTab === 'live' ? _hv2LiveHtml(observingTrips)
     : _homeLibTab === 'observing' ? _hv2ObservingHtml(observingTrips)
     : _hv2MineHtml(myTrips, filter);
-  const tab = (key, label) =>
-    `<button class="hv2-tab${_homeLibTab === key ? ' active' : ''}" data-action="lib-tab" data-tab="${key}">${label}</button>`;
+  const tab = (key, icon, label, badge = '') =>
+    `<button class="hv2-tab${_homeLibTab === key ? ' active' : ''}" data-action="lib-tab" data-tab="${key}">${icon}<b>${label}</b>${badge}</button>`;
+  const filtersOn = _currentFilter !== 'all' || _hv2PinType !== 'all' || _hv2TripId !== 'all';
 
   wrap.innerHTML = `
     <div class="hv2" id="hv2" data-snap="${_hv2Snap}">
-      <canvas class="hv2-globe" id="hv2-globe"></canvas>
+      <div class="hv2-map-slot" id="hv2-map-slot"></div>
       <div class="hv2-top" id="hv2-top">
-        <button class="hv2-round hv2-menu" data-action="hv2-destinations" title="Mes destinations">
-          <svg viewBox="0 0 24 24" width="20" height="20"><path d="M4 7h16M4 12h16M4 17h16" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
-        </button>
+        <button class="hv2-round hv2-menu${filtersOn ? ' hv2-has-filter' : ''}" data-action="hv2-destinations" title="Destinations & filtres">${_HV2_ICONS.menu}</button>
         <div class="hv2-brand"><span class="hv2-logo">✈</span>carnet</div>
-        <button class="hv2-round" data-action="open-settings" title="Paramètres">
-          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.9"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1.1-1.55 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.55-1H3a2 2 0 1 1 0-4h.09A1.7 1.7 0 0 0 4.6 8.9a1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.6h.01A1.7 1.7 0 0 0 10 3.05V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.55 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 9v.01a1.7 1.7 0 0 0 1.55 1H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.55 1z"/></svg>
-        </button>
+        <button class="hv2-round" data-action="open-settings" title="Paramètres">${_HV2_ICONS.gear}</button>
       </div>
       <div class="hv2-pin-pop" id="hv2-pin-pop" hidden></div>
       <section class="hv2-sheet" id="hv2-sheet">
+        <div class="hv2-sheet-head">
+          <button class="hv2-round hv2-round-light" data-action="hv2-collapse" title="Réduire">${_HV2_ICONS.down}</button>
+          <button class="hv2-round hv2-round-light" data-action="open-settings" title="Paramètres">${_HV2_ICONS.gear}</button>
+        </div>
         <div class="hv2-grab"><span></span></div>
         <div class="hv2-scroll" id="hv2-scroll">${content}</div>
       </section>
       <nav class="hv2-nav">
         <div class="hv2-tabs">
-          ${tab('mine', '<span>🧳</span>Mes voyages')}
-          ${tab('observing', '<span>🔭</span>Observations')}
-          ${tab('live', `<span>📡</span>En direct${unreadLive > 0 ? `<em>${unreadLive}</em>` : ''}`)}
+          ${tab('mine', _HV2_ICONS.mine, 'Mes voyages')}
+          ${tab('observing', _HV2_ICONS.obs, 'Observations')}
+          ${tab('live', _HV2_ICONS.live, 'En direct', unreadLive > 0 ? `<em>${unreadLive}</em>` : '')}
         </div>
-        <button class="hv2-search-btn" data-action="hv2-search" title="Rechercher">
-          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.6-3.6"/></svg>
-        </button>
+        <button class="hv2-search-btn" data-action="hv2-search" title="Rechercher">${_HV2_ICONS.search}</button>
       </nav>
     </div>`;
 
-  // Globe
-  _hv2Globe?.destroy();
-  const canvas = document.getElementById('hv2-globe');
-  const visited = _hv2VisitedCodes(myTrips);
-  _hv2Globe = mountHomeGlobe(canvas, {
-    pins: collectGlobePins(myTrips),
-    visited,
-    featureCode: f => _ISO_N_A2[Number(f.id)] || '',
-    onPinTap: _hv2ShowPinPop,
-  });
-
   _hv2BindSheet();
-  // Position initiale sans animation, puis restauration du scroll de la liste
-  requestAnimationFrame(() => {
-    _hv2SetSnap(_hv2Snap, false);
-    const sc = document.getElementById('hv2-scroll');
-    if (sc && _hv2Snap === 'full') sc.scrollTop = prevScroll;
+  _hv2Pins = _hv2FilteredPins(myTrips);
+  // Position de la feuille d'abord (le padding de la carte en dépend), puis la carte
+  _hv2SetSnap(_hv2Snap, false);
+  const sc = document.getElementById('hv2-scroll');
+  if (sc && _hv2Snap === 'full') sc.scrollTop = prevScroll;
+  attachHomeMap(document.getElementById('hv2-map-slot'), {
+    pins: _hv2Pins,
+    ..._hv2MapSettings(),
+    padding: _hv2MapPadding(),
+    onPinsTap: _hv2ShowPinPop,
+    onResize: () => { if (document.getElementById('hv2')) _hv2SetSnap(_hv2Snap, false); },
+    onError: () => notify('Carte indisponible (hors-ligne ?)', '🗺'),
   });
   _initHomeCarousels(wrap);
+}
+
+// ── Panneau « Destinations & filtres » (bouton ☰) ──────────────────────────────
+
+function _hv2OpenDestinations() {
+  const myTrips = getTrips().filter(t => !isCurrentUserObserver(t.id));
+  const allPins = collectMapPins(myTrips, getEventTypes());
+  const usedPinTypes = new Set(allPins.map(p => p.pinType).filter(Boolean));
+  const chip = (group, key, label, active) =>
+    `<button class="hv2-chip${active ? ' active' : ''}" data-f="${group}" data-v="${_esc(key)}">${label}</button>`;
+
+  const render = () => {
+    const pins = _hv2FilteredPins(myTrips);
+    const byTrip = new Map();
+    for (const p of pins) {
+      if (!byTrip.has(p.tripId)) byTrip.set(p.tripId, []);
+      byTrip.get(p.tripId).push(p);
+    }
+    const trips = myTrips.filter(t => byTrip.has(t.id))
+      .sort((a, b) => (b.endDate || b.startDate || '').localeCompare(a.endDate || a.startDate || ''));
+    const typeChips = [['all', 'Tous'], ['voyage', '✈️ Voyages'], ['weekend', '🌿 Week-ends'], ['sortie', '📍 Sorties']]
+      .map(([k, l]) => chip('type', k, l, _currentFilter === k)).join('');
+    const pinChips = [chip('pin', 'all', 'Tous', _hv2PinType === 'all')]
+      .concat(getEventTypes().filter(et => usedPinTypes.has(et.key)).map(et => chip('pin', et.key, `${et.emoji} ${_esc(et.label)}`, _hv2PinType === et.key)))
+      .join('');
+    const list = trips.map(t => {
+      const tp = byTrip.get(t.id);
+      const focused = _hv2TripId === t.id;
+      return `
+        <details class="hv2-dest"${focused ? ' open' : ''}>
+          <summary>
+            <span class="hv2-dest-dot" style="background:${_esc(t.color || '#0d9488')}"></span>
+            <span class="hv2-dest-name">${_esc(t.name || 'Voyage')}</span>
+            <span class="hv2-dest-count">${tp.length}</span>
+            <button class="hv2-dest-focus${focused ? ' active' : ''}" data-focus="${t.id}" title="${focused ? 'Afficher tous les voyages' : 'N\'afficher que ce voyage'}">${focused ? '✓ Seul' : 'Isoler'}</button>
+          </summary>
+          ${tp.map((p, i) => `
+            <button class="hv2-dest-row" data-trip="${t.id}" data-i="${i}">
+              <span>${p.emoji}</span><b>${_esc(p.title)}</b>${p.date ? `<small>${fmtDateShort(p.date)}</small>` : ''}
+            </button>`).join('')}
+        </details>`;
+    }).join('');
+    const box = document.querySelector('.hv2-dest-panel');
+    if (!box) return;
+    box.innerHTML = `
+      <div class="hv2-modal-head">
+        <h3>Destinations</h3>
+        <button class="hv2-round hv2-round-light" onclick="closeModal()" title="Fermer">✕</button>
+      </div>
+      <div class="hv2-fsec">Type de voyage</div>
+      <div class="hv2-chips hv2-chips-wrap">${typeChips}</div>
+      ${usedPinTypes.size > 1 ? `<div class="hv2-fsec">Type de lieu</div><div class="hv2-chips hv2-chips-wrap">${pinChips}</div>` : ''}
+      <div class="hv2-fsec">${pins.length} lieu${pins.length > 1 ? 'x' : ''} · ${trips.length} voyage${trips.length > 1 ? 's' : ''}
+        ${(_currentFilter !== 'all' || _hv2PinType !== 'all' || _hv2TripId !== 'all') ? '<button class="hv2-link" data-reset="1">Réinitialiser</button>' : ''}</div>
+      <div class="hv2-dest-list">${list || '<div class="hv2-empty"><div>🗺</div>Aucun lieu avec ces filtres</div>'}</div>
+      <button class="hv2-btn hv2-btn-line hv2-btn-block" data-full="1">🗺 Carte détaillée (itinéraires, export KML…)</button>`;
+    box._byTrip = byTrip;
+  };
+
+  showModal('<div class="hv2-dest-panel"></div>', { fullscreenMobile: true, boxClass: 'hv2-modal' });
+  render();
+  const box = document.querySelector('.hv2-dest-panel');
+  box.addEventListener('click', e => {
+    const b = e.target.closest('button');
+    if (!b) return;
+    if (b.dataset.f === 'type') { _currentFilter = b.dataset.v; }
+    else if (b.dataset.f === 'pin') { _hv2PinType = b.dataset.v; }
+    else if (b.dataset.focus) { e.preventDefault(); _hv2TripId = _hv2TripId === b.dataset.focus ? 'all' : b.dataset.focus; }
+    else if (b.dataset.reset) { _currentFilter = 'all'; _hv2PinType = 'all'; _hv2TripId = 'all'; }
+    else if (b.dataset.full) { closeModal(); window.goMyMap({ tab: 'destinations' }); return; }
+    else if (b.dataset.trip) {
+      const pin = box._byTrip?.get(b.dataset.trip)?.[+b.dataset.i];
+      closeModal();
+      if (pin) { _hv2SetSnap('peek'); setTimeout(() => { flyToPin(pin); _hv2ShowPinPop([pin]); }, 200); }
+      return;
+    } else return;
+    render();
+    renderHome(_currentFilter); // met à jour la liste + la carte derrière le panneau
+  });
 }
 
 window.addEventListener('resize', () => {
@@ -2037,7 +2133,6 @@ export function renderHome(filter = _currentFilter) {
 
   // ── Grands-parents mode: ultra-simplified view ───────────────────────────────
   if (settings.grandParentsMode) {
-    _hv2Globe?.destroy(); _hv2Globe = null;
     wrap.innerHTML = `
       <div class="hero gp-hero">
         <div style="display:flex;align-items:center;justify-content:space-between;width:100%">
@@ -2161,137 +2256,87 @@ function _openSettingsModal() {
 
   // ── Event type rows ────────────────────────────────────────────────────────
 
-  const _etInputStyle = 'height:34px;box-sizing:border-box;border:1.5px solid var(--c3);border-radius:7px;background:var(--c)';
   function _etRowHtml(et, i) {
     return `
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px" data-et-row="${i}">
+      <div class="hv2-et-row" data-et-row="${i}">
         <input type="hidden" data-et-key="${i}"   value="${_esc(et.key)}">
         <input type="hidden" data-et-color="${i}" value="${_esc(et.color || '#0d9488')}">
-        <input type="text" data-et-emoji="${i}" value="${_esc(et.emoji)}"
-          style="width:48px;text-align:center;font-size:18px;padding:0 4px;${_etInputStyle}">
-        <input type="text" data-et-label="${i}" value="${_esc(et.label)}" placeholder="Nom du type"
-          style="flex:1;padding:0 8px;font-size:12px;${_etInputStyle}">
+        <input type="text" class="hv2-et-emoji" data-et-emoji="${i}" value="${_esc(et.emoji)}">
+        <input type="text" class="hv2-et-label" data-et-label="${i}" value="${_esc(et.label)}" placeholder="Nom du type">
       </div>`;
   }
 
+  // Contrôle segmenté : des radios natives stylées (le listener 'change' délégué
+  // plus bas lit toujours `input[name=…]:checked`, rien à changer côté logique).
+  const seg = (name, cur, opts) => `<div class="hv2-seg">${opts.map(([v, l]) => `
+      <label><input type="radio" name="${name}" value="${v}" ${cur === v ? 'checked' : ''}><span>${l}</span></label>`).join('')}</div>`;
+  const sw = (id, label, checked, sub = '') => `
+      <label class="hv2-row hv2-switch-row"><span>${label}${sub ? `<small>${sub}</small>` : ''}</span>
+        <input type="checkbox" class="hv2-switch" id="${id}" ${checked ? 'checked' : ''}></label>`;
+  const btnRow = (id, label, extra = '') =>
+    `<button type="button" class="hv2-row hv2-row-btn ${extra}" ${id.startsWith('data-') ? id : `id="${id}"`}><span>${label}</span><i>›</i></button>`;
+
   function buildHtml(curEventTypes, curLang, curTheme, curNotif) {
+    const hm = _hv2MapSettings();
+    const user = getCurrentUser();
     return `
-      <button class="mc" onclick="closeModal()">✕</button>
-      <h3 style="font-family:'Lora',serif;font-size:17px;font-weight:700;margin-bottom:4px">⚙️ Paramètres</h3>
-
-      <div class="fg" style="margin-top:14px">
-        <label style="font-size:12px;font-weight:700;color:var(--ink2)">Langue / Language</label>
-        <div style="display:flex;gap:16px;margin-top:6px">
-          <label style="display:flex;align-items:center;gap:7px;cursor:pointer;font-size:13px">
-            <input type="radio" name="lang-sel" value="fr" ${curLang === 'fr' ? 'checked' : ''}>
-            🇫🇷 Français
-          </label>
-          <label style="display:flex;align-items:center;gap:7px;cursor:pointer;font-size:13px">
-            <input type="radio" name="lang-sel" value="en" ${curLang === 'en' ? 'checked' : ''}>
-            🇬🇧 English
-          </label>
-        </div>
-        <div style="font-size:10px;color:var(--ink4);margin-top:5px">Affecte la carte, la recherche et les étiquettes.</div>
+      <div class="hv2-modal-head">
+        <h3>Paramètres</h3>
+        <button class="hv2-round hv2-round-light" onclick="closeModal()" title="Fermer">✕</button>
       </div>
 
-      <hr style="border:none;border-top:1px solid var(--c3);margin:16px 0">
+      ${user ? `<div class="hv2-card-group hv2-account">
+        <div class="hv2-avatar hv2-avatar-sm">${user.photoURL ? `<img src="${_esc(user.photoURL)}" alt="" referrerpolicy="no-referrer">` : `<span>${_esc(((user.displayName || user.email || '?')[0]).toUpperCase())}</span>`}</div>
+        <div><b>${_esc(user.displayName || '')}</b><small>${_esc(user.email || '')}</small></div>
+      </div>` : ''}
 
-      <div class="fg">
-        <label style="font-size:12px;font-weight:700;color:var(--ink2)">Apparence</label>
-        <div style="display:flex;gap:14px;margin-top:6px;flex-wrap:wrap">
-          <label style="display:flex;align-items:center;gap:7px;cursor:pointer;font-size:13px">
-            <input type="radio" name="theme-sel" value="light" ${curTheme === 'light' ? 'checked' : ''}>
-            ☀️ Clair
-          </label>
-          <label style="display:flex;align-items:center;gap:7px;cursor:pointer;font-size:13px">
-            <input type="radio" name="theme-sel" value="dark" ${curTheme === 'dark' ? 'checked' : ''}>
-            🌙 Sombre
-          </label>
-          <label style="display:flex;align-items:center;gap:7px;cursor:pointer;font-size:13px">
-            <input type="radio" name="theme-sel" value="auto" ${curTheme === 'auto' ? 'checked' : ''}>
-            ⚙️ Système
-          </label>
-        </div>
+      <div class="hv2-fsec">Carte de l'accueil</div>
+      <div class="hv2-card-group">
+        <div class="hv2-row hv2-row-col"><span>Projection</span>
+          ${seg('map-proj', hm.projection, [['globe', '🌍 Globe'], ['flat', '🗺 Plate']])}</div>
+        <div class="hv2-row hv2-row-col"><span>Fond de carte</span>
+          ${seg('map-base', hm.base, [['standard', 'Standard'], ['relief', '⛰ Relief'], ['satellite', '🛰 Satellite']])}</div>
       </div>
 
-      <hr style="border:none;border-top:1px solid var(--c3);margin:16px 0">
-
-      <div class="fg">
-        <label style="font-size:12px;font-weight:700;color:var(--ink2)">Types d'activités (planning &amp; carnet)</label>
-        <div style="font-size:11px;color:var(--ink4);margin-bottom:8px">Renommez ou changez l'emoji de chaque type.</div>
-        <div id="et-rows">${curEventTypes.map(_etRowHtml).join('')}</div>
+      <div class="hv2-fsec">Apparence</div>
+      <div class="hv2-card-group">
+        <div class="hv2-row hv2-row-col"><span>Thème</span>
+          ${seg('theme-sel', curTheme, [['light', '☀️ Clair'], ['dark', '🌙 Sombre'], ['auto', 'Système']])}</div>
+        <div class="hv2-row hv2-row-col"><span>Langue <small>Carte, recherche et étiquettes</small></span>
+          ${seg('lang-sel', curLang, [['fr', '🇫🇷 Français'], ['en', '🇬🇧 English']])}</div>
+        ${sw('gp-mode', 'Mode Grands-parents', settings.grandParentsMode, 'Affichage simplifié : titre, ⚙️ et fil En direct')}
       </div>
 
-      <hr style="border:none;border-top:1px solid var(--c3);margin:16px 0">
-
-      <div class="fg">
-        <label style="font-size:12px;font-weight:700;color:var(--ink2)">Données</label>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px">
-          <button type="button" data-action="export-all"
-            style="background:var(--c2);border:1.5px solid var(--c3);border-radius:7px;padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer;color:var(--ink3)">
-            ⬇ Exporter (CSV)
-          </button>
-          <button type="button" id="settings-clear-data"
-            style="background:#fee2e2;border:1.5px solid #fca5a5;border-radius:7px;padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer;color:var(--coral,#e85d3e)">
-            🗑 Effacer toutes les données
-          </button>
-          ${getCurrentUser() ? `
-          <button type="button" id="settings-cleanup-photos"
-            style="background:var(--c2);border:1.5px solid var(--c3);border-radius:7px;padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer;color:var(--ink3)">
-            🧹 Nettoyer les photos en double
-          </button>` : ''}
-          <button type="button" id="settings-backfill-countries"
-            style="background:var(--c2);border:1.5px solid var(--c3);border-radius:7px;padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer;color:var(--ink3)">
-            🌍 Détecter les pays des PINs existants
-          </button>
+      <div class="hv2-fsec">Notifications</div>
+      <div class="hv2-card-group">
+        ${sw('notif-enabled', 'Activer les notifications', curNotif.enabled, 'Requiert l\'autorisation du navigateur')}
+        <div id="notif-sub" style="transition:opacity .15s;${curNotif.enabled ? '' : 'opacity:0.45;pointer-events:none'}">
+          ${sw('notif-departure', 'Rappel de départ (veille et jour J)', curNotif.departure !== false)}
+          ${sw('notif-collaborative', 'Modifications des voyages partagés', curNotif.collaborative !== false)}
+          ${sw('notif-observer-publish', 'Publications des voyages observés', curNotif.observerPublish !== false)}
         </div>
       </div>
 
-      <hr style="border:none;border-top:1px solid var(--c3);margin:16px 0">
-
-      <div class="fg">
-        <label style="font-size:12px;font-weight:700;color:var(--ink2)">Notifications</label>
-        <div style="margin-top:8px">
-          <label class="s-toggle-row">
-            <span>Activer les notifications</span>
-            <input type="checkbox" id="notif-enabled" ${curNotif.enabled ? 'checked' : ''}>
-          </label>
-          <div id="notif-sub" style="margin-left:4px;margin-top:2px;transition:opacity .15s;${curNotif.enabled ? '' : 'opacity:0.45;pointer-events:none'}">
-            <label class="s-toggle-row">
-              <span style="font-size:12px">Rappel départ (jour J et veille)</span>
-              <input type="checkbox" id="notif-departure" ${curNotif.departure !== false ? 'checked' : ''}>
-            </label>
-            <label class="s-toggle-row">
-              <span style="font-size:12px">Modifications des voyages partagés</span>
-              <input type="checkbox" id="notif-collaborative" ${curNotif.collaborative !== false ? 'checked' : ''}>
-            </label>
-            <label class="s-toggle-row">
-              <span style="font-size:12px">Publications des voyages observés 📡</span>
-              <input type="checkbox" id="notif-observer-publish" ${curNotif.observerPublish !== false ? 'checked' : ''}>
-            </label>
-          </div>
-        </div>
-        <div style="font-size:10px;color:var(--ink4);margin-top:5px">Requiert l'autorisation du navigateur. Désactivé par défaut.</div>
+      <div class="hv2-fsec">Types d'activités</div>
+      <div class="hv2-card-group">
+        <details class="hv2-details">
+          <summary class="hv2-row"><span>Renommer / changer les emojis</span><i>›</i></summary>
+          <div id="et-rows" class="hv2-et-list">${curEventTypes.map(_etRowHtml).join('')}</div>
+        </details>
       </div>
 
-      <hr style="border:none;border-top:1px solid var(--c3);margin:16px 0">
-
-      <div class="fg">
-        <label style="font-size:12px;font-weight:700;color:var(--ink2)">Mode Grands-parents 👴👵</label>
-        <label class="s-toggle-row">
-          <span>Affichage simplifié</span>
-          <input type="checkbox" id="gp-mode" ${settings.grandParentsMode ? 'checked' : ''}>
-        </label>
-        <div style="font-size:10px;color:var(--ink4);margin-top:4px">N'affiche que le titre, ⚙️ et le fil En direct des voyages observés.</div>
+      <div class="hv2-fsec">Données</div>
+      <div class="hv2-card-group">
+        ${btnRow('data-action="export-all"', '⬇ Exporter (CSV)')}
+        ${user ? btnRow('settings-cleanup-photos', '🧹 Nettoyer les photos en double') : ''}
+        ${btnRow('settings-backfill-countries', '🌍 Détecter les pays des PINs existants')}
+        ${btnRow('settings-clear-data', '🗑 Effacer toutes les données', 'hv2-row-danger')}
       </div>
 
-      <div class="ma">
-        <button class="bs" onclick="closeModal()">Fermer</button>
-      </div>
-      <div style="text-align:center;font-size:10px;color:var(--ink4);margin-top:10px">Carnet de Voyages v${APP_VERSION}</div>`;
+      <div class="hv2-version">Carnet de Voyages v${APP_VERSION}</div>`;
   }
 
-  showModal(buildHtml(eventTypes, getLanguage(), curTheme, curNotif));
+  showModal(buildHtml(eventTypes, getLanguage(), curTheme, curNotif), { fullscreenMobile: true, boxClass: 'hv2-modal' });
 
   // ── Collect helpers ──────────────────────────────────────────────────────────
 
@@ -2321,12 +2366,15 @@ function _openSettingsModal() {
     const notifCollab     = document.getElementById('notif-collaborative')?.checked            ?? true;
     const notifObsPub     = document.getElementById('notif-observer-publish')?.checked         ?? true;
     const grandParents    = document.getElementById('gp-mode')?.checked                       ?? false;
+    const mapProj         = document.querySelector('input[name="map-proj"]:checked')?.value   || 'globe';
+    const mapBase         = document.querySelector('input[name="map-base"]:checked')?.value   || 'relief';
 
     updateSettings({
       eventTypes: newEventTypes.length > 0 ? newEventTypes : DEFAULT_EVENT_TYPES,
       lang, theme,
       notifications: { enabled: notifEnabled, departure: notifDep, collaborative: notifCollab, observerPublish: notifObsPub },
       grandParentsMode: grandParents,
+      homeMap: { projection: mapProj, base: mapBase },
     });
 
     const root = document.documentElement;
@@ -2355,6 +2403,9 @@ function _openSettingsModal() {
       if (!granted) notify('Permission refusée par le navigateur', '⚠️');
     }
   });
+
+  // La modale est hors de #home-wrap : le listener délégué de l'accueil ne la voit pas
+  document.querySelector('.mbox [data-action="export-all"]')?.addEventListener('click', () => _openExportModal());
 
   // ── Clear data ────────────────────────────────────────────────────────────────
 
@@ -2544,7 +2595,6 @@ function _attachListeners(wrap) {
         break;
 
       case 'show-stats':
-        _hv2Globe?.destroy(); _hv2Globe = null;
         _renderStats();
         break;
 
@@ -2565,7 +2615,11 @@ function _attachListeners(wrap) {
         break;
 
       case 'hv2-destinations':
-        window.goMyMap({ tab: 'destinations' });
+        _hv2OpenDestinations();
+        break;
+
+      case 'hv2-collapse':
+        _hv2SetSnap('mid');
         break;
 
       case 'hv2-pop-close':

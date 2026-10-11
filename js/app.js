@@ -54,7 +54,9 @@ export function showScreen(id) {
   // (iOS safe area / Android nav bar) blends in rather than showing white
   const _screenBg = id === 'login' ? '#065f55' // bottom of login gradient
     : (id === 'app' || id === 'mymap') ? '#aad3df'
-    : id === 'home' ? '#060a16' // fond « espace » du globe de l'accueil
+    // Accueil : couleur de la feuille profil (en bas) — si iOS laisse une bande sous
+    // les éléments fixes (barre Safari, zone du home indicator), elle se fond dans la feuille
+    : id === 'home' ? (document.documentElement.dataset.theme === 'dark' ? '#14181d' : '#ffffff')
     : getComputedStyle(document.documentElement).getPropertyValue('--c').trim() || '#faf7f2';
   document.documentElement.style.setProperty('background', _screenBg, 'important');
   document.body.style.setProperty('background', _screenBg, 'important');
