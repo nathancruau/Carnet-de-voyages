@@ -35,7 +35,7 @@
        (openShareModal, isCurrentUserObserver, …), so every session fetches it
        anyway; preloading it here fetches it in parallel with home.js instead of
        only being discovered once home.js itself finishes parsing. -->
-  <link rel="modulepreload" href="js/app.js?v=221" />
+  <link rel="modulepreload" href="js/app.js?v=222" />
   <link rel="modulepreload" href="js/store.js" />
   <link rel="modulepreload" href="js/utils.js" />
   <link rel="modulepreload" href="js/auth.js" />
@@ -51,7 +51,7 @@
        in document order — style.css overrides several .leaflet-* rules and
        needs to win the cascade once both are applied. -->
   <link rel="stylesheet" href="vendor/leaflet.css" media="print" onload="this.media='all'" />
-  <link rel="stylesheet" href="style.css?v=221" />
+  <link rel="stylesheet" href="style.css?v=222" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,600;0,700;1,400;1,600;1,700&family=Nunito:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
@@ -63,17 +63,34 @@
     // onglet Safari, la barre d'outils explique légitimement la différence) et on
     // l'expose en --ios-gap pour que les éléments fixes descendent jusqu'en bas.
     (function(){
+      // Hauteur réelle de la zone « fixe » : un élément top:0/bottom:0 mesuré directement
+      // (window.innerHeight peut annoncer la hauteur complète alors que la zone utilisable
+      // est plus courte — constaté sur iPhone, v221 : écart mesuré 0 mais bande de ~59 pt).
+      function fixedH(){
+        var p = document.createElement('div');
+        p.style.cssText = 'position:fixed;top:0;bottom:0;left:0;width:1px;visibility:hidden;pointer-events:none';
+        document.documentElement.appendChild(p);
+        var h = p.getBoundingClientRect().height;
+        p.remove();
+        return h;
+      }
       function upd(){
         var sa = window.navigator.standalone || (window.matchMedia && matchMedia('(display-mode: standalone)').matches);
         var land = innerWidth > innerHeight;
         var sh = land ? Math.min(screen.width, screen.height) : Math.max(screen.width, screen.height);
-        var gap = sa ? Math.round(sh - innerHeight) : 0;
+        var fh = fixedH();
+        var gap = sa ? Math.round(sh - Math.min(innerHeight, fh || innerHeight)) : 0;
         if (gap < 0 || gap > 120) gap = 0;
         document.documentElement.style.setProperty('--ios-gap', gap + 'px');
+        window._iosGapDiag = { screen: sh, inner: innerHeight, fixed: Math.round(fh), standalone: !!sa, gap: gap };
       }
       upd();
+      // La mise en page iOS se stabilise après le lancement : on remesure plusieurs fois
+      addEventListener('load', upd);
+      setTimeout(upd, 500); setTimeout(upd, 1500);
       addEventListener('resize', upd);
       addEventListener('orientationchange', function(){ setTimeout(upd, 300); });
+      document.addEventListener('visibilitychange', function(){ if (!document.hidden) setTimeout(upd, 300); });
     })();
   </script>
   <script>
@@ -100,7 +117,15 @@
     document.documentElement.style.setProperty('background', '#065f55', 'important');
     document.body && document.body.style.setProperty('background', '#065f55', 'important');
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('/sw.js').catch(() => {});
+      // Vérifie une nouvelle version au lancement ET à chaque retour au premier plan :
+      // une appli iOS rouverte depuis l'arrière-plan ne repasse pas par une navigation,
+      // donc le navigateur ne revérifiait jamais sw.js et l'ancienne version restait servie.
+      navigator.serviceWorker.register('/sw.js').then(function(reg) {
+        reg.update().catch(function(){});
+        document.addEventListener('visibilitychange', function() {
+          if (!document.hidden) reg.update().catch(function(){});
+        });
+      }).catch(() => {});
       // When the service worker activates a new version it broadcasts SW_UPDATED.
       // app.js handles the reload (waits for pending edits + open modals to finish).
       // Fallback: reload after 10 s if app.js hasn't taken over yet.
@@ -248,6 +273,6 @@
       if (bar) bar.style.display = 'none';
     }
   </script>
-<script type="module" src="js/app.js?v=221"></script>
+<script type="module" src="js/app.js?v=222"></script>
 </body>
 </html>

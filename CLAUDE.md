@@ -18,7 +18,7 @@ Quatre endroits à synchroniser, toujours le même numéro N :
 | `sw.js` | `const SHELL_CACHE = 'cv-shell-N'` |
 | `store.js` | `export const APP_VERSION = 'N'` |
 
-Version actuelle : **221**
+Version actuelle : **222**
 
 ---
 
@@ -90,7 +90,7 @@ js/
 
 ## iOS 26 — bande vide en bas de l'écran (`--ios-gap`)
 
-En mode appli (ajoutée à l'écran d'accueil, `black-translucent`), iOS 26 raccourcit la fenêtre de la hauteur de la barre d'état (~59 pt) tout en la laissant calée en haut : tout élément fixe (`bottom:0`, `inset:0`, `100vh/dvh/lvh`) s'arrête ~59 pt avant le bas réel. Probablement aussi la vraie cause du « env(safe-area-inset-bottom) trop grand » du v202. Un script inline dans `index.html` mesure `hauteur d'écran − innerHeight` (en standalone uniquement) dans `--ios-gap` ; la fin de style.css l'ajoute à `.ov`, `.mbox`, `.calc-kp-*`, aux écrans body-scroll, et à `.hv2`/`.hv2-nav`. Tout nouvel élément fixé en bas doit en tenir compte. Diagnostic affiché en bas des Paramètres.
+En mode appli (ajoutée à l'écran d'accueil, `black-translucent`), iOS 26 raccourcit la fenêtre de la hauteur de la barre d'état (~59 pt) tout en la laissant calée en haut : tout élément fixe (`bottom:0`, `inset:0`, `100vh/dvh/lvh`) s'arrête ~59 pt avant le bas réel. Probablement aussi la vraie cause du « env(safe-area-inset-bottom) trop grand » du v202. Un script inline dans `index.html` mesure `hauteur d'écran − hauteur réelle d'un élément fixe top:0/bottom:0` (pas `innerHeight` seul : il annonçait la hauteur complète sur iPhone alors que la zone était plus courte — v222), en standalone uniquement, remesuré au load / +0,5 s / +1,5 s / resize / retour au premier plan, dans `--ios-gap` ; la fin de style.css l'ajoute à `.ov`, `.mbox`, `.calc-kp-*`, aux écrans body-scroll, et à `.hv2`/`.hv2-nav`. Tout nouvel élément fixé en bas doit en tenir compte. Diagnostic affiché en bas des Paramètres.
 
 ---
 
@@ -251,6 +251,7 @@ uid()          // ID court aléatoire
 
 ## Service Worker
 
+- Mise à jour : `index.html` appelle `reg.update()` au lancement et à chaque retour au premier plan (une appli iOS rouverte depuis l'arrière-plan ne revérifiait jamais `sw.js`) ; `firebase.json` met html/css/json en `no-cache` ; bouton « Forcer la mise à jour » dans Paramètres → Données (désinscrit le SW, vide `cv-shell-*`, recharge — les données ne sont pas touchées).
 - `cv-shell-N` : cache des fichiers app — **réseau d'abord** (timeout 6 s), cache seulement hors-ligne. L'ancien stale-while-revalidate servait après une mise à jour un mélange vieux JS / nouveau CSS (chaque fichier revalidé indépendamment)
 - `cv-tiles-1` : cache des tuiles OSM (cache-first, permanent)
 - SHELL_URLS liste tous les JS/CSS/icons à précacher

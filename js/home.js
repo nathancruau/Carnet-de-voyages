@@ -2369,11 +2369,15 @@ function _openSettingsModal() {
         ${btnRow('data-action="export-all"', '⬇ Exporter (CSV)')}
         ${user ? btnRow('settings-cleanup-photos', '🧹 Nettoyer les photos en double') : ''}
         ${btnRow('settings-backfill-countries', '🌍 Détecter les pays des PINs existants')}
+        ${btnRow('settings-force-update', '🔄 Forcer la mise à jour de l\'appli')}
         ${btnRow('settings-clear-data', '🗑 Effacer toutes les données', 'hv2-row-danger')}
       </div>
 
       <div class="hv2-version">Carnet de Voyages v${APP_VERSION}</div>
-      <div class="hv2-version" style="margin-top:4px;opacity:.7">Affichage : écran ${Math.max(screen.width, screen.height)} · fenêtre ${window.innerHeight} · écart compensé ${getComputedStyle(document.documentElement).getPropertyValue('--ios-gap').trim() || '0px'} · ${(window.navigator.standalone || window.matchMedia('(display-mode: standalone)').matches) ? 'appli' : 'navigateur'}</div>`;
+      <div class="hv2-version" style="margin-top:4px;opacity:.7">${(() => {
+        const d = window._iosGapDiag || {};
+        return `Affichage : écran ${d.screen ?? '?'} · fenêtre ${d.inner ?? window.innerHeight} · zone fixe ${d.fixed ?? '?'} · écart compensé ${d.gap ?? 0}px · ${d.standalone ? 'appli' : 'navigateur'}`;
+      })()}</div>`;
   }
 
   showModal(buildHtml(eventTypes, getLanguage(), curTheme, curNotif), { fullscreenMobile: true, boxClass: 'hv2-modal' });
@@ -2446,6 +2450,17 @@ function _openSettingsModal() {
 
   // La modale est hors de #home-wrap : le listener délégué de l'accueil ne la voit pas
   document.querySelector('.mbox [data-action="export-all"]')?.addEventListener('click', () => _openExportModal());
+
+  // Vide le cache de l'appli (pas les données) et recharge la dernière version
+  document.getElementById('settings-force-update')?.addEventListener('click', async () => {
+    try {
+      const regs = await navigator.serviceWorker?.getRegistrations?.() || [];
+      await Promise.all(regs.map(r => r.unregister()));
+      const keys = await caches.keys();
+      await Promise.all(keys.filter(k => k.startsWith('cv-shell-')).map(k => caches.delete(k)));
+    } catch (_) {}
+    location.reload();
+  });
 
   // ── Clear data ────────────────────────────────────────────────────────────────
 
