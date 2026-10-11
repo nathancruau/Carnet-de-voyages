@@ -1789,6 +1789,7 @@ function _hv2ApplySheet(translate, animate) {
 
 function _hv2SetSnap(snap, animate = true) {
   _hv2Snap = snap;
+  if (snap !== 'full') { _hv2NavCompact = false; document.querySelector('.hv2-nav')?.classList.remove('hv2-nav-compact'); }
   const root = document.getElementById('hv2');
   if (!root) return;
   root.dataset.snap = snap;
@@ -1881,6 +1882,25 @@ function _hv2BindSheet() {
 
   // Un glissé de la feuille ne doit pas ouvrir la carte de voyage sous le doigt
   sheet.addEventListener('click', e => { if (suppressClick) { e.stopPropagation(); e.preventDefault(); } }, true);
+}
+
+/** Barre d'onglets : se rétracte (icônes seules, plus étroite) quand on fait défiler la
+ *  liste vers le bas, reprend sa forme dès qu'on remonte. */
+let _hv2NavCompact = false;
+function _hv2BindNavCompact() {
+  const sc  = document.getElementById('hv2-scroll');
+  const nav = document.querySelector('.hv2-nav');
+  if (!sc || !nav) return;
+  nav.classList.toggle('hv2-nav-compact', _hv2NavCompact && _hv2Snap === 'full');
+  let last = sc.scrollTop;
+  sc.addEventListener('scroll', () => {
+    const y = sc.scrollTop;
+    if (y > last + 8 && y > 40)        _hv2NavCompact = true;
+    else if (y < last - 8 || y <= 40)  _hv2NavCompact = false;
+    else return;
+    last = y;
+    nav.classList.toggle('hv2-nav-compact', _hv2NavCompact);
+  }, { passive: true });
 }
 
 // ── Popups / menus ─────────────────────────────────────────────────────────────
@@ -2030,6 +2050,7 @@ function _renderHomeV2(wrap, { myTrips, observingTrips, filter }) {
     </div>`;
 
   _hv2BindSheet();
+  _hv2BindNavCompact();
   _hv2Pins = _hv2FilteredPins(myTrips);
   // Position de la feuille d'abord (le padding de la carte en dépend), puis la carte
   _hv2SetSnap(_hv2Snap, false);
