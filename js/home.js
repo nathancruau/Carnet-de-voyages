@@ -2375,8 +2375,9 @@ function _openSettingsModal() {
 
       <div class="hv2-version">Carnet de Voyages v${APP_VERSION}</div>
       <div class="hv2-version" style="margin-top:4px;opacity:.7">${(() => {
-        const d = window._iosGapDiag || {};
-        return `Affichage : écran ${d.screen ?? '?'} · fenêtre ${d.inner ?? window.innerHeight} · zone fixe ${d.fixed ?? '?'} · écart compensé ${d.gap ?? 0}px · ${d.standalone ? 'appli' : 'navigateur'}`;
+        // Mesure fraîche à l'ouverture (pas celle du lancement)
+        const d = window._measureIosGap?.() || window._iosGapDiag || {};
+        return `Affichage : écran ${d.screen} · fenêtre ${d.inner} · client ${d.client} · vv ${d.vv}/${d.vvTop} · fixe ${d.fixed} · dvh ${d.dvh} · lvh ${d.lvh} · safe ${d.safeT}/${d.safeB} · écart ${d.gap}px · ${d.standalone ? 'appli' : 'navigateur'}`;
       })()}</div>`;
   }
 

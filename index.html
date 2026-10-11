@@ -35,7 +35,7 @@
        (openShareModal, isCurrentUserObserver, …), so every session fetches it
        anyway; preloading it here fetches it in parallel with home.js instead of
        only being discovered once home.js itself finishes parsing. -->
-  <link rel="modulepreload" href="js/app.js?v=222" />
+  <link rel="modulepreload" href="js/app.js?v=223" />
   <link rel="modulepreload" href="js/store.js" />
   <link rel="modulepreload" href="js/utils.js" />
   <link rel="modulepreload" href="js/auth.js" />
@@ -51,7 +51,7 @@
        in document order — style.css overrides several .leaflet-* rules and
        needs to win the cascade once both are applied. -->
   <link rel="stylesheet" href="vendor/leaflet.css" media="print" onload="this.media='all'" />
-  <link rel="stylesheet" href="style.css?v=222" />
+  <link rel="stylesheet" href="style.css?v=223" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,600;0,700;1,400;1,600;1,700&family=Nunito:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
@@ -63,34 +63,56 @@
     // onglet Safari, la barre d'outils explique légitimement la différence) et on
     // l'expose en --ios-gap pour que les éléments fixes descendent jusqu'en bas.
     (function(){
-      // Hauteur réelle de la zone « fixe » : un élément top:0/bottom:0 mesuré directement
-      // (window.innerHeight peut annoncer la hauteur complète alors que la zone utilisable
-      // est plus courte — constaté sur iPhone, v221 : écart mesuré 0 mais bande de ~59 pt).
-      function fixedH(){
+      // Plusieurs mesures croisées de la hauteur réellement utilisable : sur iPhone (v222)
+      // innerHeight et un élément fixe top:0/bottom:0 annonçaient tous deux 852 au lancement
+      // alors que l'affichage s'arrêtait ensuite à ~792 — iOS raccourcit la zone après coup,
+      // sans forcément émettre de « resize ». On prend la plus petite valeur plausible et on
+      // remesure régulièrement (visualViewport, retour au premier plan, minuterie courte).
+      function probe(css){
         var p = document.createElement('div');
-        p.style.cssText = 'position:fixed;top:0;bottom:0;left:0;width:1px;visibility:hidden;pointer-events:none';
+        p.style.cssText = 'position:fixed;left:0;width:1px;visibility:hidden;pointer-events:none;' + css;
         document.documentElement.appendChild(p);
-        var h = p.getBoundingClientRect().height;
+        var r = p.getBoundingClientRect();
         p.remove();
-        return h;
+        return r;
       }
-      function upd(){
+      function measure(){
         var sa = window.navigator.standalone || (window.matchMedia && matchMedia('(display-mode: standalone)').matches);
         var land = innerWidth > innerHeight;
         var sh = land ? Math.min(screen.width, screen.height) : Math.max(screen.width, screen.height);
-        var fh = fixedH();
-        var gap = sa ? Math.round(sh - Math.min(innerHeight, fh || innerHeight)) : 0;
+        var vv = window.visualViewport;
+        var d = {
+          screen: sh, inner: innerHeight, client: document.documentElement.clientHeight,
+          vv: vv ? Math.round(vv.height) : null, vvTop: vv ? Math.round(vv.offsetTop) : null,
+          fixed: Math.round(probe('top:0;bottom:0').height),
+          dvh: Math.round(probe('top:0;height:100dvh').height),
+          lvh: Math.round(probe('top:0;height:100lvh').height),
+          safeT: Math.round(probe('top:0;height:env(safe-area-inset-top)').height),
+          safeB: Math.round(probe('top:0;height:env(safe-area-inset-bottom)').height),
+          standalone: !!sa,
+        };
+        var usable = Math.min.apply(null, [d.inner, d.fixed, d.vv || d.inner, d.dvh || d.inner].filter(function(v){ return v > 200; }));
+        var gap = sa ? Math.round(sh - usable) : 0;
         if (gap < 0 || gap > 120) gap = 0;
-        document.documentElement.style.setProperty('--ios-gap', gap + 'px');
-        window._iosGapDiag = { screen: sh, inner: innerHeight, fixed: Math.round(fh), standalone: !!sa, gap: gap };
+        d.gap = gap;
+        return d;
       }
+      function upd(){
+        var d = measure();
+        document.documentElement.style.setProperty('--ios-gap', d.gap + 'px');
+        window._iosGapDiag = d;
+      }
+      window._measureIosGap = measure;
       upd();
-      // La mise en page iOS se stabilise après le lancement : on remesure plusieurs fois
       addEventListener('load', upd);
-      setTimeout(upd, 500); setTimeout(upd, 1500);
       addEventListener('resize', upd);
       addEventListener('orientationchange', function(){ setTimeout(upd, 300); });
-      document.addEventListener('visibilitychange', function(){ if (!document.hidden) setTimeout(upd, 300); });
+      if (window.visualViewport) visualViewport.addEventListener('resize', upd);
+      function burst(){ for (var i = 1; i <= 10; i++) setTimeout(upd, i * 600); }
+      burst();
+      document.addEventListener('visibilitychange', function(){ if (!document.hidden) burst(); });
+      // Filet de sécurité : remesure discrète toutes les 3 s (quelques divs, coût négligeable)
+      setInterval(upd, 3000);
     })();
   </script>
   <script>
@@ -273,6 +295,6 @@
       if (bar) bar.style.display = 'none';
     }
   </script>
-<script type="module" src="js/app.js?v=222"></script>
+<script type="module" src="js/app.js?v=223"></script>
 </body>
 </html>
