@@ -2218,10 +2218,10 @@ a.tl-sv-pill:hover{background:var(--c3);color:var(--ink)}
 /* ── Beta badge (canal Firebase « beta » uniquement) ───────────────────────── */
 .beta-badge{
   position:fixed;
-  bottom:max(10px,env(safe-area-inset-bottom));left:10px;
+  top:calc(min(env(safe-area-inset-top,0px),59px) + 4px);left:50%;transform:translateX(-50%);
   background:#7c3aed;color:#fff;
-  font:800 10px/1 var(--fn);letter-spacing:.08em;
-  padding:5px 8px;border-radius:999px;
+  font:800 9px/1 var(--fn);letter-spacing:.08em;
+  padding:4px 7px;border-radius:999px;
   box-shadow:var(--sh);
   z-index:99998;
   pointer-events:none;
@@ -2299,7 +2299,11 @@ a.tl-sv-pill:hover{background:var(--c3);color:var(--ink)}
   --hv-dark:#e9eef2; --hv-chip:#20262d;
 }
 .hv2{
-  position:fixed;inset:0;overflow:hidden;z-index:1;
+  /* 100lvh et pas inset:0 : sur iOS, le bas du viewport « fixe » s'arrête au-dessus de la
+     zone de la barre Safari, laissant une bande vide sous l'accueil. La carte et la feuille
+     descendent jusqu'au vrai bas de l'écran ; la barre d'onglets (.hv2-nav, fixed) reste
+     au-dessus de celle de Safari. */
+  position:fixed;top:0;left:0;right:0;height:100vh;height:100lvh;overflow:hidden;z-index:1;
   font-family:var(--fn);color:var(--hv-ink);
   background:
     radial-gradient(1px 1px at 12% 18%,rgba(255,255,255,.8),transparent 60%),
@@ -2399,7 +2403,7 @@ a.tl-sv-pill:hover{background:var(--c3);color:var(--ink)}
 [data-theme="dark"] .hv2-grab span{background:#3a434d}
 .hv2-scroll{
   flex:1;min-height:0;overflow:hidden;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;
-  padding:2px 16px calc(96px + var(--hv-safe-b));
+  padding:2px 16px calc(96px + var(--hv-safe-b) + 100lvh - 100dvh);
 }
 .hv2[data-snap="full"] .hv2-scroll{overflow-y:auto}
 
@@ -2503,7 +2507,7 @@ a.tl-sv-pill:hover{background:var(--c3);color:var(--ink)}
 
 /* Barre d'onglets flottante */
 .hv2-nav{
-  position:absolute;z-index:7;left:12px;right:12px;bottom:calc(var(--hv-safe-b) + 8px);
+  position:fixed;z-index:7;left:12px;right:12px;bottom:calc(var(--hv-safe-b) + 8px);
   display:flex;gap:8px;align-items:center;pointer-events:none;
 }
 .hv2-nav > *{pointer-events:auto}

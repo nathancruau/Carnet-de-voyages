@@ -29,8 +29,10 @@ const ESRI = 'https://server.arcgisonline.com/ArcGIS/rest/services';
 // Fonds raster. Chaque entrée = liste de couches (id, tuiles, zooms).
 const BASES = {
   standard: {
-    attribution: '© OpenStreetMap © CARTO',
-    layers: [{ tiles: ['a', 'b', 'c', 'd'].map(s => `https://${s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}@2x.png`), maxzoom: 19 }],
+    // OSM France (HOT), déjà utilisé par les cartes Leaflet de l'appli (et mis en cache par le SW).
+    // CARTO, utilisé avant, exige désormais une clé d'API (filigrane « API KEY REQUIRED »).
+    attribution: '© OpenStreetMap',
+    layers: [{ tiles: ['a', 'b', 'c'].map(s => `https://${s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png`), maxzoom: 19 }],
   },
   relief: {
     attribution: '© Esri — Sources : Esri, USGS, NOAA, OpenStreetMap',

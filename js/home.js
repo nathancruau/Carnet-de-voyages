@@ -1755,10 +1755,12 @@ function _hv2Metrics() {
   const navTop = document.querySelector('.hv2-nav')?.getBoundingClientRect().top || H - 80;
   return {
     H, sheetH,
+    // translateY = position du haut de la feuille (elle fait toute la hauteur de .hv2,
+    // qui va jusqu'au vrai bas de l'écran — 100lvh — même sous la barre Safari)
     snaps: {
-      full: 0,                                                  // la carte disparaît
-      mid:  Math.max(0, sheetH - Math.round(H * 0.5)),
-      peek: Math.max(0, sheetH - Math.round(H - navTop + 30)),  // seule la poignée dépasse de la barre d'onglets
+      full: 0,                                      // la carte disparaît
+      mid:  Math.round(H * 0.5),
+      peek: Math.max(0, Math.round(navTop - 30)),   // seule la poignée dépasse de la barre d'onglets
     },
   };
 }
