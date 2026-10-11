@@ -6,7 +6,7 @@
    - Firebase   : network-only (handles its own offline via IndexedDB)
    ============================================================ */
 
-const SHELL_CACHE = 'cv-shell-219';
+const SHELL_CACHE = 'cv-shell-220';
 const TILE_CACHE  = 'cv-tiles-1';
 
 const SHELL_URLS = [
@@ -98,11 +98,7 @@ self.addEventListener('fetch', e => {
   if (url.origin === self.location.origin) {
     // Navigation requests (HTML document) get a guaranteed app-shell fallback.
     // Without this, a 503 would show the browser "Aw Snap / Aie aie aie" error page.
-    if (e.request.mode === 'navigate') {
-      e.respondWith(_appShellFetch(e.request));
-    } else {
-      e.respondWith(_staleWhileRevalidate(e.request));
-    }
+    e.respondWith(_networkFirst(e.request, e.request.mode === 'navigate'));
   }
 });
 
@@ -119,55 +115,31 @@ async function _cacheFirst(req) {
   }
 }
 
-async function _staleWhileRevalidate(req) {
-  const cache  = await caches.open(SHELL_CACHE);
-  const cached = await cache.match(req) || await cache.match(req, { ignoreSearch: true });
-
-  // Discard broken cached entries (e.g. partial downloads, opaque errors)
-  // so they don't crash the page — fall through to network below.
-  if (cached && !cached.ok) {
-    cache.delete(req);
-  } else if (cached) {
-    // Serve stale immediately; revalidate silently in background
-    fetch(req).then(fresh => { if (fresh.ok) cache.put(req, fresh.clone()); }).catch(() => null);
-    return cached;
-  }
-
-  // No usable cache — fetch from network (first visit, or broken entry cleared above)
+// Fichiers de l'app : réseau d'abord, cache seulement hors-ligne / réseau trop lent.
+// (Avant : stale-while-revalidate — après une mise à jour, la 1re ouverture pouvait
+// servir un mélange de vieux modules JS et de nouvelle feuille de style, chaque
+// fichier étant revalidé indépendamment : écrans à moitié cassés jusqu'au rechargement.)
+async function _networkFirst(req, isNavigate) {
+  const cache = await caches.open(SHELL_CACHE);
   try {
-    const fresh = await fetch(req);
+    const fresh = await Promise.race([
+      fetch(req),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 6000)),
+    ]);
     if (fresh.ok) cache.put(req, fresh.clone());
-    return fresh;
-  } catch (_) {
-    return new Response('', { status: 503, statusText: 'Offline' });
-  }
-}
+    if (fresh.ok || !isNavigate) return fresh;
+  } catch (_) { /* hors-ligne ou trop lent : cache ci-dessous */ }
 
-// Navigation fetch: stale-while-revalidate with guaranteed app-shell fallback.
-// Never returns a 503 for HTML documents — that would trigger the browser error page.
-async function _appShellFetch(req) {
-  const cache  = await caches.open(SHELL_CACHE);
   const cached =
     (await cache.match(req)) ||
     (await cache.match(req, { ignoreSearch: true })) ||
-    (await cache.match('/index.html')) ||
-    (await cache.match('/'));
+    (isNavigate ? (await cache.match('/index.html')) || (await cache.match('/')) : null);
+  if (cached) return cached;
 
-  if (cached && cached.ok) {
-    // Serve stale immediately, revalidate in background
-    fetch(req).then(fresh => { if (fresh.ok) cache.put(req, fresh.clone()); }).catch(() => null);
-    return cached;
-  }
-
-  // Nothing in cache yet — try network
-  try {
-    const fresh = await fetch(req);
-    if (fresh.ok) cache.put(req, fresh.clone());
-    return fresh;
-  } catch (_) {
-    // Return a user-friendly offline page instead of a 503 / browser error screen
-    return new Response(
-      `<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8">
+  if (!isNavigate) return new Response('', { status: 503, statusText: 'Offline' });
+  // Page hors-ligne lisible plutôt que l'écran d'erreur du navigateur
+  return new Response(
+    `<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Hors ligne — Carnet de Voyages</title>
 <style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;background:#065f55;color:#fff;padding:24px}div{text-align:center}p{opacity:.8;margin:8px 0 20px}button{padding:10px 22px;background:#fff;color:#065f55;border:none;border-radius:8px;font-size:15px;font-weight:700;cursor:pointer}</style>
@@ -175,9 +147,8 @@ async function _appShellFetch(req) {
 <h2 style="font-size:20px;margin-bottom:6px">Carnet de Voyages</h2>
 <p>Vous êtes hors ligne.<br>Reconnectez-vous pour accéder à l'application.</p>
 <button onclick="location.reload()">Réessayer</button></div></body></html>`,
-      { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8' } }
-    );
-  }
+    { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8' } }
+  );
 }
 
 // ── Pre-cache tiles for a bounding box (sent via postMessage) ─────────────────

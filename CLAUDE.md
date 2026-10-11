@@ -18,7 +18,7 @@ Quatre endroits à synchroniser, toujours le même numéro N :
 | `sw.js` | `const SHELL_CACHE = 'cv-shell-N'` |
 | `store.js` | `export const APP_VERSION = 'N'` |
 
-Version actuelle : **219**
+Version actuelle : **220**
 
 ---
 
@@ -77,7 +77,7 @@ js/
 
 ## Accueil v2 (refonte, en cours sur la bêta)
 
-- `renderHome()` (home.js) → `_renderHomeV2()` : `.hv2` en `position:fixed;inset:0` (pas de body-scroll sur l'accueil), carte `homemap.js` en fond, feuille profil `.hv2-sheet` glissable à 3 crans (`_hv2Snap` : `peek` = seule la poignée dépasse au-dessus de la barre d'onglets / `mid` / `full` = plein écran, la carte disparaît). Transition continue : `_hv2ApplySheet` pose `--hv-p` (0 en mid → 1 en full) dont dépendent coins, marge haute de la liste, assombrissement `.hv2-dim` ; une seule barre du haut `.hv2-top` (⌄ / ☰ / logo à gauche, ⚙️ à droite) qui passe en style clair au-delà de 0,92 (`.hv2-is-full`) et se cache en défilant vers le bas (`_hv2BindTopAutoHide`), barre d'onglets flottante `.hv2-nav` (Mes voyages / Observations / En direct + recherche).
+- `renderHome()` (home.js) → `_renderHomeV2()` : `.hv2` en `position:fixed;inset:0` (pas de body-scroll sur l'accueil), carte `homemap.js` en fond, feuille profil `.hv2-sheet` glissable à 3 crans (`_hv2Snap` : `peek` = seule la poignée dépasse au-dessus de la barre d'onglets / `mid` / `full` = plein écran, la carte disparaît). Transition continue : `_hv2ApplySheet` pose `--hv-p` (0 en mid → 1 en full) dont dépendent coins, marge haute de la liste, assombrissement `.hv2-dim`  ; la barre de la carte `.hv2-top` (logo/☰ + ⚙️) s'efface avec `--hv-p` ; en plein écran ⌄ + ⚙️ sont le 1er élément de la liste (`.hv2-sheet-head`, hauteur proportionnelle à `--hv-p`) et défilent avec elle — aucune barre fixe en haut (demande explicite), barre d'onglets flottante `.hv2-nav` (Mes voyages / Observations / En direct + recherche).
 - La liste ne défile (`.hv2-scroll`) qu'en cran `full` ; en `peek`/`mid` tout glissé déplace la feuille. La position de la feuille est répercutée sur la carte via `setHomeMapPadding()` (le globe se recentre dans la zone visible).
 - Bouton ☰ (visible en `peek`) → panneau `_hv2OpenDestinations()` : filtres type de voyage / type de lieu / un seul voyage (« Isoler ») + liste des lieux par voyage (tap → la carte vole vers le PIN). Les filtres (`_currentFilter`, `_hv2PinType`, `_hv2TripId`) s'appliquent à la carte ; `_currentFilter` filtre aussi la liste. Lien vers l'ancienne « Carte détaillée » (mymap.js : itinéraires, export KML).
 - **homemap.js** : MapLibre GL 5 vendorisé (`vendor/maplibre-gl.js`, chargé à la demande, mis en cache par le SW au 1er accès). La carte est créée une seule fois, son conteneur `.hm-host` est re-déplacé dans chaque rendu (pas de nouveau contexte WebGL à chaque `renderHome()`). Un `ResizeObserver` recadre quand l'écran devient visible (le 1er rendu se fait écran masqué, taille 0). Fonds raster : Standard = OSM France HOT (CARTO exige désormais une clé d'API), Relief = Esri World Physical (≤ z7.5) puis World Topo, Satellite = Esri World Imagery + libellés. PINs : source GeoJSON `cluster:true` rendue en marqueurs HTML (`_syncMarkers` sur `render`) — épingles `.hm-pin`, groupes `.hm-cluster` (tap = zoom, ou liste si les points sont superposés). `collectMapPins()` = mêmes règles que `_buildAllPins` (mymap.js), voyages `done` uniquement.
@@ -251,7 +251,7 @@ uid()          // ID court aléatoire
 
 ## Service Worker
 
-- `cv-shell-N` : cache des fichiers app (stale-while-revalidate)
+- `cv-shell-N` : cache des fichiers app — **réseau d'abord** (timeout 6 s), cache seulement hors-ligne. L'ancien stale-while-revalidate servait après une mise à jour un mélange vieux JS / nouveau CSS (chaque fichier revalidé indépendamment)
 - `cv-tiles-1` : cache des tuiles OSM (cache-first, permanent)
 - SHELL_URLS liste tous les JS/CSS/icons à précacher
 - Message `PRECACHE_TILES` → précache les tuiles d'une bbox

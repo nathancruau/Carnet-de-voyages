@@ -2364,16 +2364,18 @@ a.tl-sv-pill:hover{background:var(--c3);color:var(--ink)}
 .hv2-menu{display:none}
 .hv2[data-snap="peek"] .hv2-menu{display:inline-flex;animation:hv2Pop .25s ease}
 .hv2[data-snap="peek"] .hv2-brand{display:none}
-/* Plein écran : la même barre reste en place (pas de 2e jeu de boutons) — fond de la
-   feuille, boutons clairs, ⌄ à gauche ; elle se cache en défilant vers le bas. */
-.hv2-top{transition:transform .25s ease,background-color .25s ease}
-.hv2-round{transition:background-color .25s ease,color .25s ease,border-color .25s ease}
-.hv2-back{display:none}
-.hv2-is-full .hv2-back{display:inline-flex}
-.hv2-is-full .hv2-brand,.hv2-is-full .hv2-menu{display:none!important}
-.hv2-is-full .hv2-top{background:var(--hv-sheet)}
-.hv2-is-full .hv2-round{background:var(--hv-bg2);color:var(--hv-ink);border-color:transparent;backdrop-filter:none;-webkit-backdrop-filter:none}
-.hv2-top.hv2-top-hidden{transform:translateY(-110%)}
+/* La barre de la carte (logo/☰ + ⚙️) s'efface quand la feuille monte ; en plein écran,
+   ⌄ et ⚙️ sont dans le contenu de la liste (.hv2-sheet-head) et défilent avec lui :
+   aucune barre fixe en haut, le profil remonte jusqu'en haut de l'écran. */
+.hv2-top{opacity:calc(1 - var(--hv-p,0))}
+.hv2-is-full .hv2-top{pointer-events:none}
+.hv2-is-full .hv2-top > *{pointer-events:none}
+.hv2-sheet-head{
+  display:flex;align-items:flex-end;justify-content:space-between;overflow:hidden;
+  height:calc((var(--hv-safe-t) + 52px) * var(--hv-p,0));opacity:var(--hv-p,0);
+  margin:0 -2px;padding-bottom:calc(6px * var(--hv-p,0));box-sizing:border-box;
+}
+.hv2-sheet-head .hv2-round{flex-shrink:0}
 .hv2-dim{position:absolute;inset:0;z-index:3;background:#05080f;opacity:calc(var(--hv-p,0) * .8);pointer-events:none}
 @keyframes hv2Pop{from{opacity:0;transform:scale(.7)}to{opacity:1;transform:none}}
 
@@ -2404,16 +2406,13 @@ a.tl-sv-pill:hover{background:var(--c3);color:var(--ink)}
 }
 /* La poignée se replie en plein écran (sinon bande vide en haut de la liste) */
 .hv2-grab{opacity:calc(1 - var(--hv-p,0));height:calc(21px * (1 - var(--hv-p,0)));padding:0!important;align-items:center;overflow:hidden}
-.hv2-statusbar{position:absolute;top:0;left:0;right:0;height:var(--hv-safe-t);background:var(--hv-sheet);z-index:6;opacity:0;pointer-events:none;transition:opacity .2s}
-.hv2-is-full .hv2-statusbar{opacity:1}
+
 .hv2-grab{flex-shrink:0;padding:10px 0 6px;display:flex;justify-content:center;cursor:grab;touch-action:none}
 .hv2-grab span{width:38px;height:5px;border-radius:3px;background:#cfd6dc}
 [data-theme="dark"] .hv2-grab span{background:#3a434d}
 .hv2-scroll{
   flex:1;min-height:0;overflow:hidden;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;
-  /* padding-top : place de la barre du haut en plein écran, proportionnelle à --hv-p ;
-     sur le contenu (pas la feuille) pour qu'elle défile avec la liste quand la barre se cache */
-  padding:calc(2px + (var(--hv-safe-t) + 56px) * var(--hv-p,0)) 16px calc(96px + var(--hv-safe-b) + 100lvh - 100dvh);
+  padding:2px 16px calc(96px + var(--hv-safe-b) + 100lvh - 100dvh);
 }
 .hv2[data-snap="full"] .hv2-scroll{overflow-y:auto}
 
