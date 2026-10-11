@@ -1153,7 +1153,7 @@ window._mmToggleFooter = function() {
 
 // ── Public API ─────────────────────────────────────────────────────────────────
 
-export function renderMyMap() {
+export function renderMyMap({ tab } = {}) {
   const wrap = document.getElementById('mymap-wrap');
   if (!wrap) return;
 
@@ -1176,7 +1176,7 @@ export function renderMyMap() {
   wrap.innerHTML = `
     ${isMobile ? `
       <div class="mm-mob-tabs" id="mm-mob-tabs">
-        <button class="bm-tab" onclick="goHome()">← Bibliothèque</button>
+        <button class="bm-tab" onclick="goHome()">← Accueil</button>
         <button class="bm-tab active" data-mm-tab="carte">🗺 Carte</button>
         <button class="bm-tab" data-mm-tab="destinations">📋 Destinations</button>
       </div>` : ''}
@@ -1218,6 +1218,8 @@ export function renderMyMap() {
         }
       });
     }
+    // Ouverture directe sur la liste (bouton ☰ de l'accueil)
+    if (tab === 'destinations') tabs?.querySelector('[data-mm-tab="destinations"]')?.click();
   } else {
     // Desktop: wire sidebar toggle button
     const mmToggle = document.getElementById('mm-toggle');

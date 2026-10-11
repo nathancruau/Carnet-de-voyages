@@ -18,7 +18,7 @@ Quatre endroits à synchroniser, toujours le même numéro N :
 | `sw.js` | `const SHELL_CACHE = 'cv-shell-N'` |
 | `store.js` | `export const APP_VERSION = 'N'` |
 
-Version actuelle : **215**
+Version actuelle : **216**
 
 ---
 
@@ -54,7 +54,8 @@ js/
   photostore.js          Firebase Cloud Storage (upload photos, users/{uid}/photos/) — voir "Photos & sync" ci-dessous
   store.js              État local (localStorage 'carnet_voyages_v1'), helpers
   utils.js              notify(), showModal(), closeModal(), date helpers, date picker
-  home.js               Écran d'accueil (liste voyages)
+  home.js               Écran d'accueil (globe + feuille profil, liste voyages)
+  homeglobe.js          Globe plein écran de l'accueil (canvas, PINs des voyages réalisés)
   mymap.js              Écran Ma Carte (carte globale + destinations)
   gpx.js                Parse/génère GPX, stockage local GPX
   calckeypad.js          Clavier calculatrice pour les champs montant (Tricount)
@@ -71,6 +72,17 @@ js/
     sortie.js           Onglet Sorties
     tripstats.js        Modale Statistiques (menu ⋯ d'un voyage, accueil)
 ```
+
+---
+
+## Accueil v2 (refonte, en cours sur la bêta)
+
+- `renderHome()` (home.js) → `_renderHomeV2()` : `.hv2` en `position:fixed;inset:0` (pas de body-scroll sur l'accueil), globe `homeglobe.js` en fond, feuille profil `.hv2-sheet` glissable à 3 crans (`_hv2Snap` : `peek` / `mid` / `full`, conservé entre re-renders), barre d'onglets flottante `.hv2-nav` (Mes voyages / Observations / En direct + recherche).
+- La liste ne défile (`.hv2-scroll`) qu'en cran `full` ; en `peek`/`mid` tout glissé déplace la feuille. Le bouton ☰ (visible en `peek`) ouvre Mes destinations directement sur la liste : `goMyMap({ tab: 'destinations' })`.
+- Desktop > 900px : la feuille devient un panneau fixe à gauche (440px), le globe occupe le reste.
+- Globe : `collectGlobePins()` applique les mêmes règles que `_buildAllPins` (mymap.js) — voyages `done` uniquement. Tap sur un PIN = popup (déclenchée au `click`, pas au `pointerup`, sinon la popup reçoit le click et ouvre le voyage).
+- Styles : tout est préfixé `.hv2-*` en fin de style.css, avec ses propres tokens (`--hv-*`, redéfinis en dark).
+- Mode grands-parents et page Statistiques gardent l'ancien rendu pour l'instant.
 
 ---
 

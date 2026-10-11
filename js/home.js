@@ -13,7 +13,6 @@ import {
   notify, showModal, closeModal,
   fmtDate, fmtDateShort,
   dpInit, dpGetDates, renderDp,
-  typeBadge,
   generateDays, customDayTitle,
   reverseGeocodeCountry, fmtFlag,
 } from './utils.js';
@@ -23,6 +22,7 @@ import {
 // so none of them should be in the boot bundle.
 import { getCurrentUser, logout, syncToFirestore, isFirebaseConfigured, cleanupDuplicatePhotos } from './auth.js';
 import { requestNotificationPermission, notificationPermissionGranted } from './notifications.js';
+import { collectGlobePins, mountHomeGlobe } from './homeglobe.js';
 import { openShareModal, leaveSharedTrip, deleteOwnerSharedTrip, removeSharedTripMember, isCurrentUserObserver, getSharedDocData, addObserverReaction, deleteObserverReaction, addObserverComment, deleteObserverComment, handlePendingInvite } from './share.js';
 
 // ── Module state ───────────────────────────────────────────────────────────────
@@ -32,7 +32,6 @@ let _currentTab       = 'trips';   // 'trips' | 'stats'
 let _statsTypeFilter  = 'all';     // 'all' | 'voyage' | 'weekend' | 'sortie'
 let _homeLibTab       = 'mine';    // 'mine' | 'observing' | 'live'
 let _listenerAttached = false;
-let _fabOutsideClickBound = false; // guards the document-level FAB-closer below (see _bindHomeFab)
 let _statsLastFiltered = [];       // cache for world-map re-render on expand
 
 // ── Globe (stats world view) state ──────────────────────────────────────────────
@@ -1231,240 +1230,6 @@ function _filterTabsHtml(activeFilter, activeTab) {
   return `<div class="filter-tabs">${filterBtns}</div>`;
 }
 
-// ── Sortie card HTML ───────────────────────────────────────────────────────────
-
-function _sortieCardHtml(trip) {
-  const pin        = trip.pin || {};
-  const eventTypes = getEventTypes();
-  const et         = eventTypes.find(e => e.key === (pin.pinType || 'visit')) || eventTypes[0];
-
-  const _sd = pin.date || trip.startDate;
-  const _ed = pin.endDate || (trip.endDate !== trip.startDate ? trip.endDate : null);
-  const dateStr = !_sd
-    ? 'Date non définie'
-    : (_ed && _ed !== _sd)
-      ? `${fmtDateShort(_sd)} – ${fmtDate(_ed)}`
-      : new Date(_sd + 'T12:00:00').toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' });
-
-  const preview = (pin.description || '').slice(0, 80) + ((pin.description || '').length > 80 ? '…' : '');
-
-  let thumbHtml;
-  if (trip.photo) {
-    thumbHtml = `
-      <img class="tc-img sortie-thumb-img" src="${_esc(trip.photo)}" alt=""
-           loading="lazy" decoding="async"
-           onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
-      <div class="sortie-thumb" style="background:${et.color};display:none">${et.emoji}</div>
-    `;
-  } else {
-    thumbHtml = `<div class="sortie-thumb" style="background:${et.color}">${et.emoji}</div>`;
-  }
-
-  return `
-    <div class="trip-card sortie-card" data-action="open-trip" data-trip-id="${trip.id}">
-      <div style="position:relative">${thumbHtml}</div>
-      <div class="tc-body">
-        <div class="tc-header">
-          <div>${typeBadge(trip.type)}</div>
-          <div style="display:flex;gap:3px">
-            <button class="tc-edit-btn" data-action="edit-trip" data-trip-id="${trip.id}" title="Modifier">✎</button>
-            <button class="tc-more-btn" data-action="trip-menu" data-trip-id="${trip.id}" title="Plus d'options">⋯</button>
-          </div>
-        </div>
-        <div class="tc-title">${_esc(trip.name || 'Sortie')}</div>
-        <div class="tc-dates">
-          ${dateStr}${pin.time ? ' · ' + pin.time : ''}
-          ${trip.destination ? `<br><span style="color:var(--ink3)">📍 ${_esc(trip.destination)}</span>` : ''}
-        </div>
-        ${preview ? `<div class="sortie-card-desc">${_esc(preview)}</div>` : ''}
-        <div class="tc-stats" style="margin-top:6px">
-          ${pin.weather ? `<span class="tc-s">${pin.weather}</span>` : ''}
-          ${pin.cost ? `<span class="tc-s">💶 ${Number(pin.cost).toLocaleString('fr-FR', { minimumFractionDigits: 2 })} EUR</span>` : ''}
-        </div>
-        ${(trip.companions || []).length > 0 ? `
-        <div style="display:flex;align-items:center;gap:3px;margin-top:5px;flex-wrap:wrap">
-          ${(trip.companions).slice(0, 4).map((c, i) => `<div class="comp-avatar" style="background:${c.color || _compColor(i)}" title="${_esc(c.name)}">${_initials(c.name)}</div>`).join('')}
-          ${trip.companions.length > 4 ? `<span style="font-size:10px;color:var(--ink4);font-weight:700">+${trip.companions.length - 4}</span>` : ''}
-        </div>` : ''}
-      </div>
-    </div>
-  `;
-}
-
-// ── Observed (shared) trip card — read-only for the observer ──────────────────
-
-function _observedTripCardHtml(trip) {
-  let imgHtml;
-  if (trip.photo) {
-    imgHtml = `
-      <img class="tc-img" src="${_esc(trip.photo)}" alt=""
-           loading="lazy" decoding="async"
-           onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
-      <div class="tc-img-ph" style="background:${trip.color || '#0d9488'};display:none">${trip.flag || '🌍'}</div>
-    `;
-  } else {
-    imgHtml = `<div class="tc-img-ph" style="background:${trip.color || '#0d9488'}">${trip.flag || '🌍'}</div>`;
-  }
-
-  let dateStr = 'Dates non définies';
-  if (trip.startDate && trip.endDate) {
-    dateStr = `${fmtDateShort(trip.startDate)} → ${fmtDate(trip.endDate)}`;
-  } else if (trip.startDate) {
-    dateStr = `Dès ${fmtDate(trip.startDate)}`;
-  }
-
-  // Find owner names from shared doc. Observers are deliberately excluded from
-  // this "who's actually on the trip" list (an observer is a spectator, not a
-  // traveler) — their presence is only ever surfaced as a headcount below,
-  // never by name here.
-  let ownerHtml = '';
-  const sharedDoc = getSharedDocData(trip.id);
-  if (sharedDoc?.members) {
-    const members = Object.values(sharedDoc.members);
-    const owners  = members
-      .filter(m => m.role === 'owner' || m.role === 'member')
-      .map(m => m.companionName).filter(Boolean);
-    const obsCount = members.filter(m => m.role === 'observer').length;
-    if (owners.length > 0) {
-      const names = owners.length === 1 ? owners[0]
-        : owners.slice(0, -1).join(', ') + ' et ' + owners[owners.length - 1];
-      ownerHtml = `<div class="tc-owner">✈️ ${_esc(names)}</div>`;
-    }
-    if (obsCount > 0) {
-      ownerHtml += `<div class="tc-owner" style="opacity:.7">👁 ${obsCount} observateur${obsCount > 1 ? 's' : ''}</div>`;
-    }
-  }
-
-  return `
-    <div class="trip-card obs-trip-card" data-action="open-trip" data-trip-id="${trip.id}">
-      <div style="position:relative">${imgHtml}</div>
-      <div class="tc-body">
-        <div class="tc-header">
-          <div>${typeBadge(trip.type)}</div>
-          <div style="display:flex;align-items:center;gap:6px">
-            <span class="obs-card-badge">👁 Observation</span>
-            <button class="obs-leave-card-btn"
-                    data-action="leave-trip"
-                    data-trip-id="${trip.id}"
-                    title="Quitter ce voyage">✕ Quitter</button>
-          </div>
-        </div>
-        <div class="tc-title">${trip.flag || '🌍'} ${_esc(trip.name || 'Voyage')}</div>
-        <div class="tc-dates">${dateStr}</div>
-        ${ownerHtml}
-      </div>
-    </div>
-  `;
-}
-
-// ── Trip card HTML ─────────────────────────────────────────────────────────────
-
-function _tripCardHtml(trip) {
-  if (trip.type === 'sortie') return _sortieCardHtml(trip);
-
-  // Photo or colored emoji placeholder
-  let imgHtml;
-  if (trip.photo) {
-    imgHtml = `
-      <img class="tc-img" src="${_esc(trip.photo)}" alt=""
-           loading="lazy" decoding="async"
-           onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
-      <div class="tc-img-ph" style="background:${trip.color || '#0d9488'};display:none">${trip.flag || '🌍'}</div>
-    `;
-  } else {
-    imgHtml = `<div class="tc-img-ph" style="background:${trip.color || '#0d9488'}">${trip.flag || '🌍'}</div>`;
-  }
-
-  // Date range
-  let dateStr = 'Dates à définir';
-  if (trip.startDate && trip.endDate) {
-    dateStr = `${fmtDateShort(trip.startDate)} → ${fmtDate(trip.endDate)}`;
-  } else if (trip.startDate) {
-    dateStr = `Dès ${fmtDate(trip.startDate)}`;
-  }
-
-  // Companions
-  const comps = trip.companions || [];
-  let compsHtml;
-  if (comps.length === 0) {
-    compsHtml = `<span style="font-size:11px;color:var(--ink4);font-weight:600">Solo</span>`;
-  } else {
-    const shown = comps.slice(0, 4);
-    compsHtml = shown.map((c, i) => {
-      const bg = c.color || _compColor(i);
-      return `<div class="comp-avatar" style="background:${bg}" title="${_esc(c.name)}">${_initials(c.name)}</div>`;
-    }).join('');
-    if (comps.length > 4) {
-      compsHtml += `<span style="font-size:10px;color:var(--ink4);font-weight:700">+${comps.length - 4}</span>`;
-    }
-  }
-
-  // Stats
-  const stats = [];
-  if (trip.startDate && trip.endDate) {
-    const days = Math.round(
-      (new Date(trip.endDate + 'T12:00:00') - new Date(trip.startDate + 'T12:00:00')) / 86400000
-    ) + 1;
-    if (days > 0) stats.push(`${days} jour${days > 1 ? 's' : ''}`);
-  }
-  if (Array.isArray(trip.realExpenses) && trip.realExpenses.length > 0) {
-    const spent = trip.realExpenses.reduce((s, e) => s + (e.type !== 'transfer' ? (Number(e.amount) || 0) : 0), 0);
-    if (spent > 0) stats.push(`${Math.round(spent).toLocaleString('fr-FR')} €`);
-  }
-  const statsHtml = stats.length
-    ? `<div class="tc-stats">${stats.map(s => `<span class="tc-s">${s}</span>`).join('')}</div>`
-    : '';
-
-  // Status badge — overlaid on image top-right
-  const isDone      = (trip.status || 'done') === 'done';
-  const badgeBg     = isDone ? 'rgba(22,163,74,0.88)' : 'rgba(2,132,199,0.88)';
-  const badgeIcon   = isDone ? '☑' : '☐';
-  const badgeLabel  = isDone ? 'Réalisé' : 'En planification';
-  const statusBadgeHtml = `<div
-    data-action="toggle-status"
-    data-trip-id="${trip.id}"
-    style="position:absolute;top:8px;right:8px;z-index:2;cursor:pointer;background:${badgeBg};color:#fff;border-radius:999px;padding:3px 9px;font-size:10px;font-weight:700;display:flex;align-items:center;gap:4px;border:1.5px solid rgba(255,255,255,0.5);box-shadow:0 1px 4px rgba(0,0,0,.25);white-space:nowrap"
-  ><span style="font-size:12px;line-height:1">${badgeIcon}</span>${badgeLabel}</div>`;
-
-  return `
-    <div class="trip-card" data-action="open-trip" data-trip-id="${trip.id}">
-      <div style="position:relative">${imgHtml}${statusBadgeHtml}</div>
-      <div class="tc-body">
-        <div class="tc-header">
-          <div>${typeBadge(trip.type)}</div>
-          <div style="display:flex;gap:4px">
-            <button class="tc-share-btn"
-                    data-action="share-trip"
-                    data-trip-id="${trip.id}"
-                    title="Partager">🔗</button>
-            <button class="tc-edit-btn"
-                    data-action="edit-trip"
-                    data-trip-id="${trip.id}"
-                    title="Modifier">✎</button>
-            <button class="tc-more-btn"
-                    data-action="trip-menu"
-                    data-trip-id="${trip.id}"
-                    title="Plus d'options">⋯</button>
-          </div>
-        </div>
-        <div class="tc-title">${trip.flag || '🌍'} ${_esc(trip.name) || 'Sans titre'}</div>
-        <div class="tc-dates">${dateStr}</div>
-        <div class="tc-companions">${compsHtml}</div>
-        ${statsHtml}
-      </div>
-    </div>
-  `;
-}
-
-function _addCardHtml() {
-  return `
-    <div class="trip-card tc-add" data-action="new-trip">
-      <div class="ai">＋</div>
-      <span>Nouveau voyage</span>
-    </div>
-  `;
-}
-
 // ── Live feed helpers ─────────────────────────────────────────────────────────
 
 function _liveGpxSlide(item) {
@@ -1764,6 +1529,492 @@ function _openLiveCommentsModal(tripId, itemId, itemText) {
   });
 }
 
+// ── Accueil v2 (refonte bêta) : globe plein écran + feuille profil ──────────────
+//
+// Mise en page : globe (homeglobe.js) en fond, feuille « profil » glissable par-
+// dessus (3 crans : peek / mid / full), barre d'onglets flottante en bas
+// (Mes voyages / Mes observations / En direct). Sur desktop large, la feuille est
+// un panneau fixe à gauche et le globe occupe le reste.
+
+let _hv2Snap       = 'mid';    // 'peek' | 'mid' | 'full' — conservé entre les re-renders
+let _hv2SearchOpen = false;
+let _hv2Globe      = null;     // instance mountHomeGlobe courante
+let _hv2Translate  = null;     // translateY courant de la feuille (px)
+
+const _HV2_WIDE = () => window.innerWidth > 900;
+
+function _hv2DaysCount(trip) {
+  if (!trip.startDate || !trip.endDate) return 0;
+  const d = Math.round((new Date(trip.endDate + 'T12:00:00') - new Date(trip.startDate + 'T12:00:00')) / 86400000) + 1;
+  return d > 0 ? d : 0;
+}
+
+function _hv2Spent(trip) {
+  return (trip.realExpenses || []).reduce((s, e) => s + (e.type !== 'transfer' ? (Number(e.amount) || 0) : 0), 0);
+}
+
+/** Pays visités : codes déduits du voyage (drapeau/destination) + pays détectés par PIN (v206). */
+function _hv2VisitedCodes(trips) {
+  const codes = new Set();
+  for (const t of trips) {
+    if (t.status !== 'done') continue;
+    for (const c of _tripIsoCodes(t)) codes.add(c);
+    if (t.pin?.countryCode) codes.add(t.pin.countryCode.toUpperCase());
+    for (const day of (t.days || [])) {
+      for (const it of (day.items || [])) if (it.countryCode) codes.add(it.countryCode.toUpperCase());
+    }
+  }
+  return codes;
+}
+
+function _hv2IsOngoing(trip) {
+  if (!trip.startDate) return false;
+  const today = new Date().toISOString().slice(0, 10);
+  return trip.startDate <= today && today <= (trip.endDate || trip.startDate);
+}
+
+const _HV2_TYPE_WORD = { voyage: 'Voyage', weekend: 'Week-end', sortie: 'Sortie' };
+
+function _hv2StatusPill(trip, { observed = false } = {}) {
+  const word = _HV2_TYPE_WORD[trip.type] || 'Voyage';
+  const e    = trip.type === 'sortie' ? 'e' : ''; // accord : « sortie réalisée »
+  if (observed) return `<span class="hv2-pill"><i class="hv2-dot hv2-dot-obs"></i>${word} observé${e}</span>`;
+  const ongoing = _hv2IsOngoing(trip);
+  const done    = (trip.status || 'done') === 'done';
+  const label   = ongoing && !done ? `${word} en cours` : done ? `${word} réalisé${e}` : `${word} programmé${e}`;
+  const dot     = ongoing && !done ? 'hv2-dot-live' : done ? 'hv2-dot-done' : '';
+  return `<button class="hv2-pill" data-action="toggle-status" data-trip-id="${trip.id}"
+            title="Basculer réalisé / en planification"><i class="hv2-dot ${dot}"></i>${label}</button>`;
+}
+
+function _hv2CoverHtml(trip, fallbackEmoji) {
+  const ph = `<div class="hv2-card-ph" style="--tc:${_esc(trip.color || '#0d9488')}"${trip.photo ? ' hidden' : ''}>${fallbackEmoji}</div>`;
+  if (!trip.photo) return ph;
+  return `<img class="hv2-card-img" src="${_esc(trip.photo)}" alt="" loading="lazy" decoding="async"
+            onerror="this.remove();this.parentElement.querySelector('.hv2-card-ph').hidden=false">${ph}`;
+}
+
+function _hv2CompsHtml(comps) {
+  if (!comps?.length) return '';
+  return `<div class="hv2-card-comps">${comps.slice(0, 3).map((c, i) =>
+    `<span style="background:${c.color || _compColor(i)}" title="${_esc(c.name)}">${_initials(c.name)}</span>`).join('')}
+    ${comps.length > 3 ? `<span class="hv2-comps-more">+${comps.length - 3}</span>` : ''}</div>`;
+}
+
+function _hv2Stat(value, label) {
+  return `<div class="hv2-cs"><b>${value}</b><span>${label}</span></div>`;
+}
+
+function _hv2CardHtml(trip) {
+  const isSortie = trip.type === 'sortie';
+  const pin      = trip.pin || {};
+  const et       = isSortie ? (getEventTypes().find(e => e.key === (pin.pinType || 'visit')) || getEventTypes()[0]) : null;
+  const start    = isSortie ? (pin.date || trip.startDate) : trip.startDate;
+  const stats    = [];
+  if (start) {
+    const d = new Date(start + 'T12:00:00');
+    stats.push(isSortie
+      ? _hv2Stat(d.getDate(), d.toLocaleDateString('fr-FR', { month: 'short', year: 'numeric' }))
+      : _hv2Stat(d.getFullYear(), d.toLocaleDateString('fr-FR', { month: 'long' })));
+  } else {
+    stats.push(_hv2Stat('—', 'Dates à définir'));
+  }
+  if (isSortie) {
+    if (et) stats.push(_hv2Stat(et.emoji, et.label || 'Sortie'));
+  } else {
+    const days = _hv2DaysCount(trip);
+    if (days) stats.push(_hv2Stat(days, days > 1 ? 'jours' : 'jour'));
+  }
+  const spent = isSortie ? Number(pin.cost) || 0 : _hv2Spent(trip);
+  if (spent > 0) stats.push(_hv2Stat(`${Math.round(spent).toLocaleString('fr-FR')} €`, 'dépensés'));
+
+  return `
+    <article class="hv2-card" data-action="open-trip" data-trip-id="${trip.id}">
+      ${_hv2CoverHtml(trip, isSortie ? (et?.emoji || '📍') : (trip.flag || '🌍'))}
+      <div class="hv2-card-shade"></div>
+      <div class="hv2-card-top">
+        ${_hv2StatusPill(trip)}
+        <div class="hv2-card-acts">
+          ${isSortie ? '' : `<button class="hv2-glass" data-action="share-trip" data-trip-id="${trip.id}" title="Partager">🔗</button>`}
+          <button class="hv2-glass" data-action="edit-trip" data-trip-id="${trip.id}" title="Modifier">✎</button>
+          <button class="hv2-glass" data-action="trip-menu" data-trip-id="${trip.id}" title="Plus d'options">⋯</button>
+        </div>
+      </div>
+      <div class="hv2-card-bottom">
+        <h3 class="hv2-card-title">${_esc(trip.name || (isSortie ? 'Sortie' : 'Sans titre'))}</h3>
+        ${trip.destination && isSortie ? `<div class="hv2-card-sub">📍 ${_esc(trip.destination)}</div>` : ''}
+        <div class="hv2-card-stats">${stats.join('')}${_hv2CompsHtml(trip.companions)}</div>
+      </div>
+    </article>`;
+}
+
+function _hv2ObservedCardHtml(trip) {
+  let travelers = '';
+  const sharedDoc = getSharedDocData(trip.id);
+  if (sharedDoc?.members) {
+    const names = Object.values(sharedDoc.members)
+      .filter(m => m.role === 'owner' || m.role === 'member').map(m => m.companionName).filter(Boolean);
+    if (names.length) travelers = names.length === 1 ? names[0] : names.slice(0, -1).join(', ') + ' et ' + names[names.length - 1];
+  }
+  const stats = [];
+  if (trip.startDate) {
+    const d = new Date(trip.startDate + 'T12:00:00');
+    stats.push(_hv2Stat(d.getFullYear(), d.toLocaleDateString('fr-FR', { month: 'long' })));
+  }
+  const days = _hv2DaysCount(trip);
+  if (days) stats.push(_hv2Stat(days, days > 1 ? 'jours' : 'jour'));
+  return `
+    <article class="hv2-card" data-action="open-trip" data-trip-id="${trip.id}">
+      ${_hv2CoverHtml(trip, trip.flag || '🌍')}
+      <div class="hv2-card-shade"></div>
+      <div class="hv2-card-top">
+        ${_hv2StatusPill(trip, { observed: true })}
+        <div class="hv2-card-acts">
+          <button class="hv2-glass hv2-glass-txt" data-action="leave-trip" data-trip-id="${trip.id}" title="Quitter ce voyage">Quitter</button>
+        </div>
+      </div>
+      <div class="hv2-card-bottom">
+        <h3 class="hv2-card-title">${_esc(trip.name || 'Voyage')}</h3>
+        ${travelers ? `<div class="hv2-card-sub">✈️ ${_esc(travelers)}</div>` : ''}
+        <div class="hv2-card-stats">${stats.join('')}</div>
+      </div>
+    </article>`;
+}
+
+function _hv2ProfileHtml(myTrips) {
+  const user    = getCurrentUser();
+  const name    = user?.displayName || user?.email || 'Mon carnet';
+  const avatar  = user?.photoURL
+    ? `<img src="${_esc(user.photoURL)}" alt="" referrerpolicy="no-referrer">`
+    : `<span>${_esc((name[0] || '✈').toUpperCase())}</span>`;
+  const countries = _hv2VisitedCodes(myTrips).size;
+  const totalDays = myTrips.reduce((s, t) => s + _hv2DaysCount(t), 0);
+  return `
+    <div class="hv2-profile">
+      <div class="hv2-avatar">${avatar}</div>
+      <div class="hv2-name">${_esc(name)}</div>
+    </div>
+    <div class="hv2-kpis">
+      <div><b>${countries}</b><span>Pays</span></div>
+      <div><b>${myTrips.length}</b><span>Voyages</span></div>
+      <div><b>${totalDays}</b><span>Jours</span></div>
+    </div>
+    <div class="hv2-actions">
+      <button class="hv2-btn hv2-btn-dark" data-action="hv2-add">＋ Ajouter un voyage</button>
+      <button class="hv2-btn hv2-btn-line" data-action="show-stats">📈 Statistiques</button>
+      <button class="hv2-btn hv2-btn-round" data-action="hv2-more" title="Plus">⋯</button>
+    </div>`;
+}
+
+function _hv2MineHtml(myTrips, filter) {
+  const chips = [['all', 'Tous'], ['voyage', '✈️ Voyages'], ['weekend', '🌿 Week-ends'], ['sortie', '📍 Sorties']]
+    .map(([k, l]) => `<button class="hv2-chip${filter === k ? ' active' : ''}" data-action="filter" data-filter="${k}">${l}</button>`).join('');
+  const shown    = filter === 'all' ? myTrips : myTrips.filter(t => t.type === filter);
+  const upcoming = shown.filter(t => (t.status || 'done') !== 'done')
+    .sort((a, b) => (a.startDate || '9999').localeCompare(b.startDate || '9999'));
+  const past     = shown.filter(t => (t.status || 'done') === 'done');
+  const section  = (title, list) => list.length
+    ? `<h2 class="hv2-h2">${title}</h2><div class="hv2-list">${list.map(_hv2CardHtml).join('')}</div>` : '';
+  return `
+    ${_hv2ProfileHtml(myTrips)}
+    <div class="hv2-search"${_hv2SearchOpen ? '' : ' hidden'}>
+      <input id="global-search" type="search" placeholder="Rechercher un voyage, un lieu, une dépense…" autocomplete="off">
+    </div>
+    <div class="hv2-chips">${chips}</div>
+    <div id="search-results-area" class="sr-area hv2-sr" style="display:none"></div>
+    <div id="trips-grid">
+      ${section('Voyages à venir', upcoming)}
+      ${section('Voyages passés', past)}
+      ${shown.length ? '' : `<div class="hv2-empty"><div>🧭</div>Aucun voyage pour l'instant</div>`}
+      <button class="hv2-cta" data-action="hv2-add">＋ Ajouter un voyage</button>
+    </div>`;
+}
+
+function _hv2ObservingHtml(observingTrips) {
+  return `
+    <h2 class="hv2-h2 hv2-h2-top">Mes observations</h2>
+    ${observingTrips.length
+      ? `<div class="hv2-list">${observingTrips.map(_hv2ObservedCardHtml).join('')}</div>`
+      : `<div class="hv2-empty"><div>🔭</div>Aucun voyage suivi.<br>Collez un lien d'invitation ou scannez son QR code.</div>`}
+    <button class="hv2-cta" data-action="hv2-join">＋ Rejoindre un voyage</button>`;
+}
+
+function _hv2LiveHtml(observingTrips) {
+  return `
+    <h2 class="hv2-h2 hv2-h2-top">En direct</h2>
+    <div class="live-feed-wrap">${_buildLiveFeedHtml(observingTrips)}</div>`;
+}
+
+// ── Feuille glissable ──────────────────────────────────────────────────────────
+
+function _hv2Metrics() {
+  const H     = window.innerHeight;
+  const sheet = document.getElementById('hv2-sheet');
+  const top   = document.getElementById('hv2-top');
+  const sheetH = sheet?.offsetHeight || H;
+  const topH   = top ? top.getBoundingClientRect().bottom : 70;
+  return {
+    H, sheetH, topH,
+    snaps: {
+      full: 0,
+      mid:  Math.max(0, sheetH - Math.round(H * 0.5)),
+      peek: Math.max(0, sheetH - 210),
+    },
+  };
+}
+
+function _hv2ApplySheet(translate, animate) {
+  const sheet = document.getElementById('hv2-sheet');
+  if (!sheet) return;
+  _hv2Translate = translate;
+  sheet.style.transition = animate ? 'transform .32s cubic-bezier(.2,.8,.2,1)' : 'none';
+  sheet.style.transform  = `translateY(${translate}px)`;
+  _hv2UpdateGlobeArea(animate);
+}
+
+function _hv2SetSnap(snap, animate = true) {
+  _hv2Snap = snap;
+  const root = document.getElementById('hv2');
+  if (!root) return;
+  root.dataset.snap = snap;
+  if (_HV2_WIDE()) { _hv2UpdateGlobeArea(false); return; }
+  _hv2ApplySheet(_hv2Metrics().snaps[snap], animate);
+}
+
+function _hv2UpdateGlobeArea(animate) {
+  if (!_hv2Globe) return;
+  const W = window.innerWidth, H = window.innerHeight;
+  const topH = document.getElementById('hv2-top')?.getBoundingClientRect().bottom || 70;
+  if (_HV2_WIDE()) {
+    const panelW = document.getElementById('hv2-sheet')?.offsetWidth || 440;
+    _hv2Globe.setArea({ x: panelW, y: 0, w: W - panelW, h: H });
+    return;
+  }
+  const set = () => {
+    const sheet = document.getElementById('hv2-sheet');
+    const sheetTop = sheet ? sheet.getBoundingClientRect().top : H * 0.5;
+    const y = topH - 10;
+    _hv2Globe?.setArea({ x: 0, y, w: W, h: Math.max(80, sheetTop - y + 20) });
+  };
+  if (!animate) { set(); return; }
+  // Suit l'animation CSS de la feuille pendant sa durée
+  const t0 = performance.now();
+  const step = () => { set(); if (performance.now() - t0 < 360) requestAnimationFrame(step); };
+  requestAnimationFrame(step);
+}
+
+function _hv2BindSheet() {
+  const sheet  = document.getElementById('hv2-sheet');
+  const scroll = document.getElementById('hv2-scroll');
+  if (!sheet || !scroll) return;
+
+  let startY = 0, startT = 0, mode = null, lastY = 0, lastT = 0, vel = 0, suppressClick = false;
+
+  const begin = y => { startY = lastY = y; lastT = performance.now(); startT = _hv2Translate ?? 0; mode = null; vel = 0; };
+  const move  = (y, e) => {
+    const dy = y - startY;
+    if (!mode) {
+      if (Math.abs(dy) < 6) return;
+      mode = (_hv2Snap !== 'full' || (scroll.scrollTop <= 0 && dy > 0)) ? 'sheet' : 'scroll';
+    }
+    if (mode !== 'sheet') return;
+    e?.cancelable && e.preventDefault();
+    const now = performance.now();
+    vel = (y - lastY) / Math.max(1, now - lastT);
+    lastY = y; lastT = now;
+    const { snaps } = _hv2Metrics();
+    _hv2ApplySheet(Math.max(0, Math.min(snaps.peek + 40, startT + dy)), false);
+  };
+  const end = () => {
+    if (mode !== 'sheet') { mode = null; return; }
+    suppressClick = true;
+    setTimeout(() => { suppressClick = false; }, 60);
+    const { snaps } = _hv2Metrics();
+    const order = ['full', 'mid', 'peek'];
+    let target;
+    if (Math.abs(vel) > 0.45) {
+      const cur = order.reduce((best, s) => Math.abs(snaps[s] - _hv2Translate) < Math.abs(snaps[best] - _hv2Translate) ? s : best, 'mid');
+      const idx = order.indexOf(cur);
+      const dir = vel > 0 ? 1 : -1;
+      // Si on est déjà au cran le plus proche dans le sens du geste, aller au suivant
+      const passed = dir > 0 ? _hv2Translate > snaps[cur] - 4 : _hv2Translate < snaps[cur] + 4;
+      target = order[Math.max(0, Math.min(2, passed ? idx + dir : idx))];
+    } else {
+      target = order.reduce((best, s) => Math.abs(snaps[s] - _hv2Translate) < Math.abs(snaps[best] - _hv2Translate) ? s : best, 'mid');
+    }
+    mode = null;
+    _hv2SetSnap(target, true);
+  };
+
+  sheet.addEventListener('touchstart', e => { if (!_HV2_WIDE()) begin(e.touches[0].clientY); }, { passive: true });
+  sheet.addEventListener('touchmove',  e => { if (!_HV2_WIDE()) move(e.touches[0].clientY, e); }, { passive: false });
+  sheet.addEventListener('touchend',   () => { if (!_HV2_WIDE()) end(); });
+  sheet.addEventListener('touchcancel',() => { if (!_HV2_WIDE()) end(); });
+
+  // Souris (fenêtre étroite sur desktop) : glisser par la poignée
+  const grab = sheet.querySelector('.hv2-grab');
+  grab?.addEventListener('pointerdown', e => {
+    if (e.pointerType !== 'mouse' || _HV2_WIDE()) return;
+    begin(e.clientY);
+    const mm = ev => move(ev.clientY, ev);
+    const mu = () => { end(); window.removeEventListener('pointermove', mm); window.removeEventListener('pointerup', mu); };
+    window.addEventListener('pointermove', mm);
+    window.addEventListener('pointerup', mu);
+  });
+  // Tap sur la poignée : cycle peek → mid → full
+  grab?.addEventListener('click', () => {
+    if (_HV2_WIDE()) return;
+    _hv2SetSnap(_hv2Snap === 'peek' ? 'mid' : _hv2Snap === 'mid' ? 'full' : 'mid');
+  });
+
+  // Un glissé de la feuille ne doit pas ouvrir la carte de voyage sous le doigt
+  sheet.addEventListener('click', e => { if (suppressClick) { e.stopPropagation(); e.preventDefault(); } }, true);
+}
+
+// ── Popups / menus ─────────────────────────────────────────────────────────────
+
+function _hv2ShowPinPop(pins) {
+  const pop = document.getElementById('hv2-pin-pop');
+  if (!pop) return;
+  if (!pins.length) { pop.hidden = true; return; }
+  const rows = pins.slice(0, 5).map(p => `
+    <button class="hv2-pop-row" data-action="open-trip" data-trip-id="${p.tripId}">
+      ${p.photo ? `<img src="${_esc(p.photo)}" alt="" loading="lazy">` : `<span class="hv2-pop-dot" style="background:${_esc(p.color)}"></span>`}
+      <span class="hv2-pop-txt"><b>${_esc(p.title)}</b><small>${_esc(p.tripName)}${p.date ? ' · ' + fmtDateShort(p.date) : ''}</small></span>
+      <span class="hv2-pop-go">›</span>
+    </button>`).join('');
+  pop.innerHTML = `<button class="hv2-pop-close" data-action="hv2-pop-close">✕</button>${rows}
+    ${pins.length > 5 ? `<div class="hv2-pop-more">+ ${pins.length - 5} autres lieux</div>` : ''}`;
+  pop.hidden = false;
+}
+
+function _hv2OpenAddMenu() {
+  showModal(`
+    <button class="mc" onclick="closeModal()">✕</button>
+    <h3>Ajouter</h3>
+    <div class="hv2-add-grid">
+      <button data-type="voyage"><span>✈️</span><b>Voyage</b><small>Plusieurs jours, itinéraire</small></button>
+      <button data-type="weekend"><span>🌿</span><b>Week-end</b><small>Court séjour</small></button>
+      <button data-type="sortie"><span>📍</span><b>Sortie</b><small>Un lieu, une journée</small></button>
+      <button data-join="1"><span>🔭</span><b>Rejoindre</b><small>Lien ou QR code</small></button>
+    </div>`);
+  document.querySelector('.hv2-add-grid')?.addEventListener('click', e => {
+    const b = e.target.closest('button');
+    if (!b) return;
+    if (b.dataset.join) { _openJoinTripModal(); return; }
+    openEditTripModal(null, b.dataset.type);
+  });
+}
+
+function _hv2OpenMoreMenu() {
+  const isStandalone = window.matchMedia('(display-mode:standalone)').matches || !!navigator.standalone;
+  showModal(`
+    <button class="mc" onclick="closeModal()">✕</button>
+    <h3>Mon carnet</h3>
+    <div class="hv2-more-list">
+      <button data-do="search">🔍 Rechercher</button>
+      <button data-do="mymap">🗺 Mes destinations</button>
+      <button data-do="import">⬆ Importer</button>
+      <button data-do="export">⬇ Exporter</button>
+      ${isStandalone ? '' : '<button data-do="install">📲 Installer l\'application</button>'}
+      ${getCurrentUser() ? '<button data-do="logout" class="hv2-more-danger">Déconnexion</button>' : ''}
+    </div>
+    <div style="text-align:center;font-size:11px;color:var(--ink4);margin-top:10px">Carnet de Voyages v${APP_VERSION}</div>`);
+  document.querySelector('.hv2-more-list')?.addEventListener('click', e => {
+    const b = e.target.closest('button[data-do]');
+    if (!b) return;
+    const act = b.dataset.do;
+    if (act !== 'import' && act !== 'export') closeModal();
+    if (act === 'search')  _hv2OpenSearch();
+    if (act === 'mymap')   window.goMyMap();
+    if (act === 'import')  _openImportModal();
+    if (act === 'export')  _openExportModal();
+    // Les actions suivantes réutilisent les cas existants du listener délégué
+    if (act === 'install' || act === 'logout') {
+      const fake = document.createElement('button');
+      fake.dataset.action = act === 'install' ? 'pwa-install' : 'logout';
+      fake.hidden = true;
+      document.getElementById('home-wrap')?.appendChild(fake);
+      fake.click();
+      fake.remove();
+    }
+  });
+}
+
+function _hv2OpenSearch() {
+  _hv2SearchOpen = true;
+  if (_homeLibTab !== 'mine') { _homeLibTab = 'mine'; renderHome(_currentFilter); }
+  const box = document.querySelector('.hv2-search');
+  if (box) box.hidden = false;
+  _hv2SetSnap('full');
+  setTimeout(() => document.getElementById('global-search')?.focus(), 340);
+}
+
+// ── Rendu ──────────────────────────────────────────────────────────────────────
+
+function _renderHomeV2(wrap, { myTrips, observingTrips, filter }) {
+  const prevScroll = document.getElementById('hv2-scroll')?.scrollTop || 0;
+  const unreadLive = _lvUnreadCount(observingTrips);
+  const content = _homeLibTab === 'live' ? _hv2LiveHtml(observingTrips)
+    : _homeLibTab === 'observing' ? _hv2ObservingHtml(observingTrips)
+    : _hv2MineHtml(myTrips, filter);
+  const tab = (key, label) =>
+    `<button class="hv2-tab${_homeLibTab === key ? ' active' : ''}" data-action="lib-tab" data-tab="${key}">${label}</button>`;
+
+  wrap.innerHTML = `
+    <div class="hv2" id="hv2" data-snap="${_hv2Snap}">
+      <canvas class="hv2-globe" id="hv2-globe"></canvas>
+      <div class="hv2-top" id="hv2-top">
+        <button class="hv2-round hv2-menu" data-action="hv2-destinations" title="Mes destinations">
+          <svg viewBox="0 0 24 24" width="20" height="20"><path d="M4 7h16M4 12h16M4 17h16" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+        </button>
+        <div class="hv2-brand"><span class="hv2-logo">✈</span>carnet</div>
+        <button class="hv2-round" data-action="open-settings" title="Paramètres">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.9"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1.1-1.55 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.55-1H3a2 2 0 1 1 0-4h.09A1.7 1.7 0 0 0 4.6 8.9a1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.6h.01A1.7 1.7 0 0 0 10 3.05V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.55 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 9v.01a1.7 1.7 0 0 0 1.55 1H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.55 1z"/></svg>
+        </button>
+      </div>
+      <div class="hv2-pin-pop" id="hv2-pin-pop" hidden></div>
+      <section class="hv2-sheet" id="hv2-sheet">
+        <div class="hv2-grab"><span></span></div>
+        <div class="hv2-scroll" id="hv2-scroll">${content}</div>
+      </section>
+      <nav class="hv2-nav">
+        <div class="hv2-tabs">
+          ${tab('mine', '<span>🧳</span>Mes voyages')}
+          ${tab('observing', '<span>🔭</span>Observations')}
+          ${tab('live', `<span>📡</span>En direct${unreadLive > 0 ? `<em>${unreadLive}</em>` : ''}`)}
+        </div>
+        <button class="hv2-search-btn" data-action="hv2-search" title="Rechercher">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.6-3.6"/></svg>
+        </button>
+      </nav>
+    </div>`;
+
+  // Globe
+  _hv2Globe?.destroy();
+  const canvas = document.getElementById('hv2-globe');
+  const visited = _hv2VisitedCodes(myTrips);
+  _hv2Globe = mountHomeGlobe(canvas, {
+    pins: collectGlobePins(myTrips),
+    visited,
+    featureCode: f => _ISO_N_A2[Number(f.id)] || '',
+    onPinTap: _hv2ShowPinPop,
+  });
+
+  _hv2BindSheet();
+  // Position initiale sans animation, puis restauration du scroll de la liste
+  requestAnimationFrame(() => {
+    _hv2SetSnap(_hv2Snap, false);
+    const sc = document.getElementById('hv2-scroll');
+    if (sc && _hv2Snap === 'full') sc.scrollTop = prevScroll;
+  });
+  _initHomeCarousels(wrap);
+}
+
+window.addEventListener('resize', () => {
+  if (document.getElementById('hv2')) _hv2SetSnap(_hv2Snap, false);
+});
+
 // ── Render home ────────────────────────────────────────────────────────────────
 
 export function renderHome(filter = _currentFilter) {
@@ -1774,34 +2025,19 @@ export function renderHome(filter = _currentFilter) {
   if (!wrap) return;
 
   const allTrips = getTrips();
-  const filtered = filter === 'all'
-    ? allTrips
-    : allTrips.filter(t => t.type === filter);
-
-  // Sort: newest startDate first, fallback to createdAt
-  const sorted = [...filtered].sort((a, b) => {
+  // Newest startDate first, fallback to createdAt (the "upcoming" section re-sorts ascending)
+  const myTrips = allTrips.filter(t => !isCurrentUserObserver(t.id)).sort((a, b) => {
     const da = a.startDate || a.createdAt || '';
     const db = b.startDate || b.createdAt || '';
     return da > db ? -1 : da < db ? 1 : 0;
   });
-
-  const myTrips        = sorted.filter(t => !isCurrentUserObserver(t.id));
   const observingTrips = allTrips.filter(t => isCurrentUserObserver(t.id));
-  const heroTrips      = allTrips.filter(t => !isCurrentUserObserver(t.id));
-
-  // Inline tab switcher — lives inside home-sec-hd so it adds no extra row
-  const unreadLive = _lvUnreadCount(observingTrips);
-  const tabSwitcher = `
-    <div class="hl-tabs hl-tabs-inline">
-      <button class="hl-tab${_homeLibTab === 'mine' ? ' active' : ''}" data-action="lib-tab" data-tab="mine">🧳 Mes voyages</button>
-      <button class="hl-tab${_homeLibTab === 'observing' ? ' active' : ''}" data-action="lib-tab" data-tab="observing">🔭 Mes observations</button>
-      <button class="hl-tab${_homeLibTab === 'live' ? ' active' : ''}" data-action="lib-tab" data-tab="live">📡 En direct${unreadLive > 0 ? `<span class="hl-tab-badge">${unreadLive}</span>` : ''}</button>
-    </div>`;
 
   const settings = getSettings();
 
   // ── Grands-parents mode: ultra-simplified view ───────────────────────────────
   if (settings.grandParentsMode) {
+    _hv2Globe?.destroy(); _hv2Globe = null;
     wrap.innerHTML = `
       <div class="hero gp-hero">
         <div style="display:flex;align-items:center;justify-content:space-between;width:100%">
@@ -1818,89 +2054,12 @@ export function renderHome(filter = _currentFilter) {
     return;
   }
 
-  let secContent;
-  if (_homeLibTab === 'live') {
-    secContent = `
-      <div class="home-sec-hd">
-        ${tabSwitcher}
-      </div>
-      <div class="live-feed-wrap">${_buildLiveFeedHtml(observingTrips)}</div>`;
-  } else if (_homeLibTab === 'observing') {
-    secContent = `
-      <div class="home-sec-hd">
-        ${tabSwitcher}
-      </div>
-      ${observingTrips.length === 0 ? `
-        <div style="text-align:center;padding:40px 16px;color:var(--ink4)">
-          <div style="font-size:36px;margin-bottom:10px">🔭</div>
-          <div style="font-size:14px;font-weight:600;margin-bottom:6px">Aucun voyage suivi</div>
-          <div style="font-size:12px">Collez un lien d'invitation ou scannez son QR code<br>avec le bouton ＋ en bas à droite.</div>
-        </div>` : `
-        <div class="trips-grid" id="trips-grid">
-          ${observingTrips.map(_observedTripCardHtml).join('')}
-        </div>`}`;
-  } else {
-    secContent = `
-      <div class="home-sec-hd">
-        ${tabSwitcher}
-        <button class="btn-new hero-new-btn" data-action="new-trip">＋ Nouveau</button>
-      </div>
-      ${_filterTabsHtml(filter, 'trips')}
-      <div id="search-results-area" class="sr-area" style="display:none"></div>
-      <div class="trips-grid" id="trips-grid">
-        ${myTrips.map(_tripCardHtml).join('')}
-        ${_addCardHtml()}
-      </div>`;
-  }
-
-  // On "Mes observations", the FAB has nothing to create — it joins a trip
-  // (paste link / scan QR) directly, without a submenu, instead of offering
-  // Sortie/Week-end/Voyage creation, which don't make sense from this tab.
-  const isObservingTab = _homeLibTab === 'observing';
-  wrap.innerHTML = `
-    ${_heroHtml(heroTrips)}
-    <div class="home-sec">${secContent}</div>
-    <button class="home-fab" id="home-fab" title="${isObservingTab ? 'Rejoindre un voyage' : 'Ajouter un voyage'}">＋</button>
-    ${isObservingTab ? '' : `
-    <div class="home-fab-menu panel-fab-menu" id="home-fab-menu">
-      <button class="pfm-btn" data-action="new-trip" data-type="sortie">📍 Sortie</button>
-      <button class="pfm-btn" data-action="new-trip" data-type="weekend">🌿 Week-end</button>
-      <button class="pfm-btn" data-action="new-trip" data-type="voyage">✈️ Voyage</button>
-    </div>`}
-  `;
+  _renderHomeV2(wrap, { myTrips, observingTrips, filter });
 
   // Attach the click listener only once; subsequent renderHome calls reuse it
   if (!_listenerAttached) {
     _attachListeners(wrap);
     _listenerAttached = true;
-  }
-
-  _initHomeCarousels(wrap);
-
-  // Home FAB toggle — #home-fab/#home-fab-menu are recreated by the innerHTML
-  // above on every renderHome() call, so their own click listener is safe to
-  // rebind each time (the old nodes + listeners are garbage collected
-  // together). The outside-click closer below is bound to `document`, which
-  // is never recreated, so it must only ever be attached once — otherwise
-  // every renderHome() (triggered on nearly every state change) stacks one
-  // more permanent listener on `document`, an unbounded leak over a session.
-  const homeFab = document.getElementById('home-fab');
-  const fabMenu = document.getElementById('home-fab-menu'); // absent on "Mes observations"
-  if (homeFab) {
-    homeFab.addEventListener('click', e => {
-      e.stopPropagation();
-      if (isObservingTab) { _openJoinTripModal(); return; }
-      if (!fabMenu) return;
-      const open = fabMenu.classList.toggle('visible');
-      homeFab.classList.toggle('open', open);
-    });
-  }
-  if (!_fabOutsideClickBound) {
-    document.addEventListener('click', () => {
-      document.getElementById('home-fab-menu')?.classList.remove('visible');
-      document.getElementById('home-fab')?.classList.remove('open');
-    });
-    _fabOutsideClickBound = true;
   }
 }
 
@@ -2385,7 +2544,32 @@ function _attachListeners(wrap) {
         break;
 
       case 'show-stats':
+        _hv2Globe?.destroy(); _hv2Globe = null;
         _renderStats();
+        break;
+
+      case 'hv2-add':
+        _hv2OpenAddMenu();
+        break;
+
+      case 'hv2-more':
+        _hv2OpenMoreMenu();
+        break;
+
+      case 'hv2-join':
+        _openJoinTripModal();
+        break;
+
+      case 'hv2-search':
+        _hv2OpenSearch();
+        break;
+
+      case 'hv2-destinations':
+        window.goMyMap({ tab: 'destinations' });
+        break;
+
+      case 'hv2-pop-close':
+        _hv2ShowPinPop([]);
         break;
 
       case 'open-settings':

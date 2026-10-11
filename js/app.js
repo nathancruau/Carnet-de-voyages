@@ -54,6 +54,7 @@ export function showScreen(id) {
   // (iOS safe area / Android nav bar) blends in rather than showing white
   const _screenBg = id === 'login' ? '#065f55' // bottom of login gradient
     : (id === 'app' || id === 'mymap') ? '#aad3df'
+    : id === 'home' ? '#060a16' // fond « espace » du globe de l'accueil
     : getComputedStyle(document.documentElement).getPropertyValue('--c').trim() || '#faf7f2';
   document.documentElement.style.setProperty('background', _screenBg, 'important');
   document.body.style.setProperty('background', _screenBg, 'important');
@@ -81,14 +82,14 @@ export function goHome() {
   renderHome();
 }
 
-export function goMyMap() {
+export function goMyMap(opts = {}) {
   destroyTripMap();
   document.body.style.overflowY = '';
   document.documentElement.style.overflowY = '';
   import('./mymap.js').then(mod => {
     _mymapModule = mod;
     showScreen('mymap');
-    mod.renderMyMap();
+    mod.renderMyMap(opts);
   });
 }
 
