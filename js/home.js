@@ -1769,7 +1769,21 @@ function _hv2ApplySheet(translate, animate) {
   const sheet = document.getElementById('hv2-sheet');
   if (!sheet) return;
   _hv2Translate = translate;
-  sheet.style.transition = animate ? 'transform .32s cubic-bezier(.2,.8,.2,1)' : 'none';
+  // Progression mid → plein écran (0 → 1) : tout ce qui change entre la vue carte et
+  // la vue profil (coins, marge sous la barre du haut, assombrissement de la carte,
+  // style des boutons) suit cette valeur au lieu de basculer d'un coup.
+  const root = document.getElementById('hv2');
+  const mid  = Math.max(1, Math.round(window.innerHeight * 0.5));
+  const p    = Math.max(0, Math.min(1, 1 - translate / mid));
+  const ease = '.32s cubic-bezier(.2,.8,.2,1)';
+  root?.style.setProperty('--hv-p', p.toFixed(3));
+  root?.classList.toggle('hv2-is-full', p > 0.92);
+  if (p <= 0.92) document.getElementById('hv2-top')?.classList.remove('hv2-top-hidden');
+  sheet.style.transition = animate ? `transform ${ease}, border-radius ${ease}` : 'none';
+  const sc = document.getElementById('hv2-scroll');
+  if (sc) sc.style.transition = animate ? `padding-top ${ease}` : 'none';
+  const dim = root?.querySelector('.hv2-dim');
+  if (dim) dim.style.transition = animate ? `opacity ${ease}` : 'none';
   sheet.style.transform  = `translateY(${translate}px)`;
   _hv2UpdateGlobeArea(animate);
 }
@@ -1868,6 +1882,22 @@ function _hv2BindSheet() {
 
   // Un glissé de la feuille ne doit pas ouvrir la carte de voyage sous le doigt
   sheet.addEventListener('click', e => { if (suppressClick) { e.stopPropagation(); e.preventDefault(); } }, true);
+}
+
+/** En plein écran, la barre du haut (retour + ⚙️) se cache quand on fait défiler la
+ *  liste vers le bas et revient dès qu'on remonte. */
+function _hv2BindTopAutoHide() {
+  const sc = document.getElementById('hv2-scroll');
+  if (!sc) return;
+  let last = sc.scrollTop;
+  sc.addEventListener('scroll', () => {
+    const top = document.getElementById('hv2-top');
+    const y = sc.scrollTop;
+    if (!top || !document.getElementById('hv2')?.classList.contains('hv2-is-full')) { last = y; return; }
+    if (y > last + 6 && y > 60) top.classList.add('hv2-top-hidden');
+    else if (y < last - 6 || y <= 60) top.classList.remove('hv2-top-hidden');
+    last = y;
+  }, { passive: true });
 }
 
 // ── Popups / menus ─────────────────────────────────────────────────────────────
@@ -1989,17 +2019,16 @@ function _renderHomeV2(wrap, { myTrips, observingTrips, filter }) {
   wrap.innerHTML = `
     <div class="hv2" id="hv2" data-snap="${_hv2Snap}">
       <div class="hv2-map-slot" id="hv2-map-slot"></div>
+      <div class="hv2-dim"></div>
+      <div class="hv2-statusbar"></div>
       <div class="hv2-top" id="hv2-top">
+        <button class="hv2-round hv2-back" data-action="hv2-collapse" title="Revenir à la carte">${_HV2_ICONS.down}</button>
         <button class="hv2-round hv2-menu${filtersOn ? ' hv2-has-filter' : ''}" data-action="hv2-destinations" title="Destinations & filtres">${_HV2_ICONS.menu}</button>
         <div class="hv2-brand"><span class="hv2-logo">✈</span>carnet</div>
         <button class="hv2-round" data-action="open-settings" title="Paramètres">${_HV2_ICONS.gear}</button>
       </div>
       <div class="hv2-pin-pop" id="hv2-pin-pop" hidden></div>
       <section class="hv2-sheet" id="hv2-sheet">
-        <div class="hv2-sheet-head">
-          <button class="hv2-round hv2-round-light" data-action="hv2-collapse" title="Réduire">${_HV2_ICONS.down}</button>
-          <button class="hv2-round hv2-round-light" data-action="open-settings" title="Paramètres">${_HV2_ICONS.gear}</button>
-        </div>
         <div class="hv2-grab"><span></span></div>
         <div class="hv2-scroll" id="hv2-scroll">${content}</div>
       </section>
@@ -2014,6 +2043,7 @@ function _renderHomeV2(wrap, { myTrips, observingTrips, filter }) {
     </div>`;
 
   _hv2BindSheet();
+  _hv2BindTopAutoHide();
   _hv2Pins = _hv2FilteredPins(myTrips);
   // Position de la feuille d'abord (le padding de la carte en dépend), puis la carte
   _hv2SetSnap(_hv2Snap, false);
@@ -2335,7 +2365,8 @@ function _openSettingsModal() {
         ${btnRow('settings-clear-data', '🗑 Effacer toutes les données', 'hv2-row-danger')}
       </div>
 
-      <div class="hv2-version">Carnet de Voyages v${APP_VERSION}</div>`;
+      <div class="hv2-version">Carnet de Voyages v${APP_VERSION}</div>
+      <div class="hv2-version" style="margin-top:4px;opacity:.7">Affichage : écran ${Math.max(screen.width, screen.height)} · fenêtre ${window.innerHeight} · écart compensé ${getComputedStyle(document.documentElement).getPropertyValue('--ios-gap').trim() || '0px'} · ${(window.navigator.standalone || window.matchMedia('(display-mode: standalone)').matches) ? 'appli' : 'navigateur'}</div>`;
   }
 
   showModal(buildHtml(eventTypes, getLanguage(), curTheme, curNotif), { fullscreenMobile: true, boxClass: 'hv2-modal' });

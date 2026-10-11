@@ -2303,7 +2303,7 @@ a.tl-sv-pill:hover{background:var(--c3);color:var(--ink)}
      zone de la barre Safari, laissant une bande vide sous l'accueil. La carte et la feuille
      descendent jusqu'au vrai bas de l'écran ; la barre d'onglets (.hv2-nav, fixed) reste
      au-dessus de celle de Safari. */
-  position:fixed;top:0;left:0;right:0;height:100vh;height:100lvh;overflow:hidden;z-index:1;
+  position:fixed;top:0;left:0;right:0;height:calc(100vh + var(--ios-gap,0px));height:calc(100lvh + var(--ios-gap,0px));overflow:hidden;z-index:1;
   font-family:var(--fn);color:var(--hv-ink);
   background:
     radial-gradient(1px 1px at 12% 18%,rgba(255,255,255,.8),transparent 60%),
@@ -2364,8 +2364,17 @@ a.tl-sv-pill:hover{background:var(--c3);color:var(--ink)}
 .hv2-menu{display:none}
 .hv2[data-snap="peek"] .hv2-menu{display:inline-flex;animation:hv2Pop .25s ease}
 .hv2[data-snap="peek"] .hv2-brand{display:none}
-.hv2[data-snap="full"] .hv2-top{opacity:0;pointer-events:none}
-.hv2-top{transition:opacity .2s}
+/* Plein écran : la même barre reste en place (pas de 2e jeu de boutons) — fond de la
+   feuille, boutons clairs, ⌄ à gauche ; elle se cache en défilant vers le bas. */
+.hv2-top{transition:transform .25s ease,background-color .25s ease}
+.hv2-round{transition:background-color .25s ease,color .25s ease,border-color .25s ease}
+.hv2-back{display:none}
+.hv2-is-full .hv2-back{display:inline-flex}
+.hv2-is-full .hv2-brand,.hv2-is-full .hv2-menu{display:none!important}
+.hv2-is-full .hv2-top{background:var(--hv-sheet)}
+.hv2-is-full .hv2-round{background:var(--hv-bg2);color:var(--hv-ink);border-color:transparent;backdrop-filter:none;-webkit-backdrop-filter:none}
+.hv2-top.hv2-top-hidden{transform:translateY(-110%)}
+.hv2-dim{position:absolute;inset:0;z-index:3;background:#05080f;opacity:calc(var(--hv-p,0) * .8);pointer-events:none}
 @keyframes hv2Pop{from{opacity:0;transform:scale(.7)}to{opacity:1;transform:none}}
 
 /* Popup PIN */
@@ -2389,21 +2398,22 @@ a.tl-sv-pill:hover{background:var(--c3);color:var(--ink)}
 /* Feuille profil */
 .hv2-sheet{
   position:absolute;left:0;right:0;bottom:0;z-index:4;height:100%;
-  background:var(--hv-sheet);border-radius:26px 26px 0 0;
+  background:var(--hv-sheet);border-radius:calc(26px * (1 - var(--hv-p,0))) calc(26px * (1 - var(--hv-p,0))) 0 0;
   box-shadow:0 -8px 32px rgba(0,0,0,.3);
   display:flex;flex-direction:column;will-change:transform;transform:translateY(50%);
-  transition:border-radius .25s,padding-top .25s;
 }
-.hv2[data-snap="full"] .hv2-sheet{border-radius:0;padding-top:var(--hv-safe-t)}
-.hv2-sheet-head{display:none;justify-content:space-between;padding:8px 14px 0}
-.hv2[data-snap="full"] .hv2-sheet-head{display:flex}
-.hv2[data-snap="full"] .hv2-grab{display:none}
+/* La poignée se replie en plein écran (sinon bande vide en haut de la liste) */
+.hv2-grab{opacity:calc(1 - var(--hv-p,0));height:calc(21px * (1 - var(--hv-p,0)));padding:0!important;align-items:center;overflow:hidden}
+.hv2-statusbar{position:absolute;top:0;left:0;right:0;height:var(--hv-safe-t);background:var(--hv-sheet);z-index:6;opacity:0;pointer-events:none;transition:opacity .2s}
+.hv2-is-full .hv2-statusbar{opacity:1}
 .hv2-grab{flex-shrink:0;padding:10px 0 6px;display:flex;justify-content:center;cursor:grab;touch-action:none}
 .hv2-grab span{width:38px;height:5px;border-radius:3px;background:#cfd6dc}
 [data-theme="dark"] .hv2-grab span{background:#3a434d}
 .hv2-scroll{
   flex:1;min-height:0;overflow:hidden;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;
-  padding:2px 16px calc(96px + var(--hv-safe-b) + 100lvh - 100dvh);
+  /* padding-top : place de la barre du haut en plein écran, proportionnelle à --hv-p ;
+     sur le contenu (pas la feuille) pour qu'elle défile avec la liste quand la barre se cache */
+  padding:calc(2px + (var(--hv-safe-t) + 56px) * var(--hv-p,0)) 16px calc(96px + var(--hv-safe-b) + 100lvh - 100dvh);
 }
 .hv2[data-snap="full"] .hv2-scroll{overflow-y:auto}
 
@@ -2507,7 +2517,7 @@ a.tl-sv-pill:hover{background:var(--c3);color:var(--ink)}
 
 /* Barre d'onglets flottante */
 .hv2-nav{
-  position:fixed;z-index:7;left:12px;right:12px;bottom:calc(var(--hv-safe-b) + 8px);
+  position:fixed;z-index:7;left:12px;right:12px;bottom:calc(var(--hv-safe-b) + 8px - var(--ios-gap,0px));
   display:flex;gap:8px;align-items:center;pointer-events:none;
 }
 .hv2-nav > *{pointer-events:auto}
@@ -2627,4 +2637,19 @@ a.tl-sv-pill:hover{background:var(--c3);color:var(--ink)}
   .hv2-nav{left:14px;right:auto;width:372px}
   .hv2-pin-pop{left:calc(400px + 14px)}
   .mbox.hv2-modal{max-width:480px;margin:0 auto}
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   iOS 26 standalone : compensation de --ios-gap (mesuré dans index.html)
+   La fenêtre est plus courte que l'écran de la hauteur de la barre d'état, mais
+   calée en haut : sans ça, tout élément fixe s'arrête ~59 px avant le bas réel.
+   --ios-gap vaut 0 partout ailleurs (onglet Safari, Android, desktop).
+   ══════════════════════════════════════════════════════════════════════════════ */
+.ov,.calc-kp-ov{bottom:calc(-1 * var(--ios-gap,0px))}
+.calc-kp-sheet{padding-bottom:calc(14px + var(--ios-gap,0px))}
+@media (max-width:768px){
+  .mbox{bottom:calc(-1 * var(--ios-gap,0px));padding-bottom:calc(20px + env(safe-area-inset-bottom) + var(--ios-gap,0px))}
+  .mbox.mbox-fullscreen-mobile{height:calc(100dvh + var(--ios-gap,0px));max-height:none}
+  #screen-home.active,#screen-login.active,
+  #screen-app.active:not(.tab-map-active):not(.tab-fixed-active){min-height:calc(100dvh + var(--ios-gap,0px))}
 }

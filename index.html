@@ -35,7 +35,7 @@
        (openShareModal, isCurrentUserObserver, …), so every session fetches it
        anyway; preloading it here fetches it in parallel with home.js instead of
        only being discovered once home.js itself finishes parsing. -->
-  <link rel="modulepreload" href="js/app.js?v=218" />
+  <link rel="modulepreload" href="js/app.js?v=219" />
   <link rel="modulepreload" href="js/store.js" />
   <link rel="modulepreload" href="js/utils.js" />
   <link rel="modulepreload" href="js/auth.js" />
@@ -51,10 +51,31 @@
        in document order — style.css overrides several .leaflet-* rules and
        needs to win the cascade once both are applied. -->
   <link rel="stylesheet" href="vendor/leaflet.css" media="print" onload="this.media='all'" />
-  <link rel="stylesheet" href="style.css?v=218" />
+  <link rel="stylesheet" href="style.css?v=219" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,600;0,700;1,400;1,600;1,700&family=Nunito:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <script>
+    // iOS 26 (appli ajoutée à l'écran d'accueil, barre d'état translucide) : la fenêtre
+    // est raccourcie de la hauteur de la barre d'état mais reste calée en haut → bande
+    // vide en bas de l'écran sous tous les éléments fixes. On mesure l'écart réel
+    // (hauteur d'écran − hauteur de fenêtre, en mode standalone uniquement : dans un
+    // onglet Safari, la barre d'outils explique légitimement la différence) et on
+    // l'expose en --ios-gap pour que les éléments fixes descendent jusqu'en bas.
+    (function(){
+      function upd(){
+        var sa = window.navigator.standalone || (window.matchMedia && matchMedia('(display-mode: standalone)').matches);
+        var land = innerWidth > innerHeight;
+        var sh = land ? Math.min(screen.width, screen.height) : Math.max(screen.width, screen.height);
+        var gap = sa ? Math.round(sh - innerHeight) : 0;
+        if (gap < 0 || gap > 120) gap = 0;
+        document.documentElement.style.setProperty('--ios-gap', gap + 'px');
+      }
+      upd();
+      addEventListener('resize', upd);
+      addEventListener('orientationchange', function(){ setTimeout(upd, 300); });
+    })();
+  </script>
   <script>
     (function(){try{
       // carnet_theme mirrors settings.theme (kept in sync by store.js's
@@ -227,6 +248,6 @@
       if (bar) bar.style.display = 'none';
     }
   </script>
-<script type="module" src="js/app.js?v=218"></script>
+<script type="module" src="js/app.js?v=219"></script>
 </body>
 </html>
