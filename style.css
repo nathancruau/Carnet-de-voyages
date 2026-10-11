@@ -2661,3 +2661,16 @@ a.tl-sv-pill:hover{background:var(--c3);color:var(--ink)}
   #screen-home.active,#screen-login.active,
   #screen-app.active:not(.tab-map-active):not(.tab-fixed-active){min-height:calc(100dvh + var(--ios-gap,0px))}
 }
+/* Bande iOS sur les écrans qui défilent (voyage, budget…) : un fond fixe la recouvre avec
+   la couleur de l'écran courant (html reçoit la couleur de l'écran actif via showScreen —
+   l'accueil, lui, descend déjà jusqu'en bas). Les éléments fixés en bas descendent d'autant. */
+html::after{
+  content:'';position:fixed;left:0;right:0;top:var(--ios-usable,100%);height:var(--ios-gap,0px);
+  background:inherit;pointer-events:none;z-index:0;
+}
+.notif{bottom:calc(18px - var(--ios-gap,0px))}
+@media (max-width:768px){
+  .panel-fab,.home-fab{bottom:calc(4px + env(safe-area-inset-bottom) - var(--ios-gap,0px))}
+  .panel-fab-menu,.home-fab-menu{bottom:calc(66px + env(safe-area-inset-bottom) - var(--ios-gap,0px))}
+  .lp-toggle-btn{bottom:calc(90px - var(--ios-gap,0px))}
+}

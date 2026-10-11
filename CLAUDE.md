@@ -18,7 +18,7 @@ Quatre endroits à synchroniser, toujours le même numéro N :
 | `sw.js` | `const SHELL_CACHE = 'cv-shell-N'` |
 | `store.js` | `export const APP_VERSION = 'N'` |
 
-Version actuelle : **223**
+Version actuelle : **224**
 
 ---
 
@@ -90,7 +90,7 @@ js/
 
 ## iOS 26 — bande vide en bas de l'écran (`--ios-gap`)
 
-En mode appli (ajoutée à l'écran d'accueil, `black-translucent`), iOS 26 raccourcit la fenêtre de la hauteur de la barre d'état (~59 pt) tout en la laissant calée en haut : tout élément fixe (`bottom:0`, `inset:0`, `100vh/dvh/lvh`) s'arrête ~59 pt avant le bas réel. Probablement aussi la vraie cause du « env(safe-area-inset-bottom) trop grand » du v202. Un script inline dans `index.html` mesure `hauteur d'écran − hauteur réelle d'un élément fixe top:0/bottom:0` — en fait le minimum de plusieurs mesures (innerHeight, élément fixe top:0/bottom:0, visualViewport, 100dvh), car au lancement toutes annonçaient la hauteur complète alors que l'affichage s'arrêtait ensuite ~60 px plus haut (iOS raccourcit après coup) — en standalone uniquement, remesuré en rafale au lancement / au retour au premier plan, sur resize/visualViewport, et toutes les 3 s, dans `--ios-gap`. Diagnostic détaillé (mesure fraîche) en bas des Paramètres ; la fin de style.css l'ajoute à `.ov`, `.mbox`, `.calc-kp-*`, aux écrans body-scroll, et à `.hv2`/`.hv2-nav`. Tout nouvel élément fixé en bas doit en tenir compte. Diagnostic affiché en bas des Paramètres.
+En mode appli (ajoutée à l'écran d'accueil, `black-translucent`), iOS 26 raccourcit la fenêtre de la hauteur de la barre d'état (~59 pt) tout en la laissant calée en haut : tout élément fixe (`bottom:0`, `inset:0`, `100vh/dvh/lvh`) s'arrête ~59 pt avant le bas réel. Probablement aussi la vraie cause du « env(safe-area-inset-bottom) trop grand » du v202. Un script inline dans `index.html` mesure `hauteur d'écran − hauteur réelle d'un élément fixe top:0/bottom:0` — en fait le minimum de plusieurs mesures (innerHeight, élément fixe top:0/bottom:0, visualViewport, 100dvh), car au lancement toutes annonçaient la hauteur complète alors que l'affichage s'arrêtait ensuite ~60 px plus haut (iOS raccourcit après coup) — en standalone uniquement, remesuré en rafale au lancement / au retour au premier plan, sur resize/visualViewport, et toutes les 3 s, dans `--ios-gap`. Diagnostic détaillé (mesure fraîche) en bas des Paramètres ; la fin de style.css l'ajoute à `.ov`, `.mbox`, `.calc-kp-*`, aux écrans body-scroll, à `.hv2`/`.hv2-nav`, aux FAB/menus/toast/bouton panneau fixés en bas ; sur les écrans qui défilent, `html::after` (fixe, `top:var(--ios-usable)`, hauteur `--ios-gap`, fond hérité de html = couleur de l'écran actif) recouvre la bande. Tout nouvel élément fixé en bas doit en tenir compte. Diagnostic affiché en bas des Paramètres.
 
 ---
 
