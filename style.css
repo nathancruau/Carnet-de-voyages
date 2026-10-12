@@ -2204,16 +2204,19 @@ a.tl-sv-pill:hover{background:var(--c3);color:var(--ink)}
 /* La barre de la carte (logo/☰ + ⚙️) s'efface quand la feuille monte ; en plein écran,
    ⌄ et ⚙️ sont dans le contenu de la liste (.hv2-sheet-head) et défilent avec lui :
    aucune barre fixe en haut, le profil remonte jusqu'en haut de l'écran. */
-.hv2-top{opacity:calc(1 - var(--hv-p,0))}
+.hv2-top{will-change:opacity}   /* opacité posée en ligne par _hv2ApplySheet (home.js) */
 .hv2-is-full .hv2-top{pointer-events:none}
 .hv2-is-full .hv2-top > *{pointer-events:none}
 .hv2-sheet-head{
   display:flex;align-items:flex-end;justify-content:space-between;overflow:hidden;
-  height:calc((var(--hv-safe-t) + 52px) * var(--hv-p,0));opacity:var(--hv-p,0);
-  margin:0 -2px;padding-bottom:calc(6px * var(--hv-p,0));box-sizing:border-box;
+  /* Hauteur FIXE (v233) : avant, elle variait avec la position de la feuille → toute la
+     liste était remise en page à chaque image (saccades sur iPhone). En vue carte, la liste
+     est simplement décalée vers le haut (transform) pour masquer cet en-tête. */
+  height:calc(var(--hv-safe-t) + 58px);opacity:0;pointer-events:none;
+  margin:0 -2px;padding-bottom:6px;box-sizing:border-box;
 }
 .hv2-sheet-head .hv2-round{flex-shrink:0}
-.hv2-dim{position:absolute;inset:0;z-index:3;background:#05080f;opacity:calc(var(--hv-p,0) * .8);pointer-events:none}
+.hv2-dim{position:absolute;inset:0;z-index:3;background:#05080f;opacity:0;pointer-events:none;will-change:opacity}
 @keyframes hv2Pop{from{opacity:0;transform:scale(.7)}to{opacity:1;transform:none}}
 
 /* Popup PIN */
@@ -2237,18 +2240,22 @@ a.tl-sv-pill:hover{background:var(--c3);color:var(--ink)}
 /* Feuille profil */
 .hv2-sheet{
   position:absolute;left:0;right:0;bottom:0;z-index:4;height:100%;
-  background:var(--hv-sheet);border-radius:calc(26px * (1 - var(--hv-p,0))) calc(26px * (1 - var(--hv-p,0))) 0 0;
+  background:var(--hv-sheet);border-radius:26px 26px 0 0;overflow:hidden;
   box-shadow:0 -8px 32px rgba(0,0,0,.3);
-  display:flex;flex-direction:column;will-change:transform;transform:translateY(50%);
+  will-change:transform;transform:translateY(50%);
 }
-/* La poignée se replie en plein écran (sinon bande vide en haut de la liste) */
-.hv2-grab{opacity:calc(1 - var(--hv-p,0));height:calc(21px * (1 - var(--hv-p,0)));padding:0!important;align-items:center;overflow:hidden}
+/* Coins carrés une fois arrivée en plein écran (posé à la fin de l'animation, pas image par image) */
+.hv2-sheet.hv2-sheet-flat{border-radius:0}
+/* Feuille animée uniquement par transform/opacity (v233) : aucune mise en page pendant le
+   glissé ni l'animation. La poignée est posée par-dessus la liste et s'efface en fondu. */
+.hv2-grab{position:absolute;top:0;left:0;right:0;z-index:2;height:21px;padding:0;align-items:center;will-change:opacity}
 
-.hv2-grab{flex-shrink:0;padding:10px 0 6px;display:flex;justify-content:center;cursor:grab;touch-action:none}
+.hv2-grab{display:flex;justify-content:center;cursor:grab;touch-action:none}
 .hv2-grab span{width:38px;height:5px;border-radius:3px;background:#cfd6dc}
 [data-theme="dark"] .hv2-grab span{background:#3a434d}
 .hv2-scroll{
-  flex:1;min-height:0;overflow:hidden;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;
+  position:absolute;inset:0;will-change:transform;
+  overflow:hidden;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;
   padding:2px 16px calc(96px + var(--hv-safe-b) + 100lvh - 100dvh);
 }
 .hv2[data-snap="full"] .hv2-scroll{overflow-y:auto}
@@ -2478,7 +2485,7 @@ a.tl-sv-pill:hover{background:var(--c3);color:var(--ink)}
   .hv2-sheet{top:0;bottom:0;left:0;right:auto;width:400px;height:auto;border-radius:0 24px 24px 0;transform:none!important;transition:none!important}
   .hv2-grab,.hv2-sheet-head{display:none!important}
   .hv2[data-snap] .hv2-sheet{padding-top:0;border-radius:0 24px 24px 0}
-  .hv2-scroll{overflow-y:auto!important;padding-top:20px}
+  .hv2-scroll{overflow-y:auto!important;padding-top:20px;transform:none!important}
   .hv2-top{left:400px}
   .hv2-menu{display:inline-flex!important}
   .hv2-brand{display:none!important}

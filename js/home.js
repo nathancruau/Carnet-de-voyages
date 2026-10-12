@@ -1765,33 +1765,70 @@ function _hv2Metrics() {
 }
 
 /** @param updateMap false pendant un glissé : recadrer la carte (MapLibre) à chaque image
- *  monopolise le fil principal et fait « sauter » la feuille ; on recadre au relâcher. */
+ *  monopolise le fil principal et fait « sauter » la feuille ; on recadre au relâcher.
+ *
+ *  Tout passe par transform/opacity en style en ligne (v233) : aucune mise en page ni
+ *  variable CSS héritée, donc l'iPhone anime sur le compositeur même quand le fil
+ *  principal est occupé. Avant, la hauteur de l'en-tête, la poignée et les coins
+ *  changeaient à chaque image (toute la liste remise en page → saccades), et certains
+ *  éléments sautaient d'un coup au début de l'animation (impression de téléportation). */
+let _hv2FlatTimer = 0;
 function _hv2ApplySheet(translate, animate, updateMap = true) {
   const sheet = document.getElementById('hv2-sheet');
   if (!sheet) return;
   const from = _hv2Translate ?? translate;
   _hv2Translate = translate;
-  // Progression mid → plein écran (0 → 1) : tout ce qui change entre la vue carte et
-  // la vue profil (coins, marge sous la barre du haut, assombrissement de la carte,
-  // style des boutons) suit cette valeur au lieu de basculer d'un coup.
-  const root = document.getElementById('hv2');
+  const root   = document.getElementById('hv2');
+  const scroll = document.getElementById('hv2-scroll');
+  const head   = scroll?.querySelector('.hv2-sheet-head');
+  const grab   = sheet.querySelector('.hv2-grab');
+  const top    = document.getElementById('hv2-top');
+  const dim    = root?.querySelector('.hv2-dim');
+  // Progression mid → plein écran (0 → 1)
   const mid  = Math.max(1, Math.round(window.innerHeight * 0.5));
   const p    = Math.max(0, Math.min(1, 1 - translate / mid));
-  // Durée proportionnelle au chemin restant (≈ 260 ms pour un petit bout, ≤ 480 ms pour
-  // traverser l'écran) et courbe douce : une courbe trop « nerveuse » donnait l'impression
-  // que la feuille se téléportait à l'arrivée.
+  // Durée proportionnelle au chemin restant, courbe douce
   const ms   = Math.round(Math.max(260, Math.min(480, 200 + Math.abs(translate - from) * 0.6)));
   const ease = `${ms}ms cubic-bezier(.22,.7,.25,1)`;
-  root?.style.setProperty('--hv-p', p.toFixed(3));
+  const trT  = animate ? `transform ${ease}` : 'none';
+  const trO  = animate ? `opacity ${ease}` : 'none';
+  // En vue carte, la liste remonte de (hauteur de l'en-tête − poignée) pour que le profil
+  // commence juste sous la poignée ; en plein écran l'en-tête (⌄ ⚙️) apparaît au-dessus.
+  if (!_hv2HeadH && head) _hv2HeadH = head.offsetHeight || null;   // 0 si écran encore masqué
+  if (!_hv2HeadH && head && !_hv2HeadRetry) {
+    // Écran pas encore affiché (1er rendu au démarrage) : on réapplique dès qu'il l'est,
+    // sinon la liste resterait décalée (vide sous la poignée).
+    _hv2HeadRetry = true;
+    const retry = () => {
+      if (!document.getElementById('hv2')) { _hv2HeadRetry = false; return; }
+      const h = document.querySelector('.hv2-sheet-head')?.offsetHeight;
+      if (!h) { requestAnimationFrame(retry); return; }
+      _hv2HeadRetry = false;
+      _hv2HeadH = h;
+      _hv2ApplySheet(_hv2Translate, false, false);
+    };
+    requestAnimationFrame(retry);
+  }
+  const shift = (21 - (_hv2HeadH || 58)) * (1 - p);
+
+  sheet.style.transition = trT;
+  sheet.style.transform  = `translate3d(0,${translate}px,0)`;
+  if (scroll) { scroll.style.transition = trT; scroll.style.transform = `translate3d(0,${shift}px,0)`; }
+  if (head) { head.style.transition = trO; head.style.opacity = p; head.style.pointerEvents = p > 0.9 ? 'auto' : 'none'; }
+  if (grab) { grab.style.transition = trO; grab.style.opacity = 1 - p; }
+  if (top)  { top.style.transition  = trO; top.style.opacity  = 1 - p; }
+  if (dim)  { dim.style.transition  = trO; dim.style.opacity  = (p * 0.8).toFixed(3); }
   root?.classList.toggle('hv2-is-full', p > 0.92);
-  sheet.style.transition = animate ? `transform ${ease}, border-radius ${ease}` : 'none';
-  const head = document.querySelector('.hv2-sheet-head');
-  if (head) head.style.transition = animate ? `height ${ease}, opacity ${ease}` : 'none';
-  const dim = root?.querySelector('.hv2-dim');
-  if (dim) dim.style.transition = animate ? `opacity ${ease}` : 'none';
-  sheet.style.transform  = `translateY(${translate}px)`;
+  // Coins carrés seulement une fois arrivée en haut (un seul rendu, pas à chaque image)
+  clearTimeout(_hv2FlatTimer);
+  if (p < 0.999) sheet.classList.remove('hv2-sheet-flat');
+  else if (animate) _hv2FlatTimer = setTimeout(() => sheet.classList.add('hv2-sheet-flat'), ms);
+  else sheet.classList.add('hv2-sheet-flat');
   if (updateMap) _hv2UpdateGlobeArea(translate, animate);
 }
+let _hv2HeadRetry = false;
+let _hv2HeadH = null;   // hauteur de .hv2-sheet-head (dépend de la zone de sécurité), remesurée au redimensionnement
+window.addEventListener('resize', () => { _hv2HeadH = null; });
 
 function _hv2SetSnap(snap, animate = true) {
   _hv2Snap = snap;
@@ -1799,7 +1836,12 @@ function _hv2SetSnap(snap, animate = true) {
   const root = document.getElementById('hv2');
   if (!root) return;
   root.dataset.snap = snap;
-  if (_HV2_WIDE()) { setHomeMapPadding(_hv2MapPadding()); return; }
+  if (_HV2_WIDE()) {
+    // Grand écran : panneau latéral fixe, on efface les styles posés par le mode feuille
+    for (const el of [document.getElementById('hv2-top'), root.querySelector('.hv2-dim')]) if (el) el.style.opacity = '';
+    setHomeMapPadding(_hv2MapPadding());
+    return;
+  }
   _hv2ApplySheet(_hv2Metrics().snaps[snap], animate);
 }
 
@@ -1833,7 +1875,8 @@ function _hv2BindSheet() {
 
   let startY = 0, startT = 0, mode = null, samples = [], suppressClick = false, raf = 0, pendingT = null;
 
-  const begin = y => { startY = y; startT = _hv2Translate ?? 0; mode = null; pendingT = null; samples = [{ y, t: performance.now() }]; };
+  let snaps0 = null;
+  const begin = y => { startY = y; startT = _hv2Translate ?? 0; mode = null; pendingT = null; snaps0 = null; samples = [{ y, t: performance.now() }]; };
   // Vitesse sur les ~100 dernières ms seulement : si le doigt s'est arrêté avant de lâcher,
   // elle vaut 0 et la feuille va au cran le plus proche (avant, la vitesse du dernier
   // mouvement l'envoyait parfois au cran suivant).
@@ -1845,18 +1888,22 @@ function _hv2BindSheet() {
     return (b.y - a.y) / Math.max(16, b.t - a.t);
   };
   const move  = (y, e) => {
-    const dy = y - startY;
     if (!mode) {
-      if (Math.abs(dy) < 6) return;
-      mode = (_hv2Snap !== 'full' || (scroll.scrollTop <= 0 && dy > 0)) ? 'sheet' : 'scroll';
+      const d0 = y - startY;
+      if (Math.abs(d0) < 6) return;
+      mode = (_hv2Snap !== 'full' || (scroll.scrollTop <= 0 && d0 > 0)) ? 'sheet' : 'scroll';
+      // La feuille part de là où est le doigt maintenant (pas de saut des 6 px du seuil)
+      if (mode === 'sheet') startY = y;
     }
     if (mode !== 'sheet') return;
+    const dy = y - startY;
     e?.cancelable && e.preventDefault();
     samples.push({ y, t: performance.now() });
     if (samples.length > 12) samples.shift();
-    const { snaps } = _hv2Metrics();
+    // Crans mesurés une fois par geste (une mesure à chaque touchmove forçait une mise en page)
+    if (!snaps0) snaps0 = _hv2Metrics().snaps;
     // Une mise à jour par image au plus (les touchmove arrivent plus vite que l'affichage)
-    pendingT = Math.max(0, Math.min(snaps.peek + 20, startT + dy));
+    pendingT = Math.max(0, Math.min(snaps0.peek + 20, startT + dy));
     if (!raf) raf = requestAnimationFrame(() => { raf = 0; if (pendingT != null) _hv2ApplySheet(pendingT, false, false); });
   };
   const end = () => {
