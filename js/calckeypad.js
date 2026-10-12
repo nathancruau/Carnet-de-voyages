@@ -86,7 +86,7 @@ function _build() {
       </div>
       <button type="button" class="calc-kp-ok" data-k="ok">✓ Valider</button>
     </div>`;
-  document.body.appendChild(_kpOv);
+  document.documentElement.appendChild(_kpOv); // hors de body : cf. showModal (utils.js)
 
   _kpOv.addEventListener('click', ev => {
     if (ev.target === _kpOv) { _commit(); return; } // tap on backdrop = validate & close

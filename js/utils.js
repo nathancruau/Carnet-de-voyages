@@ -108,6 +108,11 @@ export function showModal(htmlContent, { onClose, fullscreenMobile = false, boxC
 
   const ov = document.getElementById('modal-overlay');
   if (!ov) return;
+  // iOS : pendant la modale, body est verrouillé en position:fixed alors qu'il a overflow-y:auto
+  // (body-scroll mobile) — WebKit découpe alors tout ce qu'il contient au bas de la fenêtre,
+  // qui en appli iOS 26 s'arrête ~59 px avant le bas de l'écran. Hors de body, l'overlay
+  // descend jusqu'en bas (cf. CLAUDE.md « iOS 26 — bande vide »).
+  if (ov.parentNode !== document.documentElement) document.documentElement.appendChild(ov);
 
   // Lazily create the inner box so the overlay HTML can be minimal
   let box = ov.querySelector('.mbox');

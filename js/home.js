@@ -3582,7 +3582,7 @@ function _openCropModal(imgSrc, onCrop) {
       <button id="crop-ok" type="button" style="width:100%;background:var(--teal);color:#fff;border:none;border-radius:10px;padding:11px;font-size:14px;font-weight:700;cursor:pointer">✓ Valider ce cadrage</button>
     </div>
   `;
-  document.body.appendChild(overlay);
+  document.documentElement.appendChild(overlay); // hors de body : cf. showModal (utils.js)
 
   const closeCrop = () => overlay.remove();
   overlay.addEventListener('click', e => { if (e.target === overlay) closeCrop(); });
