@@ -78,16 +78,6 @@ body{height:100%;min-height:-webkit-fill-available;font-family:var(--fn);backgro
 .hero-nav-group{display:flex;align-items:center;gap:6px;flex-shrink:0}
 .hero-secondary-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:4px}
 .hero-stats{display:flex;gap:10px;flex-wrap:wrap}
-.hs-card{
-  background:rgba(255,255,255,.16);
-  backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);
-  border:1px solid rgba(255,255,255,.22);
-  border-radius:12px;
-  padding:9px 14px;text-align:center;min-width:68px;
-  transition:background .15s;
-}
-.hs-v{font-family:var(--sf);font-size:20px;font-weight:700;color:#fff}
-.hs-l{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:rgba(255,255,255,.7);margin-top:2px}
 
 /* Hero row 2 (stats + search) */
 .hero-row2{
@@ -1305,9 +1295,6 @@ body{height:100%;min-height:-webkit-fill-available;font-family:var(--fn);backgro
   .hero{padding:16px 14px 10px;gap:8px}
   .hero-logo{font-size:20px}
   .hero-sub{display:none}
-  .hs-card{padding:7px 10px;min-width:52px}
-  .hs-v{font-size:16px}
-  .hs-l{font-size:8px}
   .home-sec{padding:12px 12px}
   .trips-grid{grid-template-columns:1fr;gap:8px}
   /* Hide low-priority hero actions on small screens */
@@ -2124,14 +2111,14 @@ a.tl-sv-pill:hover{background:var(--c3);color:var(--ink)}
    ACCUEIL v2 (refonte bêta) — carte globe/plate + feuille profil glissable
    Tout est préfixé .hv2-* / .hm-* ; le reste de l'app garde ses styles actuels.
    ══════════════════════════════════════════════════════════════════════════════ */
-.hv2,.hv2-modal{
+.hv2,.hv2-modal,.hs{
   --hv-sheet:#ffffff; --hv-bg2:#f3f5f7; --hv-ink:#0f2233; --hv-ink2:#64748b; --hv-line:#e5e9ee;
   --hv-dark:#0d2436; --hv-coral:#ef2d56; --hv-chip:#f1f4f6; --hv-accent:#0d9488;
   /* env() plafonné : certains contextes iOS renvoient une valeur bien trop grande (cf. v202) */
   --hv-safe-t:min(env(safe-area-inset-top,0px),59px);
   --hv-safe-b:min(env(safe-area-inset-bottom,0px),34px);
 }
-[data-theme="dark"] .hv2,[data-theme="dark"] .hv2-modal{
+[data-theme="dark"] .hv2,[data-theme="dark"] .hv2-modal,[data-theme="dark"] .hs{
   --hv-sheet:#14181d; --hv-bg2:#1c2128; --hv-ink:#eef2f5; --hv-ink2:#94a3af; --hv-line:#272e36;
   --hv-dark:#e9eef2; --hv-chip:#20262d;
 }
@@ -2493,6 +2480,93 @@ a.tl-sv-pill:hover{background:var(--c3);color:var(--ink)}
   .hv2-pin-pop{left:calc(400px + 14px)}
   .mbox.hv2-modal{max-width:480px;margin:0 auto}
 }
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   STATISTIQUES (refonte v234, style de l'accueil v2) — préfixe .hs-*
+   Page qui défile avec le body ; fond = --hv-sheet (même couleur que html sur l'accueil,
+   donc pas de bande iOS en bas). Cartes sur --hv-bg2.
+   ══════════════════════════════════════════════════════════════════════════════ */
+.hs{
+  min-height:100vh;background:var(--hv-sheet);color:var(--hv-ink);font-family:var(--fn);
+  padding:calc(var(--hv-safe-t) + 10px) 16px calc(40px + var(--hv-safe-b));
+  max-width:760px;margin:0 auto;box-sizing:border-box;
+}
+/* L'ancienne marge du bouton ⊕ (66 px) et le fond beige de l'écran laissaient une bande sous la page */
+.home-wrap:has(> .hs){padding-bottom:0!important;background:transparent}
+#screen-home.active:has(.hs){background:#ffffff!important}
+[data-theme="dark"] #screen-home.active:has(.hs){background:#14181d!important}
+.hs-top{display:flex;align-items:center;gap:12px;margin-bottom:14px}
+.hs-top h1{font-size:26px;font-weight:800;letter-spacing:-.5px;margin:0;font-family:var(--fn)}
+.hs-seg{display:flex;background:var(--hv-bg2);border-radius:12px;padding:3px;gap:2px}
+.hs-seg button{flex:1;border:none;background:none;border-radius:10px;height:32px;cursor:pointer;
+  font-family:inherit;font-size:12.5px;font-weight:700;color:var(--hv-ink2)}
+.hs-seg button.active{background:var(--hv-sheet);color:var(--hv-ink);box-shadow:0 1px 4px rgba(0,0,0,.12)}
+.hs-sub{font-size:12px;color:var(--hv-ink2);margin:10px 2px 14px}
+
+.hs-kpis{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.hs-kpi{background:var(--hv-bg2);border-radius:18px;padding:14px 16px;display:flex;flex-direction:column;gap:2px;min-width:0}
+.hs-kpi b{font-size:30px;font-weight:800;letter-spacing:-1px;line-height:1.05}
+.hs-kpi span{font-size:12px;font-weight:600;color:var(--hv-ink2)}
+.hs-minis{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;margin-top:10px}
+.hs-mini{display:grid;grid-template-columns:auto 1fr;column-gap:8px;align-items:center;
+  background:var(--hv-bg2);border-radius:14px;padding:9px 12px;min-width:0}
+.hs-mini i{grid-row:span 2;font-style:normal;font-size:18px}
+.hs-mini b{font-size:15px;font-weight:800}
+.hs-mini span{font-size:11px;color:var(--hv-ink2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+.hs-card{background:var(--hv-bg2);border-radius:20px;padding:16px;margin-top:12px;min-width:0}
+.hs-card-hd{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:12px}
+.hs-card-hd h3{font-size:16px;font-weight:800;letter-spacing:-.2px;margin:0;font-family:var(--fn)}
+.hs-card-hd small{font-size:12px;font-weight:700;color:var(--hv-ink2);white-space:nowrap}
+.hs-grid{display:grid;grid-template-columns:1fr;column-gap:12px}
+@media (min-width:640px){.hs-grid{grid-template-columns:1fr 1fr}}
+.hs-none{font-size:12.5px;color:var(--hv-ink2)}
+.hs #wm-expand-btn,.hs-icon-btn{width:32px;padding:0;height:32px;border-radius:50%;border:none;background:var(--hv-sheet);color:var(--hv-ink);
+  font-size:14px;cursor:pointer;flex-shrink:0}
+
+/* Globe */
+.hs-globe-sum{font-size:13px;color:var(--hv-ink2);margin:-6px 0 8px}
+.hs-globe-sum b{color:var(--hv-ink);font-weight:800}
+.hs-pills{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:4px}
+.hs-pill{display:inline-flex;align-items:center;gap:4px;height:24px;padding:0 10px;border-radius:999px;
+  font-size:11.5px;font-weight:700;color:var(--pc);background:color-mix(in srgb,var(--pc) 14%,transparent)}
+.hs-hint{text-align:center;font-size:10.5px;color:var(--hv-ink2);margin-top:2px}
+.hs-flags{margin-top:14px;padding-top:12px;border-top:1px solid var(--hv-line)}
+.hs-flags-hd{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px;
+  font-size:12px;font-weight:800;color:var(--hv-ink2);text-transform:uppercase;letter-spacing:.04em}
+.hs .globe-country-label{font-size:12.5px;color:var(--hv-ink);text-transform:none;letter-spacing:0;font-weight:700}
+.hs .globe-badge{background:var(--hv-sheet);border-color:var(--hv-line)}
+.hs-card.stat-fs{position:fixed;inset:0;z-index:9500;border-radius:0;margin:0;overflow:auto;
+  padding-top:calc(var(--hv-safe-t) + 12px);background:var(--hv-sheet)}
+.hs-card.stat-fs .globe-stage{max-width:min(80vh,100%)!important}
+
+/* Barres horizontales */
+.hs-bar{margin-bottom:10px}
+.hs-bar:last-child{margin-bottom:0}
+.hs-bar-top{display:flex;justify-content:space-between;gap:10px;font-size:12.5px;margin-bottom:5px}
+.hs-bar-top span{color:var(--hv-ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.hs-bar-top b{font-weight:800;white-space:nowrap}
+.hs-bar-track{height:8px;border-radius:4px;background:var(--hv-line);overflow:hidden}
+.hs-bar-track i{display:block;height:100%;border-radius:4px;background:var(--hv-accent)}
+
+/* Colonnes */
+.hs-cols{display:flex;align-items:stretch;gap:6px;height:150px;overflow-x:auto;scrollbar-width:none}
+.hs-cols::-webkit-scrollbar{display:none}
+.hs-col{flex:1;min-width:26px;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:4px}
+.hs-col small{font-size:10.5px;font-weight:800;color:var(--hv-ink)}
+.hs-col i{width:100%;max-width:30px;border-radius:7px 7px 3px 3px;background:var(--hv-accent);flex:0 0 auto}
+.hs-col span{font-size:10px;font-weight:600;color:var(--hv-ink2);text-align:center;line-height:1.2;white-space:nowrap}
+.hs-col-0 small{color:var(--hv-ink2)}
+.hs-col-0 i{opacity:.25}
+
+/* Compagnons */
+.hs-comps{display:flex;flex-direction:column;gap:10px}
+.hs-comp{display:flex;align-items:center;gap:10px;min-width:0}
+.hs-comp > span{width:34px;height:34px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;
+  color:#fff;font-size:12px;font-weight:800}
+.hs-comp div{display:flex;flex-direction:column;align-items:flex-start;min-width:0;text-align:left}
+.hs-comp b{font-size:13.5px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hs-comp small{font-size:11.5px;color:var(--hv-ink2)}
 
 /* ══════════════════════════════════════════════════════════════════════════════
    iOS 26 standalone : compensation de --ios-gap (mesuré dans index.html)

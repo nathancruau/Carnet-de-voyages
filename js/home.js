@@ -817,10 +817,7 @@ function _calcStats(trips) {
 
 function _statsViewHtml(trips) {
   if (trips.length === 0) {
-    return `<div style="text-align:center;padding:40px 20px;color:var(--ink4)">
-      <div style="font-size:36px;margin-bottom:8px">📊</div>
-      <div style="font-size:14px">Aucun voyage réalisé pour calculer des statistiques.</div>
-    </div>`;
+    return `<div class="hv2-empty"><div>📊</div>Aucun voyage réalisé pour calculer des statistiques.</div>`;
   }
 
   const s = _calcStats(trips);
@@ -855,7 +852,7 @@ function _statsViewHtml(trips) {
     .sort((a, b) => b[1] - a[1])
     .map(([cont, cnt]) => {
       const color = _CONTINENT_COLOR[cont] || '#0d9488';
-      return `<span style="display:inline-flex;align-items:center;gap:4px;padding:2px 9px;border-radius:999px;font-size:11px;font-weight:700;background:${color}22;color:${color};border:1px solid ${color}44">${_CONTINENT_LABEL[cont]} <b>${cnt}</b></span>`;
+      return `<span class="hs-pill" style="--pc:${color}">${_CONTINENT_LABEL[cont]} <b>${cnt}</b></span>`;
     }).join('');
 
   // Collected-flags badges — one per visited country (round icon, click to focus the globe)
@@ -879,18 +876,9 @@ function _statsViewHtml(trips) {
     foot:'🚶 À pied', plane:'✈️ Avion', ferry:'⛴️ Bateau',
   };
   const totalKm = Object.values(kmByMode).reduce((a, b) => a + b, 0);
-  const kmRows = Object.entries(kmByMode).sort((a, b) => b[1] - a[1]).map(([mode, dist]) => {
-    const meta = MODE_META[mode] || '🚌 ' + mode;
-    const pct  = totalKm > 0 ? Math.round((dist / totalKm) * 100) : 0;
-    return `<div style="margin-bottom:9px">
-      <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px">
-        <span style="color:var(--ink2)">${meta}</span>
-        <span style="font-weight:700;color:var(--ink)">${Math.round(dist).toLocaleString('fr-FR')} km</span>
-      </div>
-      <div style="background:var(--c3);border-radius:4px;height:7px;overflow:hidden">
-        <div style="width:${pct}%;height:100%;background:var(--teal);border-radius:4px;transition:width .4s"></div>
-      </div></div>`;
-  }).join('');
+  const kmRows = Object.entries(kmByMode).sort((a, b) => b[1] - a[1]).map(([mode, dist]) =>
+    _hsBar(MODE_META[mode] || '🚌 ' + mode, Math.round(dist).toLocaleString('fr-FR') + ' km',
+           totalKm > 0 ? (dist / totalKm) * 100 : 0)).join('');
 
   // Top destinations with bar
   const destCount = {};
@@ -898,35 +886,15 @@ function _statsViewHtml(trips) {
   const topDests    = Object.entries(destCount).sort((a, b) => b[1] - a[1]).slice(0, 6);
   const maxDestCnt  = topDests[0]?.[1] || 1;
   const topDestsHtml = topDests.length
-    ? topDests.map(([dest, cnt]) => {
-        const pct = Math.round((cnt / maxDestCnt) * 100);
-        return `<div style="margin-bottom:8px">
-          <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px">
-            <span style="color:var(--ink2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:70%">${_esc(dest)}</span>
-            <span style="font-weight:700;color:var(--teal);flex-shrink:0">${cnt}×</span>
-          </div>
-          <div style="background:var(--c3);border-radius:4px;height:5px;overflow:hidden">
-            <div style="width:${pct}%;height:100%;background:var(--teal);border-radius:4px;transition:width .4s;opacity:.7"></div>
-          </div></div>`;
-      }).join('')
-    : `<div style="font-size:12px;color:var(--ink4)">Aucune destination renseignée</div>`;
+    ? topDests.map(([dest, cnt]) => _hsBar(_esc(dest), cnt + '×', (cnt / maxDestCnt) * 100)).join('')
+    : `<div class="hs-none">Aucune destination renseignée</div>`;
 
   // Per year bars
   const perYear = {};
   trips.forEach(t => { const y = (t.startDate || t.createdAt || '').slice(0, 4); if (y) perYear[y] = (perYear[y] || 0) + 1; });
   const years      = Object.keys(perYear).sort();
   const maxPerYear = Math.max(...Object.values(perYear), 1);
-  const perYearBars = years.map(y => {
-    const count = perYear[y];
-    const barH  = Math.max(Math.round((count / maxPerYear) * 64), 8);
-    return `<div style="display:flex;flex-direction:column;align-items:center;min-width:34px">
-      <div style="display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:82px;gap:2px">
-        <span style="font-size:10px;font-weight:800;color:var(--teal)">${count}</span>
-        <div style="width:26px;background:var(--teal);border-radius:5px 5px 0 0;height:${barH}px;opacity:.8;transition:height .3s"></div>
-      </div>
-      <div style="font-size:9px;color:var(--ink4);white-space:nowrap;margin-top:3px">${y}</div>
-    </div>`;
-  }).join('');
+  const perYearBars = _hsCols(years.map(y => ({ label: y, value: perYear[y], txt: perYear[y] })), maxPerYear);
 
   // Seasons
   const seasons = _calcSeasons(trips);
@@ -937,37 +905,19 @@ function _statsViewHtml(trips) {
     { key:'autumn', label:'Automne',   emoji:'🍂', color:'#ea580c' },
     { key:'winter', label:'Hiver',     emoji:'❄️', color:'#0891b2' },
   ];
-  const seasonBars = seasonData.map(({ key, label, emoji, color }) => {
-    const cnt  = seasons[key];
-    const barH = Math.max(Math.round((cnt / maxSeason) * 60), cnt > 0 ? 6 : 2);
-    return `<div style="display:flex;flex-direction:column;align-items:center;flex:1">
-      <div style="display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:78px;gap:2px">
-        <span style="font-size:10px;font-weight:800;color:${cnt > 0 ? color : 'var(--ink4)'}">${cnt || '—'}</span>
-        <div style="width:30px;border-radius:5px 5px 0 0;height:${barH}px;background:${color};opacity:${cnt > 0 ? .8 : .2};transition:height .3s"></div>
-      </div>
-      <div style="font-size:14px;line-height:1;margin-top:4px">${emoji}</div>
-      <div style="font-size:9px;color:var(--ink4);text-align:center;white-space:nowrap">${label}</div>
-    </div>`;
-  }).join('');
+  const seasonBars = _hsCols(seasonData.map(({ key, label, emoji, color }) =>
+    ({ label: `${emoji}<br>${label}`, value: seasons[key], txt: seasons[key] || '—', color })), maxSeason);
 
   // Spending by month
   const spendByMonth = _calcSpendingByMonth(trips);
   const spendMonths  = Object.keys(spendByMonth).sort().slice(-12);
   const maxSpend     = Math.max(...spendMonths.map(m => spendByMonth[m]), 1);
   const avgSpendDay  = s.totalDays > 0 ? Math.round(s.totalSpent / s.totalDays) : 0;
-  const spendBars = spendMonths.map(m => {
-    const val  = spendByMonth[m];
-    const barH = Math.max(Math.round((val / maxSpend) * 72), 4);
+  const spendBars = _hsCols(spendMonths.map(m => {
     const [yr, mo] = m.split('-');
-    const label = new Date(Number(yr), Number(mo) - 1, 1).toLocaleDateString('fr-FR', { month: 'short' }) + ' \'' + yr.slice(2);
-    return `<div style="display:flex;flex-direction:column;align-items:center;min-width:26px">
-      <div style="display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:88px;gap:2px">
-        <span style="font-size:8px;font-weight:700;color:var(--ink3)">${Math.round(val)}</span>
-        <div style="width:20px;background:var(--amb);border-radius:3px 3px 0 0;height:${barH}px;opacity:.85"></div>
-      </div>
-      <div style="font-size:7px;color:var(--ink4);writing-mode:vertical-rl;transform:rotate(180deg);white-space:nowrap;margin-top:3px">${label}</div>
-    </div>`;
-  }).join('');
+    const label = new Date(Number(yr), Number(mo) - 1, 1).toLocaleDateString('fr-FR', { month: 'short' }).replace('.', '') + `<br>'` + yr.slice(2);
+    return { label, value: spendByMonth[m], txt: Math.round(spendByMonth[m]), color: '#d97706' };
+  }), maxSpend);
 
   // Expenses by category (across all filtered trips)
   const catExpenses = {};
@@ -1003,230 +953,96 @@ function _statsViewHtml(trips) {
   }
   const compEntries = Object.entries(compMap).sort((a, b) => b[1].trips - a[1].trips).slice(0, 8);
 
-  // KPI tiles
-  const kpis = [
-    { icon:'✈️', val: trips.length,                                       lbl:'Voyages' },
-    { icon:'📅', val: s.totalDays,                                        lbl:'Jours voyagés' },
-    { icon:'🌍', val: visitedCount,                                       lbl:'Pays visités' },
-    { icon:'📏', val: avgDays > 0 ? avgDays + ' j' : '—',                lbl:'Durée moy.' },
-    ...(totalKm > 0 ? [{ icon:'🛣️', val: Math.round(totalKm).toLocaleString('fr-FR') + ' km', lbl:'Distance estimée' }] : []),
-    ...(s.totalSpent > 0 ? [{ icon:'💶', val: Math.round(s.totalSpent).toLocaleString('fr-FR') + ' €', lbl:'Total dépensé' }] : []),
-    ...(avgSpendDay > 0 ? [{ icon:'📊', val: avgSpendDay + ' €/j',        lbl:'Moy. par jour' }] : []),
-    ...(longestTrip ? [{ icon:'🏆', val: longestDays + ' j',             lbl:'Voyage + long' }] : []),
+  const fmt = n => Math.round(n).toLocaleString('fr-FR');
+  // Chiffres clés : 4 principaux en grand, les autres en petit
+  const kpiMain = [
+    { val: trips.length, lbl: trips.length > 1 ? 'voyages' : 'voyage' },
+    { val: s.totalDays,  lbl: 'jours sur la route' },
+    { val: visitedCount, lbl: 'pays visités' },
+    totalKm > 0 ? { val: fmt(totalKm), lbl: 'km parcourus (est.)' }
+                : { val: visitedPct + ' %', lbl: 'du monde' },
   ];
-  const kpiHtml = kpis.map(k => `
-    <div class="stat-kpi-tile">
-      <div class="stat-kpi-icon">${k.icon}</div>
-      <div class="stat-kpi-val">${k.val}</div>
-      <div class="stat-kpi-lbl">${k.lbl}</div>
-    </div>`).join('');
+  const kpiMore = [
+    s.totalSpent > 0 ? ['💶', fmt(s.totalSpent) + ' €', 'dépensés'] : null,
+    avgSpendDay > 0  ? ['📊', avgSpendDay + ' €', 'par jour'] : null,
+    avgDays > 0      ? ['⏱', avgDays + ' j', 'durée moyenne'] : null,
+    longestTrip      ? ['🏆', longestDays + ' j', _esc(longestTrip.name || 'plus long voyage')] : null,
+  ].filter(Boolean);
+
+  const section = (title, body, extra = '') => `
+      <section class="hs-card">
+        <div class="hs-card-hd"><h3>${title}</h3>${extra}</div>
+        ${body}
+      </section>`;
 
   return `
-    <div class="stats-wrap">
-      <div style="font-size:10px;color:var(--ink4);margin-bottom:14px">
-        📊 Statistiques sur <strong>${trips.length}</strong> voyage${trips.length > 1 ? 's' : ''} réalisé${trips.length > 1 ? 's' : ''}
+    <div class="hs-kpis">
+      ${kpiMain.map(k => `<div class="hs-kpi"><b>${k.val}</b><span>${k.lbl}</span></div>`).join('')}
+    </div>
+    ${kpiMore.length ? `<div class="hs-minis">${kpiMore.map(([ic, v, l]) =>
+      `<div class="hs-mini"><i>${ic}</i><b>${v}</b><span>${l}</span></div>`).join('')}</div>` : ''}
+
+    <section id="world-map-wrap" class="hs-card hs-globe-card">
+      <div class="hs-card-hd">
+        <h3>Pays visités</h3>
+        <button id="wm-expand-btn" class="hs-icon-btn" title="Plein écran">⛶</button>
       </div>
-
-      <!-- KPI grid -->
-      <div class="stat-kpi-grid">${kpiHtml}</div>
-
-      <!-- World globe — full width, first -->
-      <div id="world-map-wrap" class="stat-card" style="margin-bottom:14px">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px">
-          <div style="display:flex;align-items:center;gap:8px">
-            <h4 class="stat-card-title" style="margin-bottom:0">🌍 Pays visités</h4>
-            <button id="wm-expand-btn" title="Plein écran">⛶ Plein écran</button>
-          </div>
-          <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">${contPillsHtml}</div>
-        </div>
-
-        <div class="globe-wrap">
-          <div class="globe-stage">
-            <canvas id="globe-canvas" class="globe-canvas" aria-label="Globe des pays visités"></canvas>
-            <div class="globe-markers"></div>
-          </div>
-        </div>
-        <div style="text-align:center;font-size:10px;color:var(--ink4);margin-top:2px">glisser pour tourner · molette/pincer pour zoomer</div>
-
-        <div class="globe-stats">
-          <div><div class="globe-stat-val">${visitedCount}</div><div class="globe-stat-lbl">pays visités</div></div>
-          <div><div class="globe-stat-val">${visitedPct}%</div><div class="globe-stat-lbl">du monde (~195 pays)</div></div>
-        </div>
-
-        ${badgesHtml ? `
-        <div class="globe-flags-section">
-          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px">
-            <h5 class="globe-flags-title">🏅 Drapeaux collectés</h5>
-            <div id="globe-country-label" class="globe-country-label" style="display:none"></div>
-          </div>
-          <div class="globe-badges" id="globe-badges">${badgesHtml}</div>
-        </div>` : ''}
-      </div>
-
-      <!-- Row 2: par année + saisons -->
-      <div class="stat-grid-2" style="margin-bottom:14px">
-        <div class="stat-card">
-          <h4 class="stat-card-title">📅 Voyages par année</h4>
-          ${years.length > 0
-            ? `<div style="display:flex;gap:5px;overflow-x:auto">${perYearBars}</div>`
-            : `<div style="font-size:12px;color:var(--ink4)">Aucune date renseignée</div>`}
-        </div>
-        <div class="stat-card">
-          <h4 class="stat-card-title">🌸 Saisons préférées</h4>
-          <div style="display:flex;justify-content:space-around;gap:4px">${seasonBars}</div>
+      <div class="hs-globe-sum"><b>${visitedCount}</b> pays · <b>${visitedPct} %</b> du monde</div>
+      ${contPillsHtml ? `<div class="hs-pills">${contPillsHtml}</div>` : ''}
+      <div class="globe-wrap">
+        <div class="globe-stage">
+          <canvas id="globe-canvas" class="globe-canvas" aria-label="Globe des pays visités"></canvas>
+          <div class="globe-markers"></div>
         </div>
       </div>
-
-      <!-- Row 3: top destinations + distances -->
-      <div class="stat-grid-2" style="margin-bottom:14px">
-        <div class="stat-card">
-          <h4 class="stat-card-title">🏆 Top destinations</h4>
-          ${topDestsHtml}
-        </div>
-        ${totalKm > 0 ? `
-        <div class="stat-card">
-          <h4 class="stat-card-title">🛣️ Distances par mode</h4>
-          ${kmRows}
-          <div style="font-size:10px;color:var(--ink4);margin-top:6px">Total estimé : ${Math.round(totalKm).toLocaleString('fr-FR')} km</div>
-        </div>` : ''}
-      </div>
-
-      <!-- Row 4: spending by month -->
-      ${spendMonths.length > 0 ? `
-      <div class="stat-card" style="margin-bottom:14px">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
-          <h4 class="stat-card-title" style="margin-bottom:0">💶 Dépenses par mois</h4>
-          ${avgSpendDay > 0 ? `<span style="font-size:11px;color:var(--ink4)">moy. <b style="color:var(--amb)">${avgSpendDay} €/j</b></span>` : ''}
-        </div>
-        <div style="display:flex;gap:3px;overflow-x:auto">${spendBars}</div>
-        <div style="font-size:10px;color:var(--ink4);margin-top:4px">Total : <b>${Math.round(s.totalSpent).toLocaleString('fr-FR')} €</b></div>
+      <div class="hs-hint">glisser pour tourner · pincer pour zoomer</div>
+      ${badgesHtml ? `
+      <div class="hs-flags">
+        <div class="hs-flags-hd"><span>Drapeaux collectés</span><div id="globe-country-label" class="globe-country-label" style="display:none"></div></div>
+        <div class="globe-badges" id="globe-badges">${badgesHtml}</div>
       </div>` : ''}
+    </section>
 
-      <!-- Row 5: expenses by category + companions -->
-      ${catEntries.length > 0 || compEntries.length > 0 ? `
-      <div class="stat-grid-2" style="margin-bottom:14px">
-        ${catEntries.length > 0 ? `
-        <div class="stat-card">
-          <h4 class="stat-card-title">💳 Dépenses par catégorie</h4>
-          ${catEntries.map(([name, {total, color, icon}]) => {
-            const pct = catTotal > 0 ? Math.round((total / catTotal) * 100) : 0;
-            return `<div style="margin-bottom:8px">
-              <div style="display:flex;justify-content:space-between;align-items:baseline;font-size:12px;margin-bottom:3px">
-                <span style="color:var(--ink2)">${icon} ${_esc(name)}</span>
-                <span style="font-weight:700;color:var(--ink);flex-shrink:0;white-space:nowrap">${Math.round(total).toLocaleString('fr-FR')} €<span style="font-size:10px;color:var(--ink4);font-weight:400"> (${pct}%)</span></span>
-              </div>
-              <div style="background:var(--c3);border-radius:4px;height:7px;overflow:hidden">
-                <div style="width:${pct}%;height:100%;background:${color};border-radius:4px;transition:width .4s"></div>
-              </div></div>`;
-          }).join('')}
-          <div style="font-size:10px;color:var(--ink4);margin-top:6px">Total : <b>${Math.round(catTotal).toLocaleString('fr-FR')} €</b></div>
-        </div>` : '<div></div>'}
-        ${compEntries.length > 0 ? `
-        <div class="stat-card">
-          <h4 class="stat-card-title">👥 Compagnons de voyage</h4>
-          ${compEntries.map(([name, {trips: tc, days, color}]) => {
-            const initials = name.trim().split(/\s+/).map(p => p[0] || '').slice(0, 2).join('').toUpperCase();
-            return `<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
-              <div style="width:32px;height:32px;border-radius:50%;background:${color};display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:#fff;flex-shrink:0">${_esc(initials || '?')}</div>
-              <div style="flex:1;min-width:0">
-                <div style="font-size:13px;font-weight:700;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${_esc(name)}</div>
-                <div style="font-size:11px;color:var(--ink3)">${tc} voyage${tc > 1 ? 's' : ''} · ${days} jour${days > 1 ? 's' : ''}</div>
-              </div>
-            </div>`;
-          }).join('')}
-        </div>` : '<div></div>'}
-      </div>` : ''}
+    <div class="hs-grid">
+      ${section('Voyages par année', years.length ? perYearBars : '<div class="hs-none">Aucune date renseignée</div>')}
+      ${section('Saisons', seasonBars)}
+    </div>
+
+    <div class="hs-grid">
+      ${section('Destinations favorites', topDestsHtml)}
+      ${totalKm > 0 ? section('Distances par mode', kmRows, `<small>${fmt(totalKm)} km</small>`) : ''}
+    </div>
+
+    ${spendMonths.length ? section('Dépenses par mois', spendBars,
+        avgSpendDay > 0 ? `<small>moy. ${avgSpendDay} €/jour</small>` : '') : ''}
+
+    <div class="hs-grid">
+      ${catEntries.length ? section('Dépenses par catégorie',
+          catEntries.map(([name, { total, color, icon }]) =>
+            _hsBar(`${icon} ${_esc(name)}`, `${fmt(total)} €`, catTotal > 0 ? (total / catTotal) * 100 : 0, color)).join(''),
+          `<small>${fmt(catTotal)} €</small>`) : ''}
+      ${compEntries.length ? section('Compagnons de voyage', `<div class="hs-comps">${compEntries.map(([name, { trips: tc, days, color }]) => {
+          const initials = name.trim().split(/\s+/).map(p => p[0] || '').slice(0, 2).join('').toUpperCase();
+          return `<div class="hs-comp"><span style="background:${color}">${_esc(initials || '?')}</span>
+            <div><b>${_esc(name)}</b><small>${tc} voyage${tc > 1 ? 's' : ''} · ${days} jour${days > 1 ? 's' : ''}</small></div></div>`;
+        }).join('')}</div>`) : ''}
     </div>
   `;
 }
 
-// ── Hero HTML ──────────────────────────────────────────────────────────────────
-
-function _heroHtml(trips) {
-  const s = _calcStats(trips);
-  const user = getCurrentUser();
-  const isStandalone = window.matchMedia('(display-mode:standalone)').matches || !!navigator.standalone;
-  const userHtml = user ? `
-    <div class="user-pill">
-      ${user.photoURL ? `<img src="${_esc(user.photoURL)}" class="user-av" referrerpolicy="no-referrer">` : ''}
-      <span class="user-nm">${_esc(user.displayName || user.email || '')}</span>
-      <button data-action="logout" class="logout-btn">Déconnexion</button>
-    </div>
-  ` : '';
-  const installBtn = !isStandalone
-    ? `<button class="btn-new hero-btn-install" data-action="pwa-install" title="Installer l'application">📲 Installer</button>`
-    : '';
-  return `
-    <div class="hero">
-      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%">
-        <div>
-          <div class="hero-logo">Carnet de Voyages <span style="font-size:11px;font-weight:400;opacity:.4;margin-left:3px">v${APP_VERSION}</span></div>
-          <div class="hero-sub">Planifiez, organisez et vivez vos aventures</div>
-        </div>
-        <div class="hero-nav-group">
-          ${userHtml}
-          <button class="btn-new" data-action="show-stats" title="Statistiques" style="padding:6px 10px;font-size:14px;line-height:1.2">📊 <span class="btn-label">Statistiques</span></button>
-          <button class="btn-new" data-action="open-settings" title="Paramètres" style="padding:6px 10px;font-size:14px;line-height:1.2">⚙️ <span class="btn-label">Paramètres</span></button>
-        </div>
-      </div>
-      <div class="hero-secondary-actions">
-        <button class="btn-new hero-btn-import" data-action="open-import" title="Importer KML/CSV">⬆ Importer</button>
-        <button class="btn-new hero-btn-export" data-action="export-all" title="Exporter tous les voyages en CSV">⬇ Exporter</button>
-        ${installBtn}
-      </div>
-      <div class="hero-row2">
-        <div class="hero-stats">
-          <div class="hs-card">
-            <div class="hs-v">${s.voyageCount}</div>
-            <div class="hs-l">Voyages</div>
-          </div>
-          <div class="hs-card">
-            <div class="hs-v">${s.weekendCount}</div>
-            <div class="hs-l">Week-ends</div>
-          </div>
-          <div class="hs-card">
-            <div class="hs-v">${s.sortieCount}</div>
-            <div class="hs-l">Sorties</div>
-          </div>
-          <div class="hs-card">
-            <div class="hs-v">${s.totalDays}</div>
-            <div class="hs-l">Jours</div>
-          </div>
-          <div class="hs-card">
-            <div class="hs-v">${s.countries}</div>
-            <div class="hs-l">Destinations</div>
-          </div>
-        </div>
-        <input id="global-search" type="search" placeholder="🔍 Rechercher…" class="hero-search-input" autocomplete="off">
-      </div>
-    </div>
-  `;
+/** Barre horizontale (libellé, valeur, % de remplissage). */
+function _hsBar(label, value, pct, color) {
+  return `<div class="hs-bar"><div class="hs-bar-top"><span>${label}</span><b>${value}</b></div>
+    <div class="hs-bar-track"><i style="width:${Math.max(2, Math.round(pct))}%${color ? `;background:${color}` : ''}"></i></div></div>`;
 }
 
-// ── Filter tabs HTML ───────────────────────────────────────────────────────────
-
-function _filterTabsHtml(activeFilter, activeTab) {
-  const tabs = [
-    { key: 'all',     label: 'Tous' },
-    { key: 'voyage',  label: '✈️ Voyages' },
-    { key: 'weekend', label: '🌿 Week-ends' },
-    { key: 'sortie',  label: '📍 Sorties' },
-  ];
-  if (activeTab === 'stats') {
-    const filterBtns = tabs.map(t =>
-      `<button class="filter-tab${_statsTypeFilter === t.key ? ' active' : ''}"
-               data-stats-type="${t.key}">${t.label}</button>`
-    ).join('');
-    return `<div class="filter-tabs">
-      <button class="filter-tab" data-action="go-home">🏠 Accueil</button>
-      ${filterBtns}
-    </div>`;
-  }
-  const filterBtns = tabs.map(t =>
-    `<button class="filter-tab${activeFilter === t.key ? ' active' : ''}"
-             data-action="filter" data-filter="${t.key}">${t.label}</button>`
-  ).join('');
-  return `<div class="filter-tabs">${filterBtns}</div>`;
+/** Histogramme en colonnes : items = [{ label, value, txt, color? }]. */
+function _hsCols(items, max) {
+  return `<div class="hs-cols">${items.map(it => {
+    const h = it.value > 0 ? Math.max(6, Math.round((it.value / (max || 1)) * 96)) : 3;   // px (zone de 96 px)
+    return `<div class="hs-col${it.value > 0 ? '' : ' hs-col-0'}"><small>${it.txt}</small>
+      <i style="height:${h}px${it.color ? `;background:${it.color}` : ''}"></i><span>${it.label}</span></div>`;
+  }).join('')}</div>`;
 }
 
 // ── Live feed helpers ─────────────────────────────────────────────────────────
@@ -2056,6 +1872,7 @@ const _HV2_ICONS = {
   menu:   '<svg viewBox="0 0 24 24" width="19" height="19"><path d="M4 7h16M4 12h16M4 17h16" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>',
   gear:   '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.9"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1.1-1.55 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.55-1H3a2 2 0 1 1 0-4h.09A1.7 1.7 0 0 0 4.6 8.9a1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.6h.01A1.7 1.7 0 0 0 10 3.05V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.55 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 9v.01a1.7 1.7 0 0 0 1.55 1H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.55 1z"/></svg>',
   down:   '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>',
+  back:   '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>',
   search: '<svg viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.6-3.6"/></svg>',
   mine:   '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><rect x="4" y="7" width="16" height="13" rx="2.5"/><path d="M9 7V5.5A1.5 1.5 0 0 1 10.5 4h3A1.5 1.5 0 0 1 15 5.5V7M4 12h16"/></svg>',
   obs:    '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 19a5.5 5.5 0 0 1 11 0"/><circle cx="17" cy="9" r="2.4"/><path d="M15.5 14.2A4.5 4.5 0 0 1 21 18.5"/></svg>',
@@ -2276,27 +2093,28 @@ function _renderStats() {
   const filtered  = _statsTypeFilter === 'all' ? doneTrips : doneTrips.filter(t => t.type === _statsTypeFilter);
   _statsLastFiltered = filtered;
 
+  const tabs = [['all', 'Tous'], ['voyage', 'Voyages'], ['weekend', 'Week-ends'], ['sortie', 'Sorties']];
+  // Page dans le style de l'accueil v2 (tokens --hv-*) ; défile avec le body comme les
+  // autres écrans mobiles, fond = couleur de la page (cf. bande iOS, CLAUDE.md).
   wrap.innerHTML = `
-    ${_heroHtml(heroTrips)}
-    <div class="home-sec">
-      <div class="home-sec-hd">
-        <h2>Statistiques</h2>
-        <button class="btn-new hero-new-btn" data-action="new-trip">＋ Nouveau</button>
-      </div>
-      ${_filterTabsHtml(_statsTypeFilter, 'stats')}
-      <div id="search-results-area" class="sr-area" style="display:none"></div>
-      <div id="stats-view" style="padding:8px 0">
-        ${_statsViewHtml(filtered)}
-      </div>
+    <div class="hs">
+      <header class="hs-top">
+        <button class="hv2-round hv2-round-light" data-action="go-home" title="Retour">${_HV2_ICONS.back}</button>
+        <h1>Statistiques</h1>
+      </header>
+      <div class="hs-seg">${tabs.map(([k, l]) =>
+        `<button class="${_statsTypeFilter === k ? 'active' : ''}" data-stats-type="${k}">${l}</button>`).join('')}</div>
+      <div class="hs-sub">${filtered.length} voyage${filtered.length > 1 ? 's' : ''} réalisé${filtered.length > 1 ? 's' : ''}</div>
+      <div id="stats-view">${_statsViewHtml(filtered)}</div>
     </div>
   `;
+  window.scrollTo(0, 0);
 
   if (!_listenerAttached) {
     _attachListeners(wrap);
     _listenerAttached = true;
   }
 
-  // Type filter tab clicks
   wrap.querySelectorAll('[data-stats-type]').forEach(btn => {
     btn.addEventListener('click', () => {
       _statsTypeFilter = btn.dataset.statsType;
@@ -2304,12 +2122,12 @@ function _renderStats() {
     });
   });
 
-  // Expand/collapse world map to fullscreen
+  // Globe en plein écran
   document.getElementById('wm-expand-btn')?.addEventListener('click', () => {
     const wmWrap = document.getElementById('world-map-wrap');
     if (!wmWrap) return;
     const isFs = wmWrap.classList.toggle('stat-fs');
-    document.getElementById('wm-expand-btn').textContent = isFs ? '✕ Fermer' : '⛶ Plein écran';
+    document.getElementById('wm-expand-btn').textContent = isFs ? '✕' : '⛶';
     requestAnimationFrame(() => _initGlobe(_statsLastFiltered));
   });
 

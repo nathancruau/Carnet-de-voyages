@@ -18,7 +18,7 @@ Quatre endroits à synchroniser, toujours le même numéro N :
 | `sw.js` | `const SHELL_CACHE = 'cv-shell-N'` |
 | `store.js` | `export const APP_VERSION = 'N'` |
 
-Version actuelle : **233**
+Version actuelle : **234**
 
 ---
 
@@ -85,7 +85,8 @@ js/
 - Styles : préfixés `.hv2-*` / `.hm-*` en fin de style.css, tokens `--hv-*` (redéfinis en dark). `env(safe-area-inset-*)` plafonné via `--hv-safe-t/b` (cf. v202). `.hv2` fait `height:100lvh` (pas `inset:0`) : sur iOS Safari le bas du viewport fixe s'arrête au-dessus de la zone de la barre d'outils, ce qui laissait une bande vide sous l'accueil ; carte + feuille descendent jusqu'au vrai bas, `.hv2-nav` (fixed) reste au-dessus de la barre Safari. Crans de la feuille = position de son bord haut (`translateY`). Fond html/body de l'écran accueil = couleur de la feuille.
 - **Glissé de la feuille (v231)** : mise à jour au plus une fois par image (rAF), **aucun recadrage de la carte pendant le glissé ni pendant l'animation** (`_hv2UpdateGlobeArea` recadre 340 ms après, en une fois) — MapLibre et la feuille animés ensemble saturaient le fil principal : feuille figée ~200 ms puis « téléportée » à l'arrivée (mesuré en simulation). Au relâcher (v232), la feuille va au **cran suivant dans le sens du geste** (sens du dernier mouvement sur 100 ms, sinon déplacement total ; < 12 px = cran le plus proche) — jamais de retour en arrière ; durée d'animation proportionnelle à la distance (260–480 ms).
 - Types de lieux (`eventTypes`) : **fixes**, plus modifiables dans les Paramètres (v231) ; `settings.eventTypes` déjà enregistrés sont conservés tels quels (pas réécrits).
-- Mode grands-parents et page Statistiques gardent l'ancien rendu pour l'instant.
+- **Page Statistiques (v234)** : `_renderStats()` (home.js) dans le style v2 — `.hs` (tokens `--hv-*`), bouton retour (`go-home`), filtre par type en contrôle segmenté (`data-stats-type`), chiffres clés `.hs-kpis`/`.hs-minis`, cartes `.hs-card` (globe + drapeaux, années, saisons, destinations, distances, dépenses par mois/catégorie, compagnons) ; graphiques via `_hsBar()` / `_hsCols()`. Mêmes calculs qu'avant (`_calcStats`, `_getVisitedMap`…), ids du globe inchangés (`globe-canvas`, `wm-expand-btn`, `world-map-wrap` + `stat-fs`). L'ancien bandeau `_heroHtml`/`_filterTabsHtml` et ses classes `.hs-card/.hs-v/.hs-l` (collision de noms) ont été supprimés. Page qui défile avec le body ; fond = blanc/#14181d comme html sur l'accueil (pas de bande iOS).
+- Mode grands-parents garde l'ancien rendu pour l'instant.
 
 ---
 
