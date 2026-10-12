@@ -2679,3 +2679,13 @@ html::after{
   .panel-fab-menu,.home-fab-menu{bottom:calc(66px + env(safe-area-inset-bottom) - var(--ios-gap,0px))}
   .lp-toggle-btn{bottom:calc(90px - var(--ios-gap,0px))}
 }
+
+/* v230 — iOS 26, appli installée (viewport-fit=cover + black-translucent) : WebKit retire la
+   barre d'état (~59 pt) de la hauteur de la page (100%, 100dvh, clientHeight = 793 sur 852) et
+   ne dessine plus rien sous cette ligne — c'est la « bande » sous les modales/écrans, remplie
+   avec le fond de html. Seul 100lvh vaut la vraie hauteur : on la donne à html, en mode appli
+   uniquement (aucun effet dans un onglet Safari). Correctif rapporté par plusieurs projets
+   touchés par la même régression WebKit. */
+@media (display-mode: standalone){
+  html{height:100lvh!important}
+}
