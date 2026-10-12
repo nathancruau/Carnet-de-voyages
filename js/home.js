@@ -1769,6 +1769,7 @@ function _hv2Metrics() {
 function _hv2ApplySheet(translate, animate, updateMap = true) {
   const sheet = document.getElementById('hv2-sheet');
   if (!sheet) return;
+  const from = _hv2Translate ?? translate;
   _hv2Translate = translate;
   // Progression mid → plein écran (0 → 1) : tout ce qui change entre la vue carte et
   // la vue profil (coins, marge sous la barre du haut, assombrissement de la carte,
@@ -1776,7 +1777,11 @@ function _hv2ApplySheet(translate, animate, updateMap = true) {
   const root = document.getElementById('hv2');
   const mid  = Math.max(1, Math.round(window.innerHeight * 0.5));
   const p    = Math.max(0, Math.min(1, 1 - translate / mid));
-  const ease = '.32s cubic-bezier(.2,.8,.2,1)';
+  // Durée proportionnelle au chemin restant (≈ 260 ms pour un petit bout, ≤ 480 ms pour
+  // traverser l'écran) et courbe douce : une courbe trop « nerveuse » donnait l'impression
+  // que la feuille se téléportait à l'arrivée.
+  const ms   = Math.round(Math.max(260, Math.min(480, 200 + Math.abs(translate - from) * 0.6)));
+  const ease = `${ms}ms cubic-bezier(.22,.7,.25,1)`;
   root?.style.setProperty('--hv-p', p.toFixed(3));
   root?.classList.toggle('hv2-is-full', p > 0.92);
   sheet.style.transition = animate ? `transform ${ease}, border-radius ${ease}` : 'none';
@@ -1818,7 +1823,7 @@ function _hv2UpdateGlobeArea(sheetTop, animate) {
   if (!animate) { setHomeMapPadding(padding); return; }
   // La carte se recentre APRÈS l'animation de la feuille, pas pendant : les deux en même
   // temps saturaient le fil principal (feuille figée puis « téléportée » à l'arrivée).
-  _hv2MapTimer = setTimeout(() => setHomeMapPadding(padding, true), 340);
+  _hv2MapTimer = setTimeout(() => setHomeMapPadding(padding, true), 500);
 }
 
 function _hv2BindSheet() {
@@ -1862,18 +1867,17 @@ function _hv2BindSheet() {
     setTimeout(() => { suppressClick = false; }, 60);
     const vel = velocity();
     const { snaps } = _hv2Metrics();
-    const order = ['full', 'mid', 'peek'];
+    const order = ['full', 'mid', 'peek'];           // de haut en bas (translate croissant)
+    const t = _hv2Translate;
+    // Sens du geste : celui du dernier mouvement s'il est net, sinon le déplacement total.
+    // La feuille continue alors jusqu'au cran SUIVANT dans ce sens (jamais de retour en
+    // arrière vers le cran le plus proche quand on lâche à mi-chemin).
+    const moved = t - startT;
+    const dir = Math.abs(vel) > 0.08 ? Math.sign(vel) : (Math.abs(moved) > 12 ? Math.sign(moved) : 0);
     let target;
-    if (Math.abs(vel) > 0.45) {
-      const cur = order.reduce((best, s) => Math.abs(snaps[s] - _hv2Translate) < Math.abs(snaps[best] - _hv2Translate) ? s : best, 'mid');
-      const idx = order.indexOf(cur);
-      const dir = vel > 0 ? 1 : -1;
-      // Si on est déjà au cran le plus proche dans le sens du geste, aller au suivant
-      const passed = dir > 0 ? _hv2Translate > snaps[cur] - 4 : _hv2Translate < snaps[cur] + 4;
-      target = order[Math.max(0, Math.min(2, passed ? idx + dir : idx))];
-    } else {
-      target = order.reduce((best, s) => Math.abs(snaps[s] - _hv2Translate) < Math.abs(snaps[best] - _hv2Translate) ? s : best, 'mid');
-    }
+    if (dir > 0)      target = order.find(sn => snaps[sn] > t + 4) || 'peek';
+    else if (dir < 0) target = [...order].reverse().find(sn => snaps[sn] < t - 4) || 'full';
+    else              target = order.reduce((best, sn) => Math.abs(snaps[sn] - t) < Math.abs(snaps[best] - t) ? sn : best, 'mid');
     mode = null;
     _hv2SetSnap(target, true);
   };

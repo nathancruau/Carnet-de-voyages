@@ -64,7 +64,9 @@ let _proj       = null;           // 'globe' | 'flat'
 let _syncQueued = false;
 let _needsZoom  = false;          // carte créée dans un écran masqué (taille 0) : zoom initial à recalculer
 let _padding    = null;           // dernier padding demandé (réappliqué au chargement du style)
-let _countryKeys = [];            // index → clé pays (propriété « ci » des points, agrégée par cluster)
+let _countryKeys = [];            // index i → clé pays de la source « pins-i »
+let _srcCount    = 0;             // nombre de sources pays actuellement sur la carte
+let _styleReady  = false;
 
 // ── Couleur par pays (reprise de l'ancienne « Carte détaillée ») ──────────────
 // Même palette et même hachage : un pays garde la même couleur partout.
@@ -147,17 +149,41 @@ export function collectMapPins(trips, eventTypes = []) {
   return pins;
 }
 
-function _geojson() {
-  _countryKeys = [...new Set(_pins.map(p => p.country))];
-  const ci = new Map(_countryKeys.map((k, i) => [k, i]));
-  return {
-    type: 'FeatureCollection',
-    features: _pins.map((p, i) => ({
+// Une source GeoJSON (avec regroupement) PAR PAYS : MapLibre ne regroupe que les points
+// d'une même source, donc un groupe ne mélange jamais deux pays.
+function _countryCollections() {
+  const byCountry = new Map();
+  _pins.forEach((p, i) => {
+    if (!byCountry.has(p.country)) byCountry.set(p.country, []);
+    byCountry.get(p.country).push({
       type: 'Feature',
       geometry: { type: 'Point', coordinates: [p.lng, p.lat] },
-      properties: { idx: i, ci: ci.get(p.country) ?? -1 },
-    })),
-  };
+      properties: { idx: i },
+    });
+  });
+  _countryKeys = [...byCountry.keys()];
+  return _countryKeys.map(k => ({ type: 'FeatureCollection', features: byCountry.get(k) }));
+}
+
+/** Aligne les sources « pins-i » (+ leur couche d'ancrage invisible) sur _pins. */
+function _syncSources() {
+  if (!_map || !_styleReady) return;
+  const cols = _countryCollections();
+  _clearMarkers();          // les cluster_id changent avec les données
+  cols.forEach((data, i) => {
+    const id = `pins-${i}`;
+    const src = _map.getSource(id);
+    if (src) { src.setData(data); return; }
+    _map.addSource(id, { type: 'geojson', data, cluster: true, clusterRadius: 46, clusterMaxZoom: 16 });
+    // Couche invisible : force le chargement de la source (les marqueurs sont en HTML)
+    _map.addLayer({ id: `pins-anchor-${i}`, type: 'circle', source: id, paint: { 'circle-radius': 0, 'circle-opacity': 0 } });
+  });
+  for (let i = cols.length; i < _srcCount; i++) {
+    if (_map.getLayer(`pins-anchor-${i}`)) _map.removeLayer(`pins-anchor-${i}`);
+    if (_map.getSource(`pins-${i}`))      _map.removeSource(`pins-${i}`);
+  }
+  _srcCount = cols.length;
+  _queueSync();
 }
 
 function _applyBase(key) {
@@ -165,7 +191,8 @@ function _applyBase(key) {
   // Retire l'ancien fond
   for (const l of (_map.getStyle()?.layers || [])) if (l.id.startsWith('base-')) _map.removeLayer(l.id);
   for (const id of Object.keys(_map.getStyle()?.sources || {})) if (id.startsWith('base-')) _map.removeSource(id);
-  const before = _map.getLayer('pins-anchor') ? 'pins-anchor' : undefined;
+  // Fond sous les couches d'ancrage des PINs
+  const before = (_map.getStyle()?.layers || []).find(l => l.id.startsWith('pins-anchor-'))?.id;
   BASES[key].layers.forEach((l, i) => {
     const id = `base-${key}-${i}`;
     _map.addSource(id, {
@@ -216,7 +243,7 @@ function _pinEl(pin) {
   return el;
 }
 
-function _clusterEl(count, clusterId, coords, color) {
+function _clusterEl(srcId, count, clusterId, coords, color) {
   const el = document.createElement('button');
   el.type = 'button';
   el.className = 'hm-cluster' + (count >= 10 ? ' hm-cluster-lg' : '');
@@ -225,7 +252,7 @@ function _clusterEl(count, clusterId, coords, color) {
   el.addEventListener('click', async e => {
     e.stopPropagation();
     if (el.style.opacity === '0') return; // face cachée du globe
-    const src = _map.getSource('pins');
+    const src = _map.getSource(srcId);
     try {
       const zoom = await src.getClusterExpansionZoom(clusterId);
       // Points superposés (même lieu) : le cluster ne se sépare jamais → liste
@@ -243,27 +270,35 @@ function _clusterEl(count, clusterId, coords, color) {
 /** Synchronise les marqueurs HTML avec les features (points + clusters) chargées. */
 function _syncMarkers() {
   _syncQueued = false;
-  if (!_map || !_map.getSource('pins') || !_map.isSourceLoaded('pins')) return;
+  if (!_map || !_styleReady) return;
   const seen = new Set();
-  for (const f of _map.querySourceFeatures('pins')) {
-    const p = f.properties;
-    const key = p.cluster ? 'c' + p.cluster_id : 'p' + p.idx;
-    if (seen.has(key)) continue; // une même feature peut figurer dans plusieurs tuiles
-    seen.add(key);
-    if (_markers.has(key)) continue;
-    const coords = f.geometry.coordinates;
-    let marker;
-    if (p.cluster) {
-      // Groupe d'un seul pays → couleur du pays ; plusieurs pays → pastille sombre neutre
-      const one = p.cmin === p.cmax && p.cmin >= 0 ? _countryKeys[p.cmin] : null;
-      marker = new window.maplibregl.Marker({ element: _clusterEl(p.point_count, p.cluster_id, coords, one && _countryColor(one)), opacityWhenCovered: '0' });
-    } else {
-      const pin = _pins[p.idx];
-      if (!pin) continue;
-      marker = new window.maplibregl.Marker({ element: _pinEl(pin), anchor: 'bottom', opacityWhenCovered: '0' });
+  for (let i = 0; i < _srcCount; i++) {
+    const srcId = `pins-${i}`;
+    if (!_map.getSource(srcId)) continue;
+    if (!_map.isSourceLoaded(srcId)) {
+      // Source en cours de recalcul : on garde ses marqueurs actuels (pas de clignotement)
+      for (const key of _markers.keys()) if (key.startsWith(i + ':')) seen.add(key);
+      continue;
     }
-    marker.setLngLat(coords).addTo(_map);
-    _markers.set(key, marker);
+    const color = _countryColor(_countryKeys[i] || '??');
+    for (const f of _map.querySourceFeatures(srcId)) {
+      const p = f.properties;
+      const key = p.cluster ? `${i}:c${p.cluster_id}` : `${i}:p${p.idx}`;
+      if (seen.has(key)) continue; // une même feature peut figurer dans plusieurs tuiles
+      seen.add(key);
+      if (_markers.has(key)) continue;
+      const coords = f.geometry.coordinates;
+      let marker;
+      if (p.cluster) {
+        marker = new window.maplibregl.Marker({ element: _clusterEl(srcId, p.point_count, p.cluster_id, coords, color), opacityWhenCovered: '0' });
+      } else {
+        const pin = _pins[p.idx];
+        if (!pin) continue;
+        marker = new window.maplibregl.Marker({ element: _pinEl(pin), anchor: 'bottom', opacityWhenCovered: '0' });
+      }
+      marker.setLngLat(coords).addTo(_map);
+      _markers.set(key, marker);
+    }
   }
   for (const [key, m] of _markers) if (!seen.has(key)) { m.remove(); _markers.delete(key); }
 }
@@ -324,13 +359,9 @@ export async function attachHomeMap(slot, opts) {
         version: 8,
         projection: { type: opts.projection === 'flat' ? 'mercator' : 'globe' },
         sky: { 'atmosphere-blend': ['interpolate', ['linear'], ['zoom'], 0, 1, 5, 1, 7, 0] },
-        sources: { pins: { type: 'geojson', data: _geojson(), cluster: true, clusterRadius: 46, clusterMaxZoom: 16,
-          // min/max de l'index pays : égaux → tout le groupe est dans le même pays (couleur du pays)
-          clusterProperties: { cmin: ['min', ['get', 'ci']], cmax: ['max', ['get', 'ci']] } } },
+        sources: {},   // sources « pins-i » (une par pays) ajoutées au chargement : _syncSources()
         layers: [
           { id: 'ocean', type: 'background', paint: { 'background-color': '#0f3a6b' } },
-          // Couche invisible : force le chargement de la source (les marqueurs sont en HTML)
-          { id: 'pins-anchor', type: 'circle', source: 'pins', paint: { 'circle-radius': 0, 'circle-opacity': 0 } },
         ],
       },
       center,
@@ -347,6 +378,8 @@ export async function attachHomeMap(slot, opts) {
     _proj = opts.projection === 'flat' ? 'flat' : 'globe';
     _padding = pad;
     _map.on('load', () => {
+      _styleReady = true;
+      _syncSources();
       _applyBase(opts.base || 'relief');
       // Le padding posé avant le chargement du style n'est pas toujours conservé ;
       // le zoom initial est recalculé avec la zone visible réelle (feuille en place)
@@ -384,10 +417,7 @@ export function setHomeMapPins(pins) {
   const same = pins.length === _pins.length && pins.every((p, i) => p.id === _pins[i]?.id && p.lat === _pins[i].lat && p.lng === _pins[i].lng && p.country === _pins[i].country);
   _pins = pins;
   if (!_map || same) return;
-  const src = _map.getSource('pins');
-  if (!src) return;
-  _clearMarkers();          // les cluster_id changent avec les données
-  src.setData(_geojson());
+  _syncSources();
 }
 
 export function setHomeMapPadding(padding, animate = false) {
