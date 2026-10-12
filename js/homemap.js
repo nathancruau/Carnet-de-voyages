@@ -308,6 +308,10 @@ export async function attachHomeMap(slot, opts) {
       maxZoom: 19,
       attributionControl: { compact: true },
       dragRotate: false,
+      // iPhone = ratio 3 : 2,25× plus de pixels à dessiner qu'en ratio 2 pour une
+      // différence à peine visible sur des tuiles raster — cause principale des saccades au zoom
+      pixelRatio: Math.min(window.devicePixelRatio || 1, 2),
+      fadeDuration: 150,
       pitchWithRotate: false,
       renderWorldCopies: false,
     });
@@ -329,7 +333,11 @@ export async function attachHomeMap(slot, opts) {
     });
     // Attribution repliée en (i) — dépliée par défaut, elle masque le haut de la carte
     _map.once('idle', () => _host.querySelector('.maplibregl-ctrl-attrib')?.classList.remove('maplibregl-compact-show'));
-    _map.on('render', _queueSync);
+    // Les marqueurs HTML suivent la carte tout seuls ; il suffit de recalculer quels points/
+    // groupes afficher quand le mouvement s'arrête ou que la source change — pas à chaque
+    // image (querySourceFeatures + création de DOM à 60 i/s ralentissait le zoom)
+    _map.on('moveend', _queueSync);
+    _map.on('sourcedata', e => { if (e.sourceId === 'pins' && e.isSourceLoaded) _queueSync(); });
     _map.on('click', () => _opts.onPinsTap?.([]));
   } else {
     _map.resize();

@@ -1765,26 +1765,34 @@ function _hv2Metrics() {
   };
 }
 
-function _hv2ApplySheet(translate, animate) {
+// Pendant le glissé, seules des propriétés « composées » changent (transform, opacité,
+// coins) : aucun recalcul de mise en page de la liste ni rendu de la carte par image
+// (c'est ce qui rendait le geste saccadé). La carte est recadrée une fois, à la fin.
+function _hv2ApplySheet(translate, animate, updateMap = true) {
   const sheet = document.getElementById('hv2-sheet');
   if (!sheet) return;
   _hv2Translate = translate;
-  // Progression mid → plein écran (0 → 1) : tout ce qui change entre la vue carte et
-  // la vue profil (coins, marge sous la barre du haut, assombrissement de la carte,
-  // style des boutons) suit cette valeur au lieu de basculer d'un coup.
   const root = document.getElementById('hv2');
   const mid  = Math.max(1, Math.round(window.innerHeight * 0.5));
-  const p    = Math.max(0, Math.min(1, 1 - translate / mid));
+  const p    = Math.max(0, Math.min(1, 1 - translate / mid));   // 0 = mid (ou plus bas) → 1 = plein écran
   const ease = '.32s cubic-bezier(.2,.8,.2,1)';
-  root?.style.setProperty('--hv-p', p.toFixed(3));
+  const tr   = prop => animate ? `${prop} ${ease}` : 'none';
+  const set  = (el, styles, trans) => { if (!el) return; el.style.transition = trans; Object.assign(el.style, styles); };
+
   root?.classList.toggle('hv2-is-full', p > 0.92);
-  sheet.style.transition = animate ? `transform ${ease}, border-radius ${ease}` : 'none';
-  const head = document.querySelector('.hv2-sheet-head');
-  if (head) head.style.transition = animate ? `height ${ease}, opacity ${ease}` : 'none';
-  const dim = root?.querySelector('.hv2-dim');
-  if (dim) dim.style.transition = animate ? `opacity ${ease}` : 'none';
-  sheet.style.transform  = `translateY(${translate}px)`;
-  _hv2UpdateGlobeArea(animate);
+  const r = (26 * (1 - p)).toFixed(1) + 'px';
+  set(sheet, { transform: `translateY(${translate}px)`, borderTopLeftRadius: r, borderTopRightRadius: r },
+      animate ? `transform ${ease}, border-top-left-radius ${ease}, border-top-right-radius ${ease}` : 'none');
+  // La rangée ⌄ / ⚙️ du plein écran est au début de la liste ; hors plein écran la liste
+  // est simplement décalée vers le haut pour la masquer (transform, pas de height animée)
+  const head  = sheet.querySelector('.hv2-sheet-head');
+  const headH = head?.offsetHeight || 0;
+  set(sheet.querySelector('.hv2-scroll'), { transform: `translateY(${((21 - headH) * (1 - p)).toFixed(1)}px)` }, tr('transform'));
+  set(head, { opacity: p.toFixed(3), pointerEvents: p > 0.5 ? 'auto' : 'none' }, tr('opacity'));
+  set(sheet.querySelector('.hv2-grab'), { opacity: (1 - p).toFixed(3), pointerEvents: p > 0.9 ? 'none' : 'auto' }, tr('opacity'));
+  set(document.getElementById('hv2-top'), { opacity: (1 - p).toFixed(3) }, tr('opacity'));
+  set(root?.querySelector('.hv2-dim'), { opacity: (p * 0.8).toFixed(3) }, tr('opacity'));
+  if (updateMap) setHomeMapPadding(_hv2MapPadding(translate), animate);
 }
 
 function _hv2SetSnap(snap, animate = true) {
@@ -1793,27 +1801,25 @@ function _hv2SetSnap(snap, animate = true) {
   const root = document.getElementById('hv2');
   if (!root) return;
   root.dataset.snap = snap;
-  if (_HV2_WIDE()) { _hv2UpdateGlobeArea(false); return; }
+  if (_HV2_WIDE()) {
+    const sc = document.getElementById('hv2-scroll');
+    if (sc) sc.style.transform = 'none';
+    setHomeMapPadding(_hv2MapPadding());
+    return;
+  }
   _hv2ApplySheet(_hv2Metrics().snaps[snap], animate);
 }
 
-function _hv2MapPadding() {
+function _hv2MapPadding(sheetTop) {
   const W = window.innerWidth, H = window.innerHeight;
   const topH = document.getElementById('hv2-top')?.getBoundingClientRect().bottom || 70;
   if (_HV2_WIDE()) {
     const panelW = document.getElementById('hv2-sheet')?.offsetWidth || 400;
     return { top: topH, bottom: 20, left: panelW, right: 0 };
   }
-  const sheetTop = document.getElementById('hv2-sheet')?.getBoundingClientRect().top ?? H * 0.5;
-  return { top: topH, bottom: Math.max(0, Math.min(H - topH - 80, H - sheetTop)), left: 0, right: 0 };
-}
-
-function _hv2UpdateGlobeArea(animate) {
-  if (!animate) { setHomeMapPadding(_hv2MapPadding()); return; }
-  // Suit l'animation CSS de la feuille pendant sa durée
-  const t0 = performance.now();
-  const step = () => { setHomeMapPadding(_hv2MapPadding()); if (performance.now() - t0 < 360) requestAnimationFrame(step); };
-  requestAnimationFrame(step);
+  // sheetTop = bord haut visé (pendant une animation, le rect DOM n'est pas encore à jour)
+  const top = sheetTop ?? document.getElementById('hv2-sheet')?.getBoundingClientRect().top ?? H * 0.5;
+  return { top: topH, bottom: Math.max(0, Math.min(H - topH - 80, H - top)), left: 0, right: 0 };
 }
 
 function _hv2BindSheet() {
@@ -1821,9 +1827,9 @@ function _hv2BindSheet() {
   const scroll = document.getElementById('hv2-scroll');
   if (!sheet || !scroll) return;
 
-  let startY = 0, startT = 0, mode = null, lastY = 0, lastT = 0, vel = 0, suppressClick = false;
+  let startY = 0, startT = 0, mode = null, suppressClick = false, samples = [], rafId = 0, pendingT = null;
 
-  const begin = y => { startY = lastY = y; lastT = performance.now(); startT = _hv2Translate ?? 0; mode = null; vel = 0; };
+  const begin = y => { startY = y; startT = _hv2Translate ?? 0; mode = null; samples = [{ y, t: performance.now() }]; };
   const move  = (y, e) => {
     const dy = y - startY;
     if (!mode) {
@@ -1832,16 +1838,27 @@ function _hv2BindSheet() {
     }
     if (mode !== 'sheet') return;
     e?.cancelable && e.preventDefault();
-    const now = performance.now();
-    vel = (y - lastY) / Math.max(1, now - lastT);
-    lastY = y; lastT = now;
+    samples.push({ y, t: performance.now() });
+    if (samples.length > 6) samples.shift();
     const { snaps } = _hv2Metrics();
-    _hv2ApplySheet(Math.max(0, Math.min(snaps.peek + 20, startT + dy)), false);
+    pendingT = Math.max(0, Math.min(snaps.peek + 20, startT + dy));
+    // Une seule mise à jour par image, même si iOS envoie plusieurs touchmove
+    if (!rafId) rafId = requestAnimationFrame(() => { rafId = 0; if (pendingT != null) _hv2ApplySheet(pendingT, false, false); });
   };
   const end = () => {
     if (mode !== 'sheet') { mode = null; return; }
     suppressClick = true;
     setTimeout(() => { suppressClick = false; }, 60);
+    if (rafId) { cancelAnimationFrame(rafId); rafId = 0; }
+    if (pendingT != null) { _hv2ApplySheet(pendingT, false, false); pendingT = null; }
+    // Vitesse sur les ~100 dernières ms seulement : si le doigt s'est arrêté avant de
+    // se lever, elle vaut 0 et la feuille reste au cran le plus proche (avant, la vitesse
+    // du dernier mouvement était réutilisée → saut au cran suivant, « téléportation »)
+    const now = performance.now();
+    const recent = samples.filter(s => now - s.t < 100);
+    const vel = recent.length >= 2
+      ? (recent[recent.length - 1].y - recent[0].y) / Math.max(16, recent[recent.length - 1].t - recent[0].t)
+      : 0;
     const { snaps } = _hv2Metrics();
     const order = ['full', 'mid', 'peek'];
     let target;

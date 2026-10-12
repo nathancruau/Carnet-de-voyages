@@ -2303,7 +2303,7 @@ a.tl-sv-pill:hover{background:var(--c3);color:var(--ink)}
      zone de la barre Safari, laissant une bande vide sous l'accueil. La carte et la feuille
      descendent jusqu'au vrai bas de l'écran ; la barre d'onglets (.hv2-nav, fixed) reste
      au-dessus de celle de Safari. */
-  position:fixed;top:0;left:0;right:0;height:calc(100vh + var(--ios-gap,0px));height:calc(100lvh + var(--ios-gap,0px));overflow:hidden;z-index:1;
+  position:fixed;top:0;left:0;right:0;height:100vh;height:max(100lvh, calc(var(--ios-usable,100lvh) + var(--ios-gap,0px)));overflow:hidden;z-index:1;
   font-family:var(--fn);color:var(--hv-ink);
   background:
     radial-gradient(1px 1px at 12% 18%,rgba(255,255,255,.8),transparent 60%),
@@ -2367,16 +2367,16 @@ a.tl-sv-pill:hover{background:var(--c3);color:var(--ink)}
 /* La barre de la carte (logo/☰ + ⚙️) s'efface quand la feuille monte ; en plein écran,
    ⌄ et ⚙️ sont dans le contenu de la liste (.hv2-sheet-head) et défilent avec lui :
    aucune barre fixe en haut, le profil remonte jusqu'en haut de l'écran. */
-.hv2-top{opacity:calc(1 - var(--hv-p,0))}
+
 .hv2-is-full .hv2-top{pointer-events:none}
 .hv2-is-full .hv2-top > *{pointer-events:none}
 .hv2-sheet-head{
   display:flex;align-items:flex-end;justify-content:space-between;overflow:hidden;
-  height:calc((var(--hv-safe-t) + 52px) * var(--hv-p,0));opacity:var(--hv-p,0);
-  margin:0 -2px;padding-bottom:calc(6px * var(--hv-p,0));box-sizing:border-box;
+  height:calc(var(--hv-safe-t) + 58px);opacity:0;pointer-events:none;
+  margin:0 -2px;padding-bottom:6px;box-sizing:border-box;
 }
 .hv2-sheet-head .hv2-round{flex-shrink:0}
-.hv2-dim{position:absolute;inset:0;z-index:3;background:#05080f;opacity:calc(var(--hv-p,0) * .8);pointer-events:none}
+.hv2-dim{position:absolute;inset:0;z-index:3;background:#05080f;opacity:0;pointer-events:none}
 @keyframes hv2Pop{from{opacity:0;transform:scale(.7)}to{opacity:1;transform:none}}
 
 /* Popup PIN */
@@ -2400,12 +2400,14 @@ a.tl-sv-pill:hover{background:var(--c3);color:var(--ink)}
 /* Feuille profil */
 .hv2-sheet{
   position:absolute;left:0;right:0;bottom:0;z-index:4;height:100%;
-  background:var(--hv-sheet);border-radius:calc(26px * (1 - var(--hv-p,0))) calc(26px * (1 - var(--hv-p,0))) 0 0;
+  background:var(--hv-sheet);border-radius:26px 26px 0 0;overflow:hidden;
   box-shadow:0 -8px 32px rgba(0,0,0,.3);
   display:flex;flex-direction:column;will-change:transform;transform:translateY(50%);
 }
 /* La poignée se replie en plein écran (sinon bande vide en haut de la liste) */
-.hv2-grab{opacity:calc(1 - var(--hv-p,0));height:calc(21px * (1 - var(--hv-p,0)));padding:0!important;align-items:center;overflow:hidden}
+/* Poignée hors du flux (pas de hauteur animée) ; la liste remplit la feuille */
+.hv2-grab{position:absolute;top:0;left:0;right:0;height:21px;z-index:2;padding:0!important;align-items:center}
+.hv2-scroll{position:absolute!important;inset:0;will-change:transform}
 
 .hv2-grab{flex-shrink:0;padding:10px 0 6px;display:flex;justify-content:center;cursor:grab;touch-action:none}
 .hv2-grab span{width:38px;height:5px;border-radius:3px;background:#cfd6dc}
@@ -2657,9 +2659,9 @@ a.tl-sv-pill:hover{background:var(--c3);color:var(--ink)}
 .calc-kp-sheet{padding-bottom:calc(14px + var(--ios-gap,0px))}
 @media (max-width:768px){
   .mbox{bottom:calc(-1 * var(--ios-gap,0px));padding-bottom:calc(20px + env(safe-area-inset-bottom) + var(--ios-gap,0px))}
-  .mbox.mbox-fullscreen-mobile{height:calc(100dvh + var(--ios-gap,0px));max-height:none}
+  .mbox.mbox-fullscreen-mobile{height:calc(var(--ios-usable,100dvh) + var(--ios-gap,0px));max-height:none}
   #screen-home.active,#screen-login.active,
-  #screen-app.active:not(.tab-map-active):not(.tab-fixed-active){min-height:calc(100dvh + var(--ios-gap,0px))}
+  #screen-app.active:not(.tab-map-active):not(.tab-fixed-active){min-height:calc(var(--ios-usable,100dvh) + var(--ios-gap,0px))}
 }
 /* Bande iOS sur les écrans qui défilent (voyage, budget…) : un fond fixe la recouvre avec
    la couleur de l'écran courant (html reçoit la couleur de l'écran actif via showScreen —
