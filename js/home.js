@@ -1588,7 +1588,7 @@ function _hv2Metrics() {
  *  principal est occupé. Avant, la hauteur de l'en-tête, la poignée et les coins
  *  changeaient à chaque image (toute la liste remise en page → saccades), et certains
  *  éléments sautaient d'un coup au début de l'animation (impression de téléportation). */
-let _hv2FlatTimer = 0;
+let _hv2FlatTimer = 0, _hv2AnimTimer = 0, _hv2SnapTimer = 0, _hv2Dragging = false;
 function _hv2ApplySheet(translate, animate, updateMap = true) {
   const sheet = document.getElementById('hv2-sheet');
   if (!sheet) return;
@@ -1635,6 +1635,13 @@ function _hv2ApplySheet(translate, animate, updateMap = true) {
   if (top)  { top.style.transition  = trO; top.style.opacity  = 1 - p; }
   if (dim)  { dim.style.transition  = trO; dim.style.opacity  = (p * 0.8).toFixed(3); }
   root?.classList.toggle('hv2-is-full', p > 0.92);
+  // Flous (barre d'onglets, pastilles) coupés tant que la feuille bouge : sur iPhone un
+  // backdrop-filter au-dessus d'un contenu qui défile est recalculé à chaque image.
+  clearTimeout(_hv2AnimTimer);
+  if (animate) {
+    root?.classList.add('hv2-anim');
+    _hv2AnimTimer = setTimeout(() => { if (!_hv2Dragging) root?.classList.remove('hv2-anim'); }, ms + 40);
+  } else if (!_hv2Dragging) root?.classList.remove('hv2-anim');
   // Coins carrés seulement une fois arrivée en haut (un seul rendu, pas à chaque image)
   clearTimeout(_hv2FlatTimer);
   if (p < 0.999) sheet.classList.remove('hv2-sheet-flat');
@@ -1651,7 +1658,11 @@ function _hv2SetSnap(snap, animate = true) {
   if (snap !== 'full') { _hv2NavCompact = false; document.querySelector('.hv2-nav')?.classList.remove('hv2-nav-compact'); }
   const root = document.getElementById('hv2');
   if (!root) return;
-  root.dataset.snap = snap;
+  // data-snap bascule le défilement de la liste (overflow) : appliqué en FIN d'animation,
+  // sinon toute la liste est recalculée au moment précis où la feuille commence à bouger.
+  clearTimeout(_hv2SnapTimer);
+  if (animate && !_HV2_WIDE()) _hv2SnapTimer = setTimeout(() => { root.dataset.snap = snap; }, 500);
+  else root.dataset.snap = snap;
   if (_HV2_WIDE()) {
     // Grand écran : panneau latéral fixe, on efface les styles posés par le mode feuille
     for (const el of [document.getElementById('hv2-top'), root.querySelector('.hv2-dim')]) if (el) el.style.opacity = '';
@@ -1684,6 +1695,35 @@ function _hv2UpdateGlobeArea(sheetTop, animate) {
   _hv2MapTimer = setTimeout(() => setHomeMapPadding(padding, true), 500);
 }
 
+// ── Onglets du profil : ordre, glissé gauche/droite, défilement propre à chaque onglet ──
+const _HV2_TABS = ['mine', 'observing', 'live'];
+const _hv2TabScroll = {};        // onglet → scrollTop mémorisé (chaque onglet garde sa position)
+let _hv2RenderedTab = null;      // onglet affiché par le dernier rendu
+let _hv2PaneEnter   = 0;         // sens d'arrivée du nouvel onglet (1 = depuis la droite, -1 = gauche)
+
+function _hv2TabNeighbor(dir) {
+  return _HV2_TABS[_HV2_TABS.indexOf(_homeLibTab) + dir] || null;
+}
+
+function _hv2SwitchTab(tab, dir = 0) {
+  if (!tab || tab === _homeLibTab) return;
+  _hv2PaneEnter = dir || (_HV2_TABS.indexOf(tab) > _HV2_TABS.indexOf(_homeLibTab) ? 1 : -1);
+  _homeLibTab = tab;
+  if (tab === 'live') _lvMarkSeen();
+  renderHome(_currentFilter);
+}
+
+/** Le geste commence-t-il dans un élément qui défile horizontalement (carrousel photos…) ? */
+function _hv2InHScroller(el, stop) {
+  for (; el && el !== stop && el.nodeType === 1; el = el.parentElement) {
+    if (el.scrollWidth > el.clientWidth + 2) {
+      const ox = getComputedStyle(el).overflowX;
+      if (ox === 'auto' || ox === 'scroll') return true;
+    }
+  }
+  return false;
+}
+
 function _hv2BindSheet() {
   const sheet  = document.getElementById('hv2-sheet');
   const scroll = document.getElementById('hv2-scroll');
@@ -1691,8 +1731,12 @@ function _hv2BindSheet() {
 
   let startY = 0, startT = 0, mode = null, samples = [], suppressClick = false, raf = 0, pendingT = null;
 
-  let snaps0 = null;
-  const begin = y => { startY = y; startT = _hv2Translate ?? 0; mode = null; pendingT = null; snaps0 = null; samples = [{ y, t: performance.now() }]; };
+  let snaps0 = null, startX = 0, lastX = 0, startTarget = null;
+  const begin = (y, x = 0, target = null) => {
+    suppressClick = false;   // nouveau contact : un vrai tap doit passer
+    startY = y; startX = lastX = x; startTarget = target;
+    startT = _hv2Translate ?? 0; mode = null; pendingT = null; snaps0 = null; samples = [{ y, x, t: performance.now() }];
+  };
   // Vitesse sur les ~100 dernières ms seulement : si le doigt s'est arrêté avant de lâcher,
   // elle vaut 0 et la feuille va au cran le plus proche (avant, la vitesse du dernier
   // mouvement l'envoyait parfois au cran suivant).
@@ -1703,13 +1747,35 @@ function _hv2BindSheet() {
     const a = recent[0], b = recent[recent.length - 1];
     return (b.y - a.y) / Math.max(16, b.t - a.t);
   };
-  const move  = (y, e) => {
+  const move  = (y, e, x = 0) => {
+    lastX = x;
     if (!mode) {
-      const d0 = y - startY;
-      if (Math.abs(d0) < 6) return;
-      mode = (_hv2Snap !== 'full' || (scroll.scrollTop <= 0 && d0 > 0)) ? 'sheet' : 'scroll';
+      const d0 = y - startY, dx0 = x - startX;
+      if (Math.abs(d0) < 6 && Math.abs(dx0) < 6) return;
+      // Glissé horizontal → changement d'onglet (sauf dans un carrousel qui défile déjà)
+      if (Math.abs(dx0) > Math.abs(d0) * 1.2 && _hv2Snap !== 'peek' && !_hv2InHScroller(startTarget, scroll)) {
+        mode = 'swipe';
+      } else {
+        if (Math.abs(d0) < 6) return;
+        mode = (_hv2Snap !== 'full' || (scroll.scrollTop <= 0 && d0 > 0)) ? 'sheet' : 'scroll';
+      }
       // La feuille part de là où est le doigt maintenant (pas de saut des 6 px du seuil)
-      if (mode === 'sheet') startY = y;
+      if (mode === 'sheet') {
+        startY = y;
+        _hv2Dragging = true;
+        document.getElementById('hv2')?.classList.add('hv2-anim');
+      }
+    }
+    if (mode === 'swipe') {
+      e?.cancelable && e.preventDefault();
+      samples.push({ y, x, t: performance.now() });
+      if (samples.length > 12) samples.shift();
+      const dx = x - startX;
+      const pane = scroll.querySelector('.hv2-pane');
+      // Résistance s'il n'y a pas d'onglet de ce côté
+      const can = _hv2TabNeighbor(dx < 0 ? 1 : -1);
+      if (pane) { pane.style.transition = 'none'; pane.style.transform = `translate3d(${can ? dx : dx * 0.25}px,0,0)`; }
+      return;
     }
     if (mode !== 'sheet') return;
     const dy = y - startY;
@@ -1723,11 +1789,30 @@ function _hv2BindSheet() {
     if (!raf) raf = requestAnimationFrame(() => { raf = 0; if (pendingT != null) _hv2ApplySheet(pendingT, false, false); });
   };
   const end = () => {
+    if (mode === 'swipe') {
+      mode = null;
+      suppressClick = true;
+      setTimeout(() => { suppressClick = false; }, 400);   // le clic de synthèse peut arriver tard ; levé au prochain contact
+      const dx = lastX - startX;
+      const now = performance.now();
+      const recent = samples.filter(sm => now - sm.t <= 100);
+      const vx = recent.length > 1 ? (recent[recent.length - 1].x - recent[0].x) / Math.max(16, recent[recent.length - 1].t - recent[0].t) : 0;
+      const dir = dx < 0 ? 1 : -1;
+      const next = _hv2TabNeighbor(dir);
+      if (next && (Math.abs(dx) > 70 || (Math.abs(dx) > 30 && Math.abs(vx) > 0.35))) {
+        _hv2SwitchTab(next, dir);
+      } else {
+        const pane = scroll.querySelector('.hv2-pane');
+        if (pane) { pane.style.transition = 'transform .22s cubic-bezier(.22,.7,.25,1)'; pane.style.transform = 'translate3d(0,0,0)'; }
+      }
+      return;
+    }
     if (mode !== 'sheet') { mode = null; return; }
+    _hv2Dragging = false;
     if (raf) { cancelAnimationFrame(raf); raf = 0; }
     if (pendingT != null) { _hv2ApplySheet(pendingT, false, false); pendingT = null; }
     suppressClick = true;
-    setTimeout(() => { suppressClick = false; }, 60);
+    setTimeout(() => { suppressClick = false; }, 400);   // le clic de synthèse peut arriver tard ; levé au prochain contact
     const vel = velocity();
     const { snaps } = _hv2Metrics();
     const order = ['full', 'mid', 'peek'];           // de haut en bas (translate croissant)
@@ -1745,8 +1830,8 @@ function _hv2BindSheet() {
     _hv2SetSnap(target, true);
   };
 
-  sheet.addEventListener('touchstart', e => { if (!_HV2_WIDE()) begin(e.touches[0].clientY); }, { passive: true });
-  sheet.addEventListener('touchmove',  e => { if (!_HV2_WIDE()) move(e.touches[0].clientY, e); }, { passive: false });
+  sheet.addEventListener('touchstart', e => { if (!_HV2_WIDE()) begin(e.touches[0].clientY, e.touches[0].clientX, e.target); }, { passive: true });
+  sheet.addEventListener('touchmove',  e => { if (!_HV2_WIDE()) move(e.touches[0].clientY, e, e.touches[0].clientX); }, { passive: false });
   sheet.addEventListener('touchend',   () => { if (!_HV2_WIDE()) end(); });
   sheet.addEventListener('touchcancel',() => { if (!_HV2_WIDE()) end(); });
 
@@ -1895,7 +1980,10 @@ function _hv2MapSettings() {
 }
 
 function _renderHomeV2(wrap, { myTrips, observingTrips, filter }) {
-  const prevScroll = document.getElementById('hv2-scroll')?.scrollTop || 0;
+  // Chaque onglet garde sa propre position de défilement (avant : la même position était
+  // réappliquée à l'onglet suivant, qui s'ouvrait donc au milieu de sa liste)
+  const prevSc = document.getElementById('hv2-scroll');
+  if (prevSc && _hv2RenderedTab) _hv2TabScroll[_hv2RenderedTab] = prevSc.scrollTop;
   const unreadLive = _lvUnreadCount(observingTrips);
   const content = _homeLibTab === 'live' ? _hv2LiveHtml(observingTrips)
     : _homeLibTab === 'observing' ? _hv2ObservingHtml(observingTrips)
@@ -1921,7 +2009,7 @@ function _renderHomeV2(wrap, { myTrips, observingTrips, filter }) {
             <button class="hv2-round hv2-round-light" data-action="hv2-collapse" title="Revenir à la carte">${_HV2_ICONS.down}</button>
             <button class="hv2-round hv2-round-light" data-action="open-settings" title="Paramètres">${_HV2_ICONS.gear}</button>
           </div>
-          ${content}
+          <div class="hv2-pane">${content}</div>
         </div>
       </section>
       <nav class="hv2-nav">
@@ -1940,7 +2028,14 @@ function _renderHomeV2(wrap, { myTrips, observingTrips, filter }) {
   // Position de la feuille d'abord (le padding de la carte en dépend), puis la carte
   _hv2SetSnap(_hv2Snap, false);
   const sc = document.getElementById('hv2-scroll');
-  if (sc && _hv2Snap === 'full') sc.scrollTop = prevScroll;
+  if (sc && _hv2Snap === 'full') sc.scrollTop = _hv2TabScroll[_homeLibTab] || 0;
+  _hv2RenderedTab = _homeLibTab;
+  // Arrivée du nouvel onglet en glissant depuis le côté (transform/opacity uniquement)
+  if (_hv2PaneEnter) {
+    const pane = sc?.querySelector('.hv2-pane');
+    pane?.classList.add(_hv2PaneEnter > 0 ? 'hv2-pane-in-r' : 'hv2-pane-in-l');
+    _hv2PaneEnter = 0;
+  }
   attachHomeMap(document.getElementById('hv2-map-slot'), {
     pins: _hv2Pins,
     ..._hv2MapSettings(),
@@ -2487,9 +2582,12 @@ function _attachListeners(wrap) {
         break;
 
       case 'lib-tab':
-        _homeLibTab = target.dataset.tab;
-        if (target.dataset.tab === 'live') _lvMarkSeen();
-        renderHome(_currentFilter);
+        if (target.dataset.tab === _homeLibTab) {
+          // Onglet déjà actif : remonte en haut de sa liste
+          document.getElementById('hv2-scroll')?.scrollTo({ top: 0, behavior: 'smooth' });
+        } else {
+          _hv2SwitchTab(target.dataset.tab);
+        }
         break;
 
       case 'show-stats':

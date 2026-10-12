@@ -2233,6 +2233,15 @@ a.tl-sv-pill:hover{background:var(--c3);color:var(--ink)}
 }
 /* Coins carrés une fois arrivée en plein écran (posé à la fin de l'animation, pas image par image) */
 .hv2-sheet.hv2-sheet-flat{border-radius:0}
+/* Contenu de l'onglet (glissé gauche/droite pour changer d'onglet) */
+.hv2-pane{will-change:transform}
+.hv2-pane-in-r{animation:hv2PaneInR .26s cubic-bezier(.22,.7,.25,1)}
+.hv2-pane-in-l{animation:hv2PaneInL .26s cubic-bezier(.22,.7,.25,1)}
+@keyframes hv2PaneInR{from{transform:translate3d(60px,0,0);opacity:.3}to{transform:none;opacity:1}}
+@keyframes hv2PaneInL{from{transform:translate3d(-60px,0,0);opacity:.3}to{transform:none;opacity:1}}
+/* Pendant un glissé / une animation de la feuille : plus aucun flou d'arrière-plan
+   (recalculé à chaque image sur iPhone quand le contenu dessous bouge) */
+.hv2-anim .hv2-sheet *,.hv2-anim .hv2-top *,.hv2-anim .hv2-nav *{backdrop-filter:none!important;-webkit-backdrop-filter:none!important}
 /* Feuille animée uniquement par transform/opacity (v233) : aucune mise en page pendant le
    glissé ni l'animation. La poignée est posée par-dessus la liste et s'efface en fondu. */
 .hv2-grab{position:absolute;top:0;left:0;right:0;z-index:2;height:21px;padding:0;align-items:center;will-change:opacity}
