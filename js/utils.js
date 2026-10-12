@@ -66,6 +66,30 @@ export function notify(msg, icon = '✓') {
 let _modalCloseCallback = null;
 let _scrollLockY = 0;
 let _bodyLocked  = false;
+let _savedPageBg = null; // fond html/body d'avant l'ouverture de la modale
+let _modalPageBg = null; // fond posé par la modale (pour savoir si un écran l'a remplacé depuis)
+
+function _setPageBg(color) {
+  if (!color || color === 'rgba(0, 0, 0, 0)' || color === 'transparent') return;
+  if (_savedPageBg === null) _savedPageBg = document.documentElement.style.getPropertyValue('background');
+  document.documentElement.style.setProperty('background', color, 'important');
+  document.body.style.setProperty('background', color, 'important');
+  _modalPageBg = document.documentElement.style.getPropertyValue('background');
+}
+function _restorePageBg() {
+  if (_savedPageBg === null) return;
+  const bg = _savedPageBg;
+  _savedPageBg = null;
+  // Un changement d'écran pendant la modale (showScreen) a déjà posé le bon fond : on n'y touche pas
+  if (document.documentElement.style.getPropertyValue('background') !== _modalPageBg) return;
+  if (bg) {
+    document.documentElement.style.setProperty('background', bg, 'important');
+    document.body.style.setProperty('background', bg, 'important');
+  } else {
+    document.documentElement.style.removeProperty('background');
+    document.body.style.removeProperty('background');
+  }
+}
 
 /**
  * Show the shared modal overlay.
@@ -100,6 +124,11 @@ export function showModal(htmlContent, { onClose, fullscreenMobile = false, boxC
   // Clicks inside the box must not bubble up to the overlay's close handler
   box.onclick = e => e.stopPropagation();
 
+  // iOS 26 (appli) : la fenêtre s'arrête ~59 px avant le bas de l'écran et iOS peint
+  // cette bande avec le fond de html/body. On lui donne la couleur de la modale (bas
+  // de l'écran) le temps qu'elle est ouverte — même principe que showScreen (app.js).
+  _setPageBg(getComputedStyle(box).backgroundColor);
+
   // iOS Safari: lock the body so scrolling the modal doesn't scroll the page behind it.
   // Only needed on mobile body-scroll pages (desktop uses overflow:hidden on html/body).
   if (window.innerWidth <= 768 && !_bodyLocked) {
@@ -115,6 +144,7 @@ export function showModal(htmlContent, { onClose, fullscreenMobile = false, boxC
 export function closeModal() {
   const ov = document.getElementById('modal-overlay');
   if (ov) ov.classList.remove('open');
+  _restorePageBg();
 
   // Restore body scroll position locked by showModal
   if (_bodyLocked) {
