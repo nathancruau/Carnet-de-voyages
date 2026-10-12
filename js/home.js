@@ -1588,6 +1588,10 @@ function _hv2Metrics() {
  *  principal est occupé. Avant, la hauteur de l'en-tête, la poignée et les coins
  *  changeaient à chaque image (toute la liste remise en page → saccades), et certains
  *  éléments sautaient d'un coup au début de l'animation (impression de téléportation). */
+let _hv2ReleaseVel = 0;   // vitesse du doigt au relâcher (px/ms), consommée par _hv2ApplySheet
+// La zone de carte dépasse de l'écran vers le haut (style.css : .hv2-map-slot top:-260px)
+// pour pouvoir descendre avec la feuille sans laisser de vide en haut.
+const _HV2_MAP_EXT = 260;
 let _hv2FlatTimer = 0, _hv2AnimTimer = 0, _hv2SnapTimer = 0, _hv2Dragging = false;
 function _hv2ApplySheet(translate, animate, updateMap = true) {
   const sheet = document.getElementById('hv2-sheet');
@@ -1603,9 +1607,24 @@ function _hv2ApplySheet(translate, animate, updateMap = true) {
   // Progression mid → plein écran (0 → 1)
   const mid  = Math.max(1, Math.round(window.innerHeight * 0.5));
   const p    = Math.max(0, Math.min(1, 1 - translate / mid));
-  // Durée proportionnelle au chemin restant, courbe douce
-  const ms   = Math.round(Math.max(260, Math.min(480, 200 + Math.abs(translate - from) * 0.6)));
-  const ease = `${ms}ms cubic-bezier(.22,.7,.25,1)`;
+  // Animation au relâcher : elle démarre à la VITESSE DU DOIGT (pente initiale de la courbe
+  // = vitesse normalisée) puis ralentit jusqu'au cran — pas d'à-coup. Doigt arrêté (ou
+  // bouton) : départ en douceur. Durée selon la distance restante.
+  const dist = Math.abs(translate - from);
+  let v = (_hv2ReleaseVel || 0) * Math.sign(translate - from);   // px/ms vers la cible
+  _hv2ReleaseVel = 0;
+  let ms, curve;
+  if (v > 0.05 && dist > 1) {
+    // Décélération pure (ease-out quadratique) : durée choisie pour que la vitesse de départ
+    // soit celle du doigt (v0 = 2·dist/durée), puis ralentissement régulier jusqu'au cran
+    ms = Math.round(Math.max(260, Math.min(600, (2 * dist) / v)));
+    const s0 = (v * ms) / dist;                       // pente initiale normalisée (≈ 2)
+    curve = `cubic-bezier(.33,${Math.min(1, s0 * 0.33).toFixed(3)},.66,1)`;
+  } else {
+    ms = Math.round(Math.max(320, Math.min(560, 300 + dist * 0.45)));
+    curve = 'cubic-bezier(.4,0,.2,1)';                // départ et arrivée en douceur
+  }
+  const ease = `${ms}ms ${curve}`;
   const trT  = animate ? `transform ${ease}` : 'none';
   const trO  = animate ? `opacity ${ease}` : 'none';
   // En vue carte, la liste remonte de (hauteur de l'en-tête − poignée) pour que le profil
@@ -1629,6 +1648,14 @@ function _hv2ApplySheet(translate, animate, updateMap = true) {
 
   sheet.style.transition = trT;
   sheet.style.transform  = `translate3d(0,${translate}px,0)`;
+  // La carte suit la feuille en direct : décalée de la moitié du déplacement, le globe reste
+  // centré dans la zone visible au-dessus de la feuille. Simple transform (comme la feuille),
+  // aucun recalcul MapLibre pendant le geste — sa marge reste celle du cran « mid ».
+  const slot = root?.querySelector('.hv2-map-slot');
+  if (slot) {
+    slot.style.transition = trT;
+    slot.style.transform  = `translate3d(0,${Math.min(_HV2_MAP_EXT - 10, (translate - mid) / 2)}px,0)`;
+  }
   if (scroll) { scroll.style.transition = trT; scroll.style.transform = `translate3d(0,${shift}px,0)`; }
   if (head) { head.style.transition = trO; head.style.opacity = p; head.style.pointerEvents = p > 0.9 ? 'auto' : 'none'; }
   if (grab) { grab.style.transition = trO; grab.style.opacity = 1 - p; }
@@ -1647,7 +1674,7 @@ function _hv2ApplySheet(translate, animate, updateMap = true) {
   if (p < 0.999) sheet.classList.remove('hv2-sheet-flat');
   else if (animate) _hv2FlatTimer = setTimeout(() => sheet.classList.add('hv2-sheet-flat'), ms);
   else sheet.classList.add('hv2-sheet-flat');
-  if (updateMap) _hv2UpdateGlobeArea(translate, animate);
+  if (updateMap) _hv2UpdateGlobeArea();
 }
 let _hv2HeadRetry = false;
 let _hv2HeadH = null;   // hauteur de .hv2-sheet-head (dépend de la zone de sécurité), remesurée au redimensionnement
@@ -1666,33 +1693,37 @@ function _hv2SetSnap(snap, animate = true) {
   if (_HV2_WIDE()) {
     // Grand écran : panneau latéral fixe, on efface les styles posés par le mode feuille
     for (const el of [document.getElementById('hv2-top'), root.querySelector('.hv2-dim')]) if (el) el.style.opacity = '';
-    setHomeMapPadding(_hv2MapPadding());
+    const slot = root.querySelector('.hv2-map-slot');
+    if (slot) slot.style.transform = '';
+    _hv2LastPad = '';
+    _hv2UpdateGlobeArea();
     return;
   }
   _hv2ApplySheet(_hv2Metrics().snaps[snap], animate);
 }
 
-/** Marges de la carte pour que le globe se centre dans la zone visible au-dessus de la
- *  feuille. sheetTop = position (cible) du haut de la feuille ; lue dans le DOM sinon. */
-function _hv2MapPadding(sheetTop) {
-  const W = window.innerWidth, H = window.innerHeight;
+/** Marges de la carte. Sur mobile elles sont FIXES (celles du cran « mid ») : c'est le
+ *  décalage de .hv2-map-slot (transform, cf. _hv2ApplySheet) qui recentre le globe quand la
+ *  feuille bouge. La zone de carte commençant _HV2_MAP_EXT px au-dessus de l'écran, la
+ *  marge haute en tient compte. */
+function _hv2MapPadding() {
+  const H = window.innerHeight;
   const topH = document.getElementById('hv2-top')?.getBoundingClientRect().bottom || 70;
   if (_HV2_WIDE()) {
     const panelW = document.getElementById('hv2-sheet')?.offsetWidth || 400;
     return { top: topH, bottom: 20, left: panelW, right: 0 };
   }
-  if (sheetTop == null) sheetTop = document.getElementById('hv2-sheet')?.getBoundingClientRect().top ?? H * 0.5;
-  return { top: topH, bottom: Math.max(0, Math.min(H - topH - 80, H - sheetTop)), left: 0, right: 0 };
+  const mid = Math.round(H * 0.5);
+  return { top: topH + _HV2_MAP_EXT, bottom: Math.max(0, H - mid), left: 0, right: 0 };
 }
 
-let _hv2MapTimer = 0;
-function _hv2UpdateGlobeArea(sheetTop, animate) {
-  clearTimeout(_hv2MapTimer);
-  const padding = _hv2MapPadding(sheetTop);
-  if (!animate) { setHomeMapPadding(padding); return; }
-  // La carte se recentre APRÈS l'animation de la feuille, pas pendant : les deux en même
-  // temps saturaient le fil principal (feuille figée puis « téléportée » à l'arrivée).
-  _hv2MapTimer = setTimeout(() => setHomeMapPadding(padding, true), 500);
+let _hv2LastPad = '';
+function _hv2UpdateGlobeArea() {
+  const padding = _hv2MapPadding();
+  const key = JSON.stringify(padding);
+  if (key === _hv2LastPad) return;   // inchangé (cas courant) : pas de rendu MapLibre
+  _hv2LastPad = key;
+  setHomeMapPadding(padding);
 }
 
 // ── Onglets du profil : ordre, glissé gauche/droite, défilement propre à chaque onglet ──
@@ -1827,6 +1858,7 @@ function _hv2BindSheet() {
     else if (dir < 0) target = [...order].reverse().find(sn => snaps[sn] < t - 4) || 'full';
     else              target = order.reduce((best, sn) => Math.abs(snaps[sn] - t) < Math.abs(snaps[best] - t) ? sn : best, 'mid');
     mode = null;
+    _hv2ReleaseVel = vel;
     _hv2SetSnap(target, true);
   };
 

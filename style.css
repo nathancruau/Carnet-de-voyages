@@ -2145,6 +2145,11 @@ a.tl-sv-pill:hover{background:var(--c3);color:var(--ink)}
 
 /* Carte */
 .hv2-map-slot,.hv2 .hm-host{position:absolute;inset:0} /* .hv2 : plus spécifique que .maplibregl-map{position:relative} */
+/* La zone de carte dépasse de 260 px au-dessus de l'écran (_HV2_MAP_EXT, home.js) : elle est
+   décalée (transform) de la moitié du déplacement de la feuille pour garder le globe centré,
+   sans laisser de vide en haut quand elle descend. */
+.hv2-map-slot{top:-260px;will-change:transform}
+.hv2 .hm-host .maplibregl-ctrl-bottom-right{top:calc(var(--hv-safe-t) + 64px + 260px)}
 .hm-host{background:transparent}
 .hm-host .maplibregl-canvas{outline:none}
 .hm-host .maplibregl-ctrl-attrib{font-size:10px}
@@ -2479,6 +2484,8 @@ a.tl-sv-pill:hover{background:var(--c3);color:var(--ink)}
 /* Desktop large : panneau fixe à gauche, carte à droite */
 @media (min-width:901px){
   .hv2-sheet{top:0;bottom:0;left:0;right:auto;width:400px;height:auto;border-radius:0 24px 24px 0;transform:none!important;transition:none!important}
+  .hv2-map-slot{top:0;transform:none!important}
+  .hv2 .hm-host .maplibregl-ctrl-bottom-right{top:calc(var(--hv-safe-t) + 64px)}
   .hv2-grab,.hv2-sheet-head{display:none!important}
   .hv2[data-snap] .hv2-sheet{padding-top:0;border-radius:0 24px 24px 0}
   .hv2-scroll{overflow-y:auto!important;padding-top:20px;transform:none!important}
