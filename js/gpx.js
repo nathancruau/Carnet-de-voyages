@@ -442,8 +442,8 @@ export function getLocalGpxTracks(tripId) {
  * forward, but already-imported items still have the stripped points). If the
  * full-resolution track is still on this device (GPX tracks aren't synced),
  * rebuild gpxPoints from it so the chart self-heals without requiring the
- * user to re-import. Shared by mymap.js (day-item pins and sortie pins alike)
- * and sortie.js's own detail screen — the sortie path used to read
+ * user to re-import. Used by sortie.js's detail screen (and formerly by the
+ * removed « Carte détaillée », mymap.js) — the sortie path used to read
  * trip.pin.gpxPoints directly and never got this repair, so its chart could
  * stay silently broken even after the day-item path was fixed for it.
  */

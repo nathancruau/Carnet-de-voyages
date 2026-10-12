@@ -14,12 +14,14 @@
    fois clignoterait).
 
    Exports :
-     collectMapPins(trips)        → pins (mêmes règles que _buildAllPins de mymap.js)
+     collectMapPins(trips)        → pins (couleur = pays du PIN)
      attachHomeMap(slot, opts)    → place la carte dans `slot`, la crée au besoin
      setHomeMapPins(pins)
      setHomeMapPadding(p, animate)
      flyToPin(pin)
    ============================================================ */
+
+import { fmtFlag } from './utils.js';
 
 const MAPLIBRE_JS  = '/vendor/maplibre-gl.js';
 const MAPLIBRE_CSS = '/vendor/maplibre-gl.css';
@@ -62,6 +64,21 @@ let _proj       = null;           // 'globe' | 'flat'
 let _syncQueued = false;
 let _needsZoom  = false;          // carte créée dans un écran masqué (taille 0) : zoom initial à recalculer
 let _padding    = null;           // dernier padding demandé (réappliqué au chargement du style)
+let _countryKeys = [];            // index → clé pays (propriété « ci » des points, agrégée par cluster)
+
+// ── Couleur par pays (reprise de l'ancienne « Carte détaillée ») ──────────────
+// Même palette et même hachage : un pays garde la même couleur partout.
+const _COUNTRY_PALETTE = [
+  '#e85d3e', '#0284c7', '#16a34a', '#d97706',
+  '#7c3aed', '#db2777', '#0d9488', '#f59e0b',
+  '#06b6d4', '#8b5cf6', '#65a30d', '#dc2626',
+];
+function _countryKey(flag) { return fmtFlag(flag, true) || flag || '??'; }
+function _countryColor(key) {
+  let h = 0;
+  for (let i = 0; i < key.length; i++) h = (Math.imul(31, h) + key.charCodeAt(i)) | 0;
+  return _COUNTRY_PALETTE[Math.abs(h) % _COUNTRY_PALETTE.length];
+}
 
 function _loadLib() {
   if (window.maplibregl) return Promise.resolve(window.maplibregl);
@@ -83,40 +100,47 @@ function _loadLib() {
 }
 
 /**
- * Mêmes règles que _buildAllPins (mymap.js, « Mes destinations ») : seulement les
+ * Mêmes règles que l'ancienne « Carte détaillée » (Mes destinations) : seulement les
  * voyages réalisés, PINs des jours + anciennes journalEntries + PIN unique d'une
  * sortie. Version allégée : position, de quoi filtrer et afficher une vignette.
  */
 export function collectMapPins(trips, eventTypes = []) {
   const emojiOf = Object.fromEntries(eventTypes.map(et => [et.key, et.emoji]));
   const pins = [];
+  // Pays du PIN (détecté automatiquement depuis v206), sinon ancien drapeau du jour/voyage
+  const withCountry = (pin, flag) => {
+    const country = _countryKey(flag);
+    return { ...pin, country, color: _countryColor(country) };
+  };
   for (const trip of trips) {
     if (trip.status !== 'done') continue;
-    const base = { tripId: trip.id, tripName: trip.name || 'Voyage', tripType: trip.type || 'voyage',
-                   color: trip.color || '#0d9488' };
+    const base = { tripId: trip.id, tripName: trip.name || 'Voyage', tripType: trip.type || 'voyage' };
     for (const day of (trip.days || [])) {
       for (const item of (day.items || [])) {
         const lat = parseFloat(item.lat), lng = parseFloat(item.lng);
         if (isNaN(lat) || isNaN(lng)) continue;
         const jd = item.journalData || {};
-        pins.push({ ...base, id: item.id, lat, lng, title: item.text || '—', date: day.date || null,
+        pins.push(withCountry({ ...base, id: item.id, lat, lng, title: item.text || '—', date: day.date || null,
                     pinType: item.type || null, emoji: emojiOf[item.type] || '📍',
-                    photo: (jd.photos || [])[0] || item.photo || null });
+                    photo: (jd.photos || [])[0] || item.photo || null },
+                  item.countryFlag || item.countryCode || day.flag || trip.flag));
       }
     }
     for (const e of (trip.journalEntries || [])) {
       const lat = parseFloat(e.lat), lng = parseFloat(e.lng);
       if (isNaN(lat) || isNaN(lng)) continue;
-      pins.push({ ...base, id: e.id, lat, lng, title: e.title || '—', date: e.date || null,
-                  pinType: null, emoji: '📍', photo: null });
+      pins.push(withCountry({ ...base, id: e.id, lat, lng, title: e.title || '—', date: e.date || null,
+                  pinType: null, emoji: '📍', photo: null },
+                e.countryFlag || e.countryCode || trip.flag));
     }
     if (trip.type === 'sortie' && trip.pin) {
       const lat = parseFloat(trip.pin.lat), lng = parseFloat(trip.pin.lng);
       if (!isNaN(lat) && !isNaN(lng)) {
         const pt = trip.pin.pinType || 'visit';
-        pins.push({ ...base, id: trip.id + '_pin', lat, lng, title: trip.name || 'Sortie',
+        pins.push(withCountry({ ...base, id: trip.id + '_pin', lat, lng, title: trip.name || 'Sortie',
                     date: trip.pin.date || trip.startDate || null, pinType: pt, emoji: emojiOf[pt] || '📍',
-                    photo: trip.photo || null });
+                    photo: trip.photo || null },
+                  trip.pin.countryFlag || trip.pin.countryCode || trip.flag));
       }
     }
   }
@@ -124,12 +148,14 @@ export function collectMapPins(trips, eventTypes = []) {
 }
 
 function _geojson() {
+  _countryKeys = [...new Set(_pins.map(p => p.country))];
+  const ci = new Map(_countryKeys.map((k, i) => [k, i]));
   return {
     type: 'FeatureCollection',
     features: _pins.map((p, i) => ({
       type: 'Feature',
       geometry: { type: 'Point', coordinates: [p.lng, p.lat] },
-      properties: { idx: i },
+      properties: { idx: i, ci: ci.get(p.country) ?? -1 },
     })),
   };
 }
@@ -190,10 +216,11 @@ function _pinEl(pin) {
   return el;
 }
 
-function _clusterEl(count, clusterId, coords) {
+function _clusterEl(count, clusterId, coords, color) {
   const el = document.createElement('button');
   el.type = 'button';
   el.className = 'hm-cluster' + (count >= 10 ? ' hm-cluster-lg' : '');
+  if (color) el.style.background = color;
   el.textContent = count;
   el.addEventListener('click', async e => {
     e.stopPropagation();
@@ -227,7 +254,9 @@ function _syncMarkers() {
     const coords = f.geometry.coordinates;
     let marker;
     if (p.cluster) {
-      marker = new window.maplibregl.Marker({ element: _clusterEl(p.point_count, p.cluster_id, coords), opacityWhenCovered: '0' });
+      // Groupe d'un seul pays → couleur du pays ; plusieurs pays → pastille sombre neutre
+      const one = p.cmin === p.cmax && p.cmin >= 0 ? _countryKeys[p.cmin] : null;
+      marker = new window.maplibregl.Marker({ element: _clusterEl(p.point_count, p.cluster_id, coords, one && _countryColor(one)), opacityWhenCovered: '0' });
     } else {
       const pin = _pins[p.idx];
       if (!pin) continue;
@@ -295,7 +324,9 @@ export async function attachHomeMap(slot, opts) {
         version: 8,
         projection: { type: opts.projection === 'flat' ? 'mercator' : 'globe' },
         sky: { 'atmosphere-blend': ['interpolate', ['linear'], ['zoom'], 0, 1, 5, 1, 7, 0] },
-        sources: { pins: { type: 'geojson', data: _geojson(), cluster: true, clusterRadius: 46, clusterMaxZoom: 16 } },
+        sources: { pins: { type: 'geojson', data: _geojson(), cluster: true, clusterRadius: 46, clusterMaxZoom: 16,
+          // min/max de l'index pays : égaux → tout le groupe est dans le même pays (couleur du pays)
+          clusterProperties: { cmin: ['min', ['get', 'ci']], cmax: ['max', ['get', 'ci']] } } },
         layers: [
           { id: 'ocean', type: 'background', paint: { 'background-color': '#0f3a6b' } },
           // Couche invisible : force le chargement de la source (les marqueurs sont en HTML)
@@ -350,7 +381,7 @@ export async function attachHomeMap(slot, opts) {
 }
 
 export function setHomeMapPins(pins) {
-  const same = pins.length === _pins.length && pins.every((p, i) => p.id === _pins[i]?.id && p.lat === _pins[i].lat && p.lng === _pins[i].lng);
+  const same = pins.length === _pins.length && pins.every((p, i) => p.id === _pins[i]?.id && p.lat === _pins[i].lat && p.lng === _pins[i].lng && p.country === _pins[i].country);
   _pins = pins;
   if (!_map || same) return;
   const src = _map.getSource('pins');

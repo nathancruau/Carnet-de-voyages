@@ -6,7 +6,7 @@ import {
   getTrips, getTrip, getState, addTrip, updateTrip, deleteTrip,
   TRIP_TYPES, COMP_COLORS, uid,
   getSettings, updateSettings,
-  getEventTypes, DEFAULT_EVENT_TYPES,
+  getEventTypes,
   getLanguage, isTripShared, APP_VERSION,
 } from './store.js';
 import {
@@ -16,7 +16,7 @@ import {
   generateDays, customDayTitle,
   reverseGeocodeCountry, fmtFlag,
 } from './utils.js';
-// navigateToTrip / goMyMap accessed via window globals (set by app.js) to avoid circular import
+// navigateToTrip accessed via window global (set by app.js) to avoid circular import
 // import.js / export.js / gpx.js are dynamically imported at their few call sites below —
 // most sessions never touch import/export or upload a GPX track from a sortie,
 // so none of them should be in the boot bundle.
@@ -1166,7 +1166,6 @@ function _heroHtml(trips) {
         <div class="hero-nav-group">
           ${userHtml}
           <button class="btn-new" data-action="show-stats" title="Statistiques" style="padding:6px 10px;font-size:14px;line-height:1.2">📊 <span class="btn-label">Statistiques</span></button>
-          <button class="btn-new" data-action="open-mymap" title="Mes destinations" style="padding:6px 10px;font-size:14px;line-height:1.2">🗺 <span class="btn-label">Mes destinations</span></button>
           <button class="btn-new" data-action="open-settings" title="Paramètres" style="padding:6px 10px;font-size:14px;line-height:1.2">⚙️ <span class="btn-label">Paramètres</span></button>
         </div>
       </div>
@@ -1765,7 +1764,9 @@ function _hv2Metrics() {
   };
 }
 
-function _hv2ApplySheet(translate, animate) {
+/** @param updateMap false pendant un glissé : recadrer la carte (MapLibre) à chaque image
+ *  monopolise le fil principal et fait « sauter » la feuille ; on recadre au relâcher. */
+function _hv2ApplySheet(translate, animate, updateMap = true) {
   const sheet = document.getElementById('hv2-sheet');
   if (!sheet) return;
   _hv2Translate = translate;
@@ -1784,7 +1785,7 @@ function _hv2ApplySheet(translate, animate) {
   const dim = root?.querySelector('.hv2-dim');
   if (dim) dim.style.transition = animate ? `opacity ${ease}` : 'none';
   sheet.style.transform  = `translateY(${translate}px)`;
-  _hv2UpdateGlobeArea(animate);
+  if (updateMap) _hv2UpdateGlobeArea(translate, animate);
 }
 
 function _hv2SetSnap(snap, animate = true) {
@@ -1793,27 +1794,31 @@ function _hv2SetSnap(snap, animate = true) {
   const root = document.getElementById('hv2');
   if (!root) return;
   root.dataset.snap = snap;
-  if (_HV2_WIDE()) { _hv2UpdateGlobeArea(false); return; }
+  if (_HV2_WIDE()) { setHomeMapPadding(_hv2MapPadding()); return; }
   _hv2ApplySheet(_hv2Metrics().snaps[snap], animate);
 }
 
-function _hv2MapPadding() {
+/** Marges de la carte pour que le globe se centre dans la zone visible au-dessus de la
+ *  feuille. sheetTop = position (cible) du haut de la feuille ; lue dans le DOM sinon. */
+function _hv2MapPadding(sheetTop) {
   const W = window.innerWidth, H = window.innerHeight;
   const topH = document.getElementById('hv2-top')?.getBoundingClientRect().bottom || 70;
   if (_HV2_WIDE()) {
     const panelW = document.getElementById('hv2-sheet')?.offsetWidth || 400;
     return { top: topH, bottom: 20, left: panelW, right: 0 };
   }
-  const sheetTop = document.getElementById('hv2-sheet')?.getBoundingClientRect().top ?? H * 0.5;
+  if (sheetTop == null) sheetTop = document.getElementById('hv2-sheet')?.getBoundingClientRect().top ?? H * 0.5;
   return { top: topH, bottom: Math.max(0, Math.min(H - topH - 80, H - sheetTop)), left: 0, right: 0 };
 }
 
-function _hv2UpdateGlobeArea(animate) {
-  if (!animate) { setHomeMapPadding(_hv2MapPadding()); return; }
-  // Suit l'animation CSS de la feuille pendant sa durée
-  const t0 = performance.now();
-  const step = () => { setHomeMapPadding(_hv2MapPadding()); if (performance.now() - t0 < 360) requestAnimationFrame(step); };
-  requestAnimationFrame(step);
+let _hv2MapTimer = 0;
+function _hv2UpdateGlobeArea(sheetTop, animate) {
+  clearTimeout(_hv2MapTimer);
+  const padding = _hv2MapPadding(sheetTop);
+  if (!animate) { setHomeMapPadding(padding); return; }
+  // La carte se recentre APRÈS l'animation de la feuille, pas pendant : les deux en même
+  // temps saturaient le fil principal (feuille figée puis « téléportée » à l'arrivée).
+  _hv2MapTimer = setTimeout(() => setHomeMapPadding(padding, true), 340);
 }
 
 function _hv2BindSheet() {
@@ -1821,9 +1826,19 @@ function _hv2BindSheet() {
   const scroll = document.getElementById('hv2-scroll');
   if (!sheet || !scroll) return;
 
-  let startY = 0, startT = 0, mode = null, lastY = 0, lastT = 0, vel = 0, suppressClick = false;
+  let startY = 0, startT = 0, mode = null, samples = [], suppressClick = false, raf = 0, pendingT = null;
 
-  const begin = y => { startY = lastY = y; lastT = performance.now(); startT = _hv2Translate ?? 0; mode = null; vel = 0; };
+  const begin = y => { startY = y; startT = _hv2Translate ?? 0; mode = null; pendingT = null; samples = [{ y, t: performance.now() }]; };
+  // Vitesse sur les ~100 dernières ms seulement : si le doigt s'est arrêté avant de lâcher,
+  // elle vaut 0 et la feuille va au cran le plus proche (avant, la vitesse du dernier
+  // mouvement l'envoyait parfois au cran suivant).
+  const velocity = () => {
+    const now = performance.now();
+    const recent = samples.filter(s => now - s.t <= 100);
+    if (recent.length < 2) return 0;
+    const a = recent[0], b = recent[recent.length - 1];
+    return (b.y - a.y) / Math.max(16, b.t - a.t);
+  };
   const move  = (y, e) => {
     const dy = y - startY;
     if (!mode) {
@@ -1832,16 +1847,20 @@ function _hv2BindSheet() {
     }
     if (mode !== 'sheet') return;
     e?.cancelable && e.preventDefault();
-    const now = performance.now();
-    vel = (y - lastY) / Math.max(1, now - lastT);
-    lastY = y; lastT = now;
+    samples.push({ y, t: performance.now() });
+    if (samples.length > 12) samples.shift();
     const { snaps } = _hv2Metrics();
-    _hv2ApplySheet(Math.max(0, Math.min(snaps.peek + 20, startT + dy)), false);
+    // Une mise à jour par image au plus (les touchmove arrivent plus vite que l'affichage)
+    pendingT = Math.max(0, Math.min(snaps.peek + 20, startT + dy));
+    if (!raf) raf = requestAnimationFrame(() => { raf = 0; if (pendingT != null) _hv2ApplySheet(pendingT, false, false); });
   };
   const end = () => {
     if (mode !== 'sheet') { mode = null; return; }
+    if (raf) { cancelAnimationFrame(raf); raf = 0; }
+    if (pendingT != null) { _hv2ApplySheet(pendingT, false, false); pendingT = null; }
     suppressClick = true;
     setTimeout(() => { suppressClick = false; }, 60);
+    const vel = velocity();
     const { snaps } = _hv2Metrics();
     const order = ['full', 'mid', 'peek'];
     let target;
@@ -1945,7 +1964,6 @@ function _hv2OpenMoreMenu() {
       <button class="hv2-round hv2-round-light" onclick="closeModal()" title="Fermer">✕</button></div>
     <div class="hv2-card-group hv2-more-list">
       <button class="hv2-row hv2-row-btn" data-do="search"><span>🔍 Rechercher</span><i>›</i></button>
-      <button class="hv2-row hv2-row-btn" data-do="mymap"><span>🗺 Carte détaillée</span><i>›</i></button>
       <button class="hv2-row hv2-row-btn" data-do="import"><span>⬆ Importer</span><i>›</i></button>
       <button class="hv2-row hv2-row-btn" data-do="export"><span>⬇ Exporter</span><i>›</i></button>
       ${isStandalone ? '' : '<button class="hv2-row hv2-row-btn" data-do="install"><span>📲 Installer l\'application</span><i>›</i></button>'}
@@ -1958,7 +1976,6 @@ function _hv2OpenMoreMenu() {
     const act = b.dataset.do;
     if (act !== 'import' && act !== 'export') closeModal();
     if (act === 'search')  _hv2OpenSearch();
-    if (act === 'mymap')   window.goMyMap();
     if (act === 'import')  _openImportModal();
     if (act === 'export')  _openExportModal();
     // Les actions suivantes réutilisent les cas existants du listener délégué
@@ -2073,8 +2090,10 @@ function _hv2OpenDestinations() {
   const myTrips = getTrips().filter(t => !isCurrentUserObserver(t.id));
   const allPins = collectMapPins(myTrips, getEventTypes());
   const usedPinTypes = new Set(allPins.map(p => p.pinType).filter(Boolean));
-  const chip = (group, key, label, active) =>
-    `<button class="hv2-chip${active ? ' active' : ''}" data-f="${group}" data-v="${_esc(key)}">${label}</button>`;
+  // Tuiles de largeur égale (grille) : icône au-dessus, nom en dessous — des pastilles de
+  // largeurs différentes renvoyées à la ligne donnaient un alignement irrégulier.
+  const tile = (group, key, icon, label, active) =>
+    `<button class="hv2-tile${active ? ' active' : ''}" data-f="${group}" data-v="${_esc(key)}"><b>${icon}</b><span>${label}</span></button>`;
 
   const render = () => {
     const pins = _hv2FilteredPins(myTrips);
@@ -2085,10 +2104,10 @@ function _hv2OpenDestinations() {
     }
     const trips = myTrips.filter(t => byTrip.has(t.id))
       .sort((a, b) => (b.endDate || b.startDate || '').localeCompare(a.endDate || a.startDate || ''));
-    const typeChips = [['all', 'Tous'], ['voyage', '✈️ Voyages'], ['weekend', '🌿 Week-ends'], ['sortie', '📍 Sorties']]
-      .map(([k, l]) => chip('type', k, l, _currentFilter === k)).join('');
-    const pinChips = [chip('pin', 'all', 'Tous', _hv2PinType === 'all')]
-      .concat(getEventTypes().filter(et => usedPinTypes.has(et.key)).map(et => chip('pin', et.key, `${et.emoji} ${_esc(et.label)}`, _hv2PinType === et.key)))
+    const typeChips = [['all', '🌍', 'Tous'], ['voyage', '✈️', 'Voyages'], ['weekend', '🌿', 'Week-ends'], ['sortie', '📍', 'Sorties']]
+      .map(([k, ic, l]) => tile('type', k, ic, l, _currentFilter === k)).join('');
+    const pinChips = [tile('pin', 'all', '✳️', 'Tous', _hv2PinType === 'all')]
+      .concat(getEventTypes().filter(et => usedPinTypes.has(et.key)).map(et => tile('pin', et.key, et.emoji, _esc(et.label), _hv2PinType === et.key)))
       .join('');
     const list = trips.map(t => {
       const tp = byTrip.get(t.id);
@@ -2115,12 +2134,11 @@ function _hv2OpenDestinations() {
         <button class="hv2-round hv2-round-light" onclick="closeModal()" title="Fermer">✕</button>
       </div>
       <div class="hv2-fsec">Type de voyage</div>
-      <div class="hv2-chips hv2-chips-wrap">${typeChips}</div>
-      ${usedPinTypes.size > 1 ? `<div class="hv2-fsec">Type de lieu</div><div class="hv2-chips hv2-chips-wrap">${pinChips}</div>` : ''}
+      <div class="hv2-tiles">${typeChips}</div>
+      ${usedPinTypes.size > 1 ? `<div class="hv2-fsec">Type de lieu</div><div class="hv2-tiles">${pinChips}</div>` : ''}
       <div class="hv2-fsec">${pins.length} lieu${pins.length > 1 ? 'x' : ''} · ${trips.length} voyage${trips.length > 1 ? 's' : ''}
         ${(_currentFilter !== 'all' || _hv2PinType !== 'all' || _hv2TripId !== 'all') ? '<button class="hv2-link" data-reset="1">Réinitialiser</button>' : ''}</div>
-      <div class="hv2-dest-list">${list || '<div class="hv2-empty"><div>🗺</div>Aucun lieu avec ces filtres</div>'}</div>
-      <button class="hv2-btn hv2-btn-line hv2-btn-block" data-full="1">🗺 Carte détaillée (itinéraires, export KML…)</button>`;
+      <div class="hv2-dest-list">${list || '<div class="hv2-empty"><div>🗺</div>Aucun lieu avec ces filtres</div>'}</div>`;
     box._byTrip = byTrip;
   };
 
@@ -2134,7 +2152,6 @@ function _hv2OpenDestinations() {
     else if (b.dataset.f === 'pin') { _hv2PinType = b.dataset.v; }
     else if (b.dataset.focus) { e.preventDefault(); _hv2TripId = _hv2TripId === b.dataset.focus ? 'all' : b.dataset.focus; }
     else if (b.dataset.reset) { _currentFilter = 'all'; _hv2PinType = 'all'; _hv2TripId = 'all'; }
-    else if (b.dataset.full) { closeModal(); window.goMyMap({ tab: 'destinations' }); return; }
     else if (b.dataset.trip) {
       const pin = box._byTrip?.get(b.dataset.trip)?.[+b.dataset.i];
       closeModal();
@@ -2288,22 +2305,9 @@ function _downloadCsv(csvContent, filename) {
 // ── Settings Modal ─────────────────────────────────────────────────────────────
 
 function _openSettingsModal() {
-  const eventTypes = getEventTypes();
   const settings   = getSettings();
   const curTheme   = settings.theme || 'light';
   const curNotif   = settings.notifications || { enabled: false, departure: true, collaborative: true };
-
-  // ── Event type rows ────────────────────────────────────────────────────────
-
-  function _etRowHtml(et, i) {
-    return `
-      <div class="hv2-et-row" data-et-row="${i}">
-        <input type="hidden" data-et-key="${i}"   value="${_esc(et.key)}">
-        <input type="hidden" data-et-color="${i}" value="${_esc(et.color || '#0d9488')}">
-        <input type="text" class="hv2-et-emoji" data-et-emoji="${i}" value="${_esc(et.emoji)}">
-        <input type="text" class="hv2-et-label" data-et-label="${i}" value="${_esc(et.label)}" placeholder="Nom du type">
-      </div>`;
-  }
 
   // Contrôle segmenté : des radios natives stylées (le listener 'change' délégué
   // plus bas lit toujours `input[name=…]:checked`, rien à changer côté logique).
@@ -2315,7 +2319,7 @@ function _openSettingsModal() {
   const btnRow = (id, label, extra = '') =>
     `<button type="button" class="hv2-row hv2-row-btn ${extra}" ${id.startsWith('data-') ? id : `id="${id}"`}><span>${label}</span><i>›</i></button>`;
 
-  function buildHtml(curEventTypes, curLang, curTheme, curNotif) {
+  function buildHtml(curLang, curTheme, curNotif) {
     const hm = _hv2MapSettings();
     const user = getCurrentUser();
     return `
@@ -2356,14 +2360,6 @@ function _openSettingsModal() {
         </div>
       </div>
 
-      <div class="hv2-fsec">Types d'activités</div>
-      <div class="hv2-card-group">
-        <details class="hv2-details">
-          <summary class="hv2-row"><span>Renommer / changer les emojis</span><i>›</i></summary>
-          <div id="et-rows" class="hv2-et-list">${curEventTypes.map(_etRowHtml).join('')}</div>
-        </details>
-      </div>
-
       <div class="hv2-fsec">Données</div>
       <div class="hv2-card-group">
         ${btnRow('data-action="export-all"', '⬇ Exporter (CSV)')}
@@ -2381,29 +2377,11 @@ function _openSettingsModal() {
       })()}</div>`;
   }
 
-  showModal(buildHtml(eventTypes, getLanguage(), curTheme, curNotif), { fullscreenMobile: true, boxClass: 'hv2-modal' });
-
-  // ── Collect helpers ──────────────────────────────────────────────────────────
-
-  function collectEventTypes() {
-    const result = [];
-    document.querySelectorAll('[data-et-row]').forEach((_, i) => {
-      const key   = document.querySelector(`[data-et-key="${i}"]`)?.value?.trim() || '';
-      const emoji = document.querySelector(`[data-et-emoji="${i}"]`)?.value?.trim() || '';
-      const label = document.querySelector(`[data-et-label="${i}"]`)?.value?.trim() || '';
-      const color = document.querySelector(`[data-et-color="${i}"]`)?.value?.trim() || '#0d9488';
-      if (emoji && label) {
-        const resolvedKey = key || label.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '') || 'type_' + i;
-        result.push({ key: resolvedKey, emoji, label, color });
-      }
-    });
-    return result;
-  }
+  showModal(buildHtml(getLanguage(), curTheme, curNotif), { fullscreenMobile: true, boxClass: 'hv2-modal' });
 
   // ── Auto-save: apply settings immediately on any change ──────────────────────
 
   function _applySettings() {
-    const newEventTypes   = collectEventTypes();
     const lang            = document.querySelector('input[name="lang-sel"]:checked')?.value    || 'fr';
     const theme           = document.querySelector('input[name="theme-sel"]:checked')?.value   || 'light';
     const notifEnabled    = document.getElementById('notif-enabled')?.checked                  ?? false;
@@ -2415,7 +2393,6 @@ function _openSettingsModal() {
     const mapBase         = document.querySelector('input[name="map-base"]:checked')?.value   || 'relief';
 
     updateSettings({
-      eventTypes: newEventTypes.length > 0 ? newEventTypes : DEFAULT_EVENT_TYPES,
       lang, theme,
       notifications: { enabled: notifEnabled, departure: notifDep, collaborative: notifCollab, observerPublish: notifObsPub },
       grandParentsMode: grandParents,
@@ -2583,10 +2560,6 @@ function _attachListeners(wrap) {
               window.location.reload();
             });
           });
-        break;
-
-      case 'open-mymap':
-        window.goMyMap();
         break;
 
       case 'pwa-install': {

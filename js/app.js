@@ -9,13 +9,8 @@ import { closeModal, showModal, esc } from './utils.js';
 import { initAuth, loginWithGoogle, syncToFirestore, isFirebaseConfigured, listenUserDoc, setSyncErrorCallback } from './auth.js';
 import { checkDepartureNotifications } from './notifications.js';
 
-// mymap.js and share.js are only ever needed once a user actually opens "My Map"
-// or reaches a shared/invite flow — most sessions do neither, so both are loaded
-// on demand instead of being in the initial boot bundle. `_mymapModule` caches
-// the resolved module so goHome()/navigateToTrip() can synchronously no-op the
-// map cleanup when mymap.js was never loaded (nothing to destroy) instead of
-// forcing a network fetch just to tear something down.
-let _mymapModule = null;
+// share.js is only ever needed once a user reaches a shared/invite flow, so it is
+// loaded on demand instead of being in the initial boot bundle.
 
 // Capture ?invite=TOKEN before anything else, store in sessionStorage, clean URL
 {
@@ -53,7 +48,7 @@ export function showScreen(id) {
   // Sync html/body background with the screen's visual content so any viewport gap
   // (iOS safe area / Android nav bar) blends in rather than showing white
   const _screenBg = id === 'login' ? '#065f55' // bottom of login gradient
-    : (id === 'app' || id === 'mymap') ? '#aad3df'
+    : id === 'app' ? '#aad3df'
     // Accueil : couleur de la feuille profil (en bas) — si iOS laisse une bande sous
     // les éléments fixes (barre Safari, zone du home indicator), elle se fond dans la feuille
     : id === 'home' ? (document.documentElement.dataset.theme === 'dark' ? '#14181d' : '#ffffff')
@@ -61,7 +56,7 @@ export function showScreen(id) {
   document.documentElement.style.setProperty('background', _screenBg, 'important');
   document.body.style.setProperty('background', _screenBg, 'important');
 
-  if (id === 'app' || id === 'mymap') {
+  if (id === 'app') {
     setTimeout(() => window.dispatchEvent(new Event('resize')), 200);
   }
 }
@@ -70,29 +65,16 @@ export function showScreen(id) {
 
 export function navigateToTrip(id) {
   currentTripId = id;
-  _mymapModule?.destroyMyMap();
   openTrip(id);
   showScreen('app');
 }
 
 export function goHome() {
   destroyTripMap();
-  _mymapModule?.destroyMyMap();
   document.body.style.overflowY = '';
   document.documentElement.style.overflowY = '';
   showScreen('home');
   renderHome();
-}
-
-export function goMyMap(opts = {}) {
-  destroyTripMap();
-  document.body.style.overflowY = '';
-  document.documentElement.style.overflowY = '';
-  import('./mymap.js').then(mod => {
-    _mymapModule = mod;
-    showScreen('mymap');
-    mod.renderMyMap(opts);
-  });
 }
 
 // ── Login screen ───────────────────────────────────────────────────────────────
@@ -324,7 +306,6 @@ setSyncErrorCallback(() => {
 
 // ── Global bindings (for onclick="" in HTML / modals / map popups) ─────────────
 window.goHome         = goHome;
-window.goMyMap        = goMyMap;
 window.navigateToTrip = navigateToTrip;
 window.closeModal     = closeModal;
 
