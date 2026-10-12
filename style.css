@@ -2653,11 +2653,16 @@ a.tl-sv-pill:hover{background:var(--c3);color:var(--ink)}
    calée en haut : sans ça, tout élément fixe s'arrête ~59 px avant le bas réel.
    --ios-gap vaut 0 partout ailleurs (onglet Safari, Android, desktop).
    ══════════════════════════════════════════════════════════════════════════════ */
-.ov,.calc-kp-ov{bottom:calc(-1 * var(--ios-gap,0px))}
+/* v226 : les overlays sont ancrés en haut avec une hauteur 100lvh — exactement comme .hv2,
+   le seul élément qui descendait jusqu'en bas sur iPhone. Un élément ancré en bas
+   (inset:0 / bottom:0) s'arrête au bas de la fenêtre raccourcie (~793 px sur 852). */
+.ov,.calc-kp-ov{bottom:auto;height:calc(100vh + var(--ios-gap,0px));height:calc(100lvh + var(--ios-gap,0px))}
 .calc-kp-sheet{padding-bottom:calc(14px + var(--ios-gap,0px))}
 @media (max-width:768px){
-  .mbox{bottom:calc(-1 * var(--ios-gap,0px));padding-bottom:calc(20px + env(safe-area-inset-bottom) + var(--ios-gap,0px))}
-  .mbox.mbox-fullscreen-mobile{height:calc(100dvh + var(--ios-gap,0px));max-height:none}
+  /* La boîte se place dans l'overlay (absolute) et non plus par rapport à la fenêtre (fixed) :
+     son bas suit donc celui de l'overlay, qui atteint le vrai bas de l'écran. */
+  .mbox{position:absolute;bottom:0;max-width:100%;padding-bottom:calc(20px + env(safe-area-inset-bottom) + var(--ios-gap,0px))}
+  .mbox.mbox-fullscreen-mobile{top:0;bottom:auto;height:100%;max-height:none}
   #screen-home.active,#screen-login.active,
   #screen-app.active:not(.tab-map-active):not(.tab-fixed-active){min-height:calc(100dvh + var(--ios-gap,0px))}
 }
