@@ -194,7 +194,7 @@ function _countryCollections() {
   return _countryKeys.map(k => ({ type: 'FeatureCollection', features: byCountry.get(k) }));
 }
 
-/** Retire toutes les sources de PINs (le rayon de regroupement ne se change qu'à la création). */
+/** Retire toutes les sources de PINs (le regroupement ne se règle qu'à la création d'une source). */
 function _dropSources() {
   if (!_map) return;
   _clearMarkers();
@@ -214,8 +214,11 @@ function _syncSources() {
     const id = `pins-${i}`;
     const src = _map.getSource(id);
     if (src) { src.setData(data); return; }
-    // Voyage : PINs photo plus gros (44 px) → rayon de regroupement plus large
-    _map.addSource(id, { type: 'geojson', data, cluster: true, clusterRadius: _context === 'trip' ? 70 : 46, clusterMaxZoom: 16 });
+    // Accueil : PINs regroupés (par pays). Voyage : jamais regroupés — chaque étape garde
+    // son PIN numéroté (demande explicite, v242).
+    _map.addSource(id, _context === 'trip'
+      ? { type: 'geojson', data }
+      : { type: 'geojson', data, cluster: true, clusterRadius: 46, clusterMaxZoom: 16 });
     // Couche invisible : force le chargement de la source (les marqueurs sont en HTML)
     _map.addLayer({ id: `pins-anchor-${i}`, type: 'circle', source: id, paint: { 'circle-radius': 0, 'circle-opacity': 0 } });
   });

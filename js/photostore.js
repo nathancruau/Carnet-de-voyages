@@ -19,7 +19,7 @@ const UPLOAD_MAX_SIZE = 2000;
 const UPLOAD_QUALITY  = 0.88;
 
 let _storage = null;
-let _refFn, _uploadStringFn, _getDownloadURLFn, _deleteObjectFn, _listAllFn;
+let _refFn, _uploadStringFn, _getDownloadURLFn, _deleteObjectFn, _listAllFn, _uploadBytesFn;
 
 // Local trips stay base64 forever (only the synced copy swaps to a URL), so
 // every sync re-scans the same photos. Without a cache, an unchanged trip
@@ -65,6 +65,7 @@ export async function initPhotoStore(app) {
     _getDownloadURLFn = mod.getDownloadURL;
     _deleteObjectFn   = mod.deleteObject;
     _listAllFn        = mod.listAll;
+    _uploadBytesFn    = mod.uploadBytes;
   } catch (err) {
     // Storage not enabled on this Firebase project (Spark plan, etc.) — sync
     // falls back to embedding compressed photos directly in Firestore.
@@ -99,6 +100,29 @@ export async function uploadPhoto(uid, dataUrl) {
     return url;
   } catch (err) {
     console.warn('[photostore] upload failed:', err.message);
+    return null;
+  }
+}
+
+/**
+ * Vidéo d'une publication du carnet (v242) : envoyée telle quelle vers Storage
+ * (`users/{uid}/videos/` — dossier séparé, jamais touché par le nettoyage des photos
+ * orphelines) et seule son URL est gardée dans le voyage (jamais de base64 : trop lourd
+ * pour localStorage / Firestore). Renvoie l'URL, ou null (hors-ligne, Storage absent…).
+ */
+export async function uploadVideo(uid, file) {
+  if (!_storage || !_uploadBytesFn || !uid || !file) return null;
+  try {
+    const ext = (file.name.split('.').pop() || 'mp4').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 5) || 'mp4';
+    const id  = 'vd_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+    const fileRef = _refFn(_storage, `users/${uid}/videos/${id}.${ext}`);
+    await _uploadBytesFn(fileRef, file, {
+      contentType: file.type || 'video/mp4',
+      cacheControl: 'public, max-age=31536000, immutable',
+    });
+    return await _getDownloadURLFn(fileRef);
+  } catch (err) {
+    console.warn('[photostore] video upload failed:', err.message);
     return null;
   }
 }

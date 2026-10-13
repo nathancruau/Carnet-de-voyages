@@ -1738,11 +1738,65 @@ function _showMobileEventSheet(html) {
   // Rattachée à <html> et pas à body (iOS 26 : body verrouillé découpe les fixed, cf. CLAUDE.md)
   document.documentElement.appendChild(sheet);
   requestAnimationFrame(() => requestAnimationFrame(() => { sheet.style.transform = 'translateY(0)'; }));
+  _bindSheetSwipeClose(sheet);
+}
+
+/**
+ * v242 : glisser la fenêtre d'événement vers le bas (depuis le haut de son contenu) la
+ * ferme en ENREGISTRANT tel quel (clic sur « Enregistrer » / « Ajouter »). Ajout sans
+ * description = simple fermeture. Si l'enregistrement est refusé (dates invalides…),
+ * la fenêtre revient en place.
+ */
+function _bindSheetSwipeClose(sheet) {
+  let y0 = 0, dy = 0, t0 = 0, active = false, armed = false;
+  sheet.addEventListener('touchstart', e => {
+    if (e.touches.length !== 1) return;
+    const ta = e.target.closest('textarea');
+    armed = sheet.scrollTop <= 0 && !(ta && ta.scrollTop > 0);
+    active = false; dy = 0; y0 = e.touches[0].clientY; t0 = performance.now();
+  }, { passive: true });
+  sheet.addEventListener('touchmove', e => {
+    if (!armed) return;
+    const d = e.touches[0].clientY - y0;
+    if (!active) {
+      if (d < 8) { if (d < -4) armed = false; return; }
+      active = true; y0 = e.touches[0].clientY; sheet.style.transition = 'none';
+      document.activeElement?.blur?.();
+    }
+    dy = Math.max(0, e.touches[0].clientY - y0);
+    if (e.cancelable) e.preventDefault();
+    sheet.style.transform = `translateY(${dy}px)`;
+  }, { passive: false });
+  const end = () => {
+    if (!active) { armed = false; return; }
+    active = armed = false;
+    const v = dy / Math.max(1, performance.now() - t0);
+    sheet.style.transition = 'transform .28s cubic-bezier(.25,.8,.25,1)';
+    if (dy < 110 && v < 0.6) { sheet.style.transform = 'translateY(0)'; return; }
+    const isAdd  = !!sheet.querySelector('#ae-save');
+    const saveBtn = sheet.querySelector('#ee-save, #ae-save');
+    const emptyAdd = isAdd && !(sheet.querySelector('#ae-text')?.value || '').trim();
+    if (!saveBtn || emptyAdd) { _closeMobileEventSheet(); return; }
+    sheet.style.transform = 'translateY(100%)';
+    saveBtn.click();
+    // Enregistrement refusé (notification d'erreur, fenêtre toujours là) → elle remonte ;
+    // enregistrement asynchrone en cours (bouton désactivé, ex. détection du pays) → on attend.
+    setTimeout(() => {
+      if (!sheet.isConnected || sheet.dataset.closing || saveBtn.disabled) return;
+      if (document.getElementById('_evt-sheet') === sheet && sheet.style.transform === 'translateY(100%)') {
+        sheet.style.transform = 'translateY(0)';
+      }
+    }, 250);
+  };
+  sheet.addEventListener('touchend', end);
+  sheet.addEventListener('touchcancel', end);
 }
 
 function _closeMobileEventSheet() {
   const sheet = document.getElementById('_evt-sheet');
   if (!sheet) return;
+  sheet.dataset.closing = '1';
+  sheet.style.transition = 'transform .28s cubic-bezier(.25,.8,.25,1)';
   sheet.style.transform = 'translateY(100%)';
   setTimeout(() => sheet.remove(), 300);
 }

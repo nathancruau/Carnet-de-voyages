@@ -3106,3 +3106,22 @@ button.tv2-leg:active span{background:var(--hv-chip)}
 .tv2-step-cont{opacity:.82}
 .tv2-step-cont .tv2-step-thumb{transform:scale(.86)}
 .tv2-top.tv2-top-off,.tv2-top.tv2-top-off *{pointer-events:none!important}
+
+/* v242 — visionneuse : photo entière sur fond flou (le paysage n'est plus recadré en portrait), vidéos */
+.tv2-story-media{overflow:hidden}
+.tv2-story-media img.tv2-story-bg{position:absolute;inset:-40px;width:calc(100% + 80px);height:calc(100% + 80px);object-fit:cover;filter:blur(30px) brightness(.5) saturate(1.2);pointer-events:none}
+.tv2-story-media .tv2-story-img{position:relative;width:100%;height:100%;object-fit:contain;background:none}
+.tv2-story-media video.tv2-story-img{background:#000}
+.tv2-story-isvid .tv2-story-zone{width:16%!important;top:20%;bottom:45%}
+.tv2-story-isvid .tv2-story-shade{background:linear-gradient(180deg,rgba(0,0,0,.45) 0,rgba(0,0,0,0) 14%,rgba(0,0,0,0) 62%,rgba(0,0,0,.82) 100%)}
+.tv2-post-media video{width:100%;height:100%;object-fit:cover;background:#000}
+.tv2-play{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:46px;height:46px;border-radius:50%;background:rgba(0,0,0,.45);color:#fff;font-size:18px;display:flex;align-items:center;justify-content:center;padding-left:3px;pointer-events:none}
+.vld-pending{font-size:12px;font-weight:700;color:var(--hv-accent,var(--teal));margin:0 0 6px}
+/* Visionneuse ouverte : les fenêtres (commentaires, modification…) et les notifications passent devant */
+html:has(.tv2-story) #modal-overlay{z-index:20100}
+html:has(.tv2-story) #notif{z-index:20200}
+/* v242 — la piste du curseur de jours n'apparaît que pendant le glissé */
+.tv2-dsl-track{opacity:0;transition:opacity .3s ease .5s}
+.tv2-dsl.drag .tv2-dsl-track{opacity:1;transition:opacity .12s ease}
+/* Poignée : la fenêtre d'événement se ferme (et s'enregistre) en la glissant vers le bas */
+#_evt-sheet.ev-sheet::before{content:'';position:sticky;top:-30px;display:block;width:40px;height:5px;border-radius:3px;background:var(--hv-line,#d4dae0);margin:-26px auto 21px;z-index:2}

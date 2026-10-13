@@ -3,7 +3,7 @@
    ============================================================ */
 
 import { getTrip, updateTrip, uid, getEventTypes, getLanguage, isTripShared } from '../store.js';
-import { notify, showModal, closeModal, fmtDate, fmtDateShort, isoToDate, dateToIso, customDayTitle, trCol } from '../utils.js';
+import { notify, showModal, closeModal, fmtDate, fmtDateShort, isoToDate, dateToIso, customDayTitle, trCol, compressPhotoDataUrl } from '../utils.js';
 import { updateTopStats } from './trip.js';
 import { getCurrentUser } from '../auth.js';
 
@@ -1513,17 +1513,37 @@ function _openValidateModal(tripId, dayId, itemIdx) {
     notes:   jd.notes   || '',
     amount:  jd.amount  || 0,
     photos:  jd.photos  ? [...jd.photos] : [],
+    videos:  jd.videos  ? [...jd.videos] : [],   // v242 : URLs Storage uniquement
+    pending: 0,                                  // envois en cours (photos HD / vidéos)
   };
 
   const weatherEmojis = ['☀️', '⛅', '🌧️', '⛈️', '🌨️', '🌫️', '🌊', '🏔️'];
 
-  async function _compressImg(file) {
+  // v242 : photo lue en 2000 px (au lieu de 800 — qualité visiblement dégradée), puis
+  // envoyée vers Storage si possible (seule l'URL est gardée : rien de lourd en local) ;
+  // sinon repli sur une copie 1280 px en base64. L'orientation EXIF est appliquée par
+  // le navigateur au décodage (image-orientation:from-image), le paysage reste paysage.
+  async function _photoForJournal(file) {
+    const big = await _compressImg(file, 2000, 0.88);
+    const user = getCurrentUser();
+    if (user?.uid) {
+      try {
+        const { isPhotoStoreReady, uploadPhoto } = await import('../photostore.js');
+        if (isPhotoStoreReady()) {
+          const url = await uploadPhoto(user.uid, big);
+          if (url) return url;
+        }
+      } catch (_) {}
+    }
+    return (await compressPhotoDataUrl(big, 1280, 0.82)) || big;
+  }
+
+  async function _compressImg(file, maxSize = 1280, quality = 0.82) {
     return new Promise(resolve => {
       const reader = new FileReader();
       reader.onload = ev => {
         const img = new Image();
         img.onload = () => {
-          const maxSize = 800;
           const canvas  = document.createElement('canvas');
           let { width, height } = img;
           if (width > maxSize || height > maxSize) {
@@ -1532,7 +1552,7 @@ function _openValidateModal(tripId, dayId, itemIdx) {
           }
           canvas.width = width; canvas.height = height;
           canvas.getContext('2d').drawImage(img, 0, 0, width, height);
-          resolve(canvas.toDataURL('image/jpeg', 0.8));
+          resolve(canvas.toDataURL('image/jpeg', quality));
         };
         img.src = ev.target.result;
       };
@@ -1550,8 +1570,17 @@ function _openValidateModal(tripId, dayId, itemIdx) {
   }
 
   function buildPhotosHtml() {
-    if (state.photos.length === 0) return '<div style="font-size:11px;color:var(--ink4)">Aucune photo ajoutée</div>';
-    return `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px">` +
+    const pend = state.pending ? `<div class="vld-pending">⏳ Envoi de ${state.pending} fichier${state.pending > 1 ? 's' : ''}…</div>` : '';
+    if (state.photos.length === 0 && state.videos.length === 0) return (pend || '<div style="font-size:11px;color:var(--ink4)">Aucune photo ni vidéo ajoutée</div>');
+    return pend + `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px">` +
+      state.videos.map((src, i) =>
+        `<div style="position:relative;display:inline-block">
+          <video src="${_esc(src)}#t=0.1" muted playsinline preload="metadata" style="width:56px;height:56px;object-fit:cover;border-radius:6px;border:1px solid var(--c3);background:#000"></video>
+          <span style="position:absolute;left:4px;bottom:3px;font-size:11px;color:#fff;text-shadow:0 1px 2px #000">▶</span>
+          <button type="button" data-rm-video="${i}"
+            style="position:absolute;top:-4px;right:-4px;background:var(--coral);color:#fff;border:none;border-radius:50%;width:16px;height:16px;font-size:9px;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;line-height:1">✕</button>
+        </div>`
+      ).join('') +
       state.photos.map((src, i) =>
         `<div style="position:relative;display:inline-block">
           <img src="${_esc(src)}" style="width:56px;height:56px;object-fit:cover;border-radius:6px;border:1px solid var(--c3);cursor:pointer" onclick="window._pho && window._pho(this.src)">
@@ -1584,9 +1613,9 @@ function _openValidateModal(tripId, dayId, itemIdx) {
     </div>
 
     <div class="fg">
-      <label>Photos</label>
+      <label>Photos et vidéos</label>
       <div id="vld-photos-list">${buildPhotosHtml()}</div>
-      <input type="file" id="vld-photo-file" accept="image/*" multiple style="font-size:12px;color:var(--ink3);margin-top:6px">
+      <input type="file" id="vld-photo-file" accept="image/*,video/*" multiple style="font-size:12px;color:var(--ink3);margin-top:6px">
     </div>
 
     <div class="fg">
@@ -1632,6 +1661,13 @@ function _openValidateModal(tripId, dayId, itemIdx) {
 
   // Photo remove (delegation — survives innerHTML updates)
   document.getElementById('vld-photos-list')?.addEventListener('click', ev => {
+    const vbtn = ev.target.closest('[data-rm-video]');
+    if (vbtn) {
+      state.videos.splice(parseInt(vbtn.dataset.rmVideo, 10), 1);
+      const list = document.getElementById('vld-photos-list');
+      if (list) list.innerHTML = buildPhotosHtml();
+      return;
+    }
     const btn = ev.target.closest('[data-rm-photo]');
     if (!btn) return;
     state.photos.splice(parseInt(btn.dataset.rmPhoto, 10), 1);
@@ -1643,17 +1679,38 @@ function _openValidateModal(tripId, dayId, itemIdx) {
   document.getElementById('vld-photo-file')?.addEventListener('change', async ev => {
     const files = [...(ev.target.files || [])];
     if (!files.length) return;
-    for (const file of files) {
-      const base64 = await _compressImg(file);
-      state.photos.push(base64);
-    }
-    const list = document.getElementById('vld-photos-list');
-    if (list) list.innerHTML = buildPhotosHtml();
     ev.target.value = '';
+    const refresh = () => {
+      const list = document.getElementById('vld-photos-list');
+      if (list) list.innerHTML = buildPhotosHtml();
+      const save = document.getElementById('vld-save');
+      if (save) { save.disabled = state.pending > 0; save.textContent = state.pending > 0 ? 'Envoi en cours…' : 'Enregistrer'; }
+    };
+    state.pending += files.length;
+    refresh();
+    await Promise.all(files.map(async file => {
+      try {
+        if (file.type.startsWith('video/')) {
+          const user = getCurrentUser();
+          if (!user?.uid) { notify('Connectez-vous pour ajouter des vidéos (envoyées dans le cloud)', '⚠️'); return; }
+          if (file.size > 200 * 1024 * 1024) { notify('Vidéo trop lourde (200 Mo maximum)', '⚠️'); return; }
+          const { uploadVideo } = await import('../photostore.js');
+          const url = await uploadVideo(user.uid, file);
+          if (url) state.videos.push(url);
+          else notify("Échec de l'envoi de la vidéo (connexion ?)", '⚠️');
+        } else {
+          state.photos.push(await _photoForJournal(file));
+        }
+      } finally {
+        state.pending--;
+        refresh();
+      }
+    }));
   });
 
   // Save
   document.getElementById('vld-save')?.addEventListener('click', () => {
+    if (state.pending > 0) { notify('Patientez, envoi en cours…', '⏳'); return; }
     state.notes  = document.getElementById('vld-notes')?.value?.trim()  || '';
     state.amount = parseFloat(document.getElementById('vld-amount')?.value || '0') || 0;
 
@@ -1678,6 +1735,7 @@ function _openValidateModal(tripId, dayId, itemIdx) {
         notes:       state.notes,
         amount:      state.amount,
         photos:      state.photos,
+        ...(state.videos.length ? { videos: state.videos } : {}),
       },
     };
     days[dayIdx] = { ...days[dayIdx], items };

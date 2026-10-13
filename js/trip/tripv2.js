@@ -88,7 +88,11 @@ function _collectPosts(trip) {
     (day.items || []).forEach((item, idx) => {
       const jd = item.journalData || {};
       if (!jd.validated) return;
-      posts.push({ day, item, idx, jd, photos: (jd.photos || []).filter(Boolean), id: item.id || `${day.id}_${idx}` });
+      const photos = (jd.photos || []).filter(Boolean);
+      const videos = (jd.videos || []).filter(Boolean);   // v242 : URLs Storage
+      // media = photos puis vidéos, dans l'ordre de la visionneuse
+      const media = [...photos.map(src => ({ t: 'img', src })), ...videos.map(src => ({ t: 'vid', src }))];
+      posts.push({ day, item, idx, jd, photos, videos, media, id: item.id || `${day.id}_${idx}` });
     });
   });
   return posts;
@@ -454,6 +458,7 @@ function _planHtml(trip) {
         </div>`;
     const dep = departs.get(day.id);
     if (dep) html += _legHtml(dep, `🌙 ${dep.to.label || 'Nuit'}`);
+    let nightCards = '';
     if (!items.length) {
       html += `<button class="tv2-step-empty" data-tv="add-evt" data-day-id="${_esc(day.id)}">＋ Ajouter une activité</button>`;
     }
@@ -472,7 +477,9 @@ function _planHtml(trip) {
       } else if (et.label) sub.push(_esc(et.label));
       if (item.time) sub.push(_esc(item.time));
       if (jd.validated) sub.push('<em>✓ publié</em>');
-      html += `
+      // Hébergement : affiché en fin de journée, APRÈS le trajet qui y mène (retour à la nuit)
+      const target = item.type === 'sleep' ? 'night' : 'main';
+      const cardHtml = `
         <button class="tv2-step" data-tv="edit-evt" data-day-id="${_esc(day.id)}" data-idx="${idx}">
           <span class="tv2-step-thumb" style="--sc:${_esc(et.color || '#0d9488')}">
             ${thumb ? `<img src="${_esc(thumb)}" alt="" loading="lazy" decoding="async">` : `<i>${et.emoji || '📍'}</i>`}
@@ -481,6 +488,7 @@ function _planHtml(trip) {
           <span class="tv2-step-txt"><b>${_esc(item.text || '—')}</b><small>${sub.join(' · ')}</small></span>
           <span class="tv2-step-go">›</span>
         </button>`;
+      if (target === 'night') nightCards += cardHtml; else html += cardHtml;
     });
     // Hébergement sur plusieurs nuits : il réapparaît sur chaque soir couvert
     // (affichage seulement — une seule donnée, ancrée au jour d'arrivée).
@@ -488,15 +496,16 @@ function _planHtml(trip) {
       if (sl.day.id === day.id || !day.date || !(sl.item.dateFrom <= day.date && day.date <= sl.item.dateTo)) continue;
       const et = ets.sleep || {};
       const k = Math.round((new Date(day.date + 'T12:00:00') - new Date(sl.item.dateFrom + 'T12:00:00')) / 86400000) + 1;
-      html += `
+      nightCards += `
         <button class="tv2-step tv2-step-cont" data-tv="edit-evt" data-day-id="${_esc(sl.day.id)}" data-idx="${sl.idx}">
           <span class="tv2-step-thumb" style="--sc:${_esc(et.color || '#7c3aed')}"><i>${et.emoji || '🌙'}</i></span>
-          <span class="tv2-step-txt"><b>${_esc(sl.item.text || 'Nuit')}</b><small>Nuit ${k}/${_nightCount(sl.item)}${sl.item.time ? ' · ' + _esc(sl.item.time) : ''}</small></span>
+          <span class="tv2-step-txt"><b>${_esc(sl.item.text || 'Nuit')}</b><small>Nuit ${k}/${_nightCount(sl.item)}${sl.item.time ? ' · ' + _esc(sl.item.time) : ''}${sl.item.journalData?.validated ? ' · <em>✓ publié</em>' : ''}</small></span>
           <span class="tv2-step-go">›</span>
         </button>`;
     }
     const ret = returns.get(day.id);
-    if (ret) html += _legHtml(ret, `🌙 ${ret.to.label || 'Nuit'}`);
+    if (ret) html += _legHtml(ret, nightCards ? '' : `🌙 ${ret.to.label || 'Nuit'}`);
+    html += nightCards;
     html += `</div>`;
   }
   html += `
@@ -544,15 +553,24 @@ function _followHtml(trip) {
   return html;
 }
 
+/** Vignette d'une publication : 1ʳᵉ photo, sinon 1ʳᵉ image de la 1ʳᵉ vidéo. */
+function _coverHtml(p) {
+  const m = p.media[0];
+  if (!m) return '';
+  return m.t === 'img'
+    ? `<img src="${_esc(m.src)}" alt="" loading="lazy" decoding="async">`
+    : `<video src="${_esc(m.src)}#t=0.1" muted playsinline preload="metadata"></video><b class="tv2-play">▶</b>`;
+}
+
 function _postCardHtml(p, i, doc, ets) {
   const et = ets[p.item.type] || {};
   const c = _postCounts(p, doc);
-  const cover = p.photos[0];
+  const cover = p.media[0];
   const flag = _flagOf(p.item.countryCode, p.item.countryFlag);
   return `
     <button class="tv2-post" data-tv="story" data-post="${i}">
       <span class="tv2-post-media" style="--sc:${_esc(et.color || '#0d9488')}">
-        ${cover ? `<img src="${_esc(cover)}" alt="" loading="lazy" decoding="async">` : `<i>${et.emoji || '📍'}</i>`}
+        ${cover ? _coverHtml(p) : `<i>${et.emoji || '📍'}</i>`}
       </span>
       <span class="tv2-post-shade"></span>
       <span class="tv2-post-info">
@@ -561,7 +579,7 @@ function _postCardHtml(p, i, doc, ets) {
         <span class="tv2-post-meta">
           <span>${ICON.heart.replace('22', '15').replace('22', '15')} ${c.likes}</span>
           <span>${ICON.chat.replace('22', '15').replace('22', '15')} ${c.comments}</span>
-          <span>${ICON.photo} ${p.photos.length}</span>
+          <span>${ICON.photo} ${p.media.length}</span>
         </span>
       </span>
     </button>`;
@@ -616,11 +634,17 @@ function _daysSliderHtml(trip) {
   if (!_posts.length) return `<div class="tv2-dsl tv2-dsl-empty"><div class="tv2-dsl-knob"><b>À venir</b></div></div>`;
   const days = trip.days || [];
   const lastIdx = Math.max(...(_posts.map(p => days.findIndex(d => d.id === p.day.id))));
-  for (let i = 0; i <= lastIdx; i++) {
+  // Un hébergement publié compte pour toutes ses nuits (un seul événement, publié une fois)
+  const covers = (p, d) => p.day.id === d.id ||
+    (p.item.type === 'sleep' && d.date && p.item.dateFrom && p.item.dateTo && p.item.dateFrom <= d.date && d.date <= p.item.dateTo);
+  const lastCovered = Math.max(lastIdx, ...days.map((d, i) => _posts.some(p => covers(p, d)) ? i : -1));
+  for (let i = 0; i <= lastCovered; i++) {
     const d = days[i];
-    let post = _posts.findIndex(p => days.findIndex(x => x.id === p.day.id) >= i);
+    let post = _posts.findIndex(p => p.day.id === d.id);
+    if (post < 0) post = _posts.findIndex(p => covers(p, d));
+    if (post < 0) post = _posts.findIndex(p => days.findIndex(x => x.id === p.day.id) >= i);
     if (post < 0) post = _posts.length - 1;
-    _obsDays.push({ num: d.num, date: d.date, post, has: _posts.some(p => p.day.id === d.id) });
+    _obsDays.push({ num: d.num, date: d.date, post, has: _posts.some(p => covers(p, d)) });
   }
   const n = _obsDays.length;
   return `
@@ -646,11 +670,11 @@ function _renderObserver(host, trip, isRefresh = false) {
     const flag = _flagOf(p.item.countryCode, p.item.countryFlag);
     return `
       <button class="tv2-ocard" data-tv="story" data-post="${i}" data-day-num="${p.day.num}">
-        <span class="tv2-post-media" style="--sc:${_esc(et.color || '#0d9488')}">${p.photos[0] ? `<img src="${_esc(p.photos[0])}" alt="" loading="lazy" decoding="async">` : `<i>${et.emoji || '📍'}</i>`}</span>
+        <span class="tv2-post-media" style="--sc:${_esc(et.color || '#0d9488')}">${p.media[0] ? _coverHtml(p) : `<i>${et.emoji || '📍'}</i>`}</span>
         <span class="tv2-post-shade"></span>
         ${flag ? `<span class="tv2-ocard-flag">${flag}</span>` : ''}
         <span class="tv2-post-info"><b>${_esc(p.item.text || '—')}</b>
-          <span class="tv2-post-meta"><span>${ICON.heart.replace('22', '15').replace('22', '15')} ${c.likes}</span><span>${ICON.chat.replace('22', '15').replace('22', '15')} ${c.comments}</span><span>${ICON.photo} ${p.photos.length}</span></span>
+          <span class="tv2-post-meta"><span>${ICON.heart.replace('22', '15').replace('22', '15')} ${c.likes}</span><span>${ICON.chat.replace('22', '15').replace('22', '15')} ${c.comments}</span><span>${ICON.photo} ${p.media.length}</span></span>
         </span>
       </button>`;
   }).join('');
@@ -888,11 +912,11 @@ function _storyKeys(e) {
 function _storyStep(dir) {
   if (!_story) return;
   const post = _posts[_story.post];
-  const n = Math.max(1, post.photos.length);
+  const n = Math.max(1, post.media.length);
   const next = _story.photo + dir;
   if (next >= 0 && next < n) { _story.photo = next; }
   else if (dir > 0 && _story.post < _posts.length - 1) { _story.post++; _story.photo = 0; }
-  else if (dir < 0 && _story.post > 0) { _story.post--; _story.photo = Math.max(0, _posts[_story.post].photos.length - 1); }
+  else if (dir < 0 && _story.post > 0) { _story.post--; _story.photo = Math.max(0, _posts[_story.post].media.length - 1); }
   else if (dir > 0) { _closeStory(); return; }
   _renderStory();
 }
@@ -905,17 +929,21 @@ function _renderStory() {
   const et = ets[post.item.type] || {};
   const doc = _sharedDoc();
   const c = _postCounts(post, doc);
-  const n = Math.max(1, post.photos.length);
-  const src = post.photos[_story.photo];
+  const n = Math.max(1, post.media.length);
+  const m = post.media[_story.photo];
   const code = post.item.countryCode;
   const flag = _flagOf(code, post.item.countryFlag);
   const country = _countryName(code);
   const date = post.day.date ? new Date(post.day.date + 'T12:00:00').toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' }) : `Jour ${post.day.num}`;
   const meta = [country ? `${flag} ${country.toUpperCase()}` : flag, date.toUpperCase(), post.jd.weather ? _esc(post.jd.weather) : ''].filter(Boolean).join(' · ');
   _story.el.innerHTML = `
-    <div class="tv2-story-card">
+    <div class="tv2-story-card${m?.t === 'vid' ? ' tv2-story-isvid' : ''}">
       <div class="tv2-story-media" style="--sc:${_esc(et.color || '#0d9488')}">
-        ${src ? `<img src="${_esc(src)}" alt="">` : `<i>${et.emoji || '📍'}</i>`}
+        ${!m ? `<i>${et.emoji || '📍'}</i>`
+          // Photo entière (paysage ou portrait) sur un fond flou de la même photo, au lieu
+          // d'un recadrage plein écran qui coupait une grande partie des photos en paysage.
+          : m.t === 'img' ? `<img class="tv2-story-bg" src="${_esc(m.src)}" alt="" aria-hidden="true"><img class="tv2-story-img" src="${_esc(m.src)}" alt="">`
+          : `<video class="tv2-story-img" src="${_esc(m.src)}" autoplay muted playsinline loop controls preload="auto"></video>`}
       </div>
       <div class="tv2-story-shade"></div>
       <div class="tv2-story-bars">${Array.from({ length: n }, (_, i) => `<span class="${i < _story.photo ? 'done' : i === _story.photo ? 'cur' : ''}"></span>`).join('')}</div>
