@@ -18,7 +18,7 @@ Quatre endroits à synchroniser, toujours le même numéro N :
 | `sw.js` | `const SHELL_CACHE = 'cv-shell-N'` |
 | `store.js` | `export const APP_VERSION = 'N'` |
 
-Version actuelle : **236**
+Version actuelle : **237**
 
 ---
 
@@ -61,8 +61,11 @@ js/
   notifications.js      Notifications départ (localStorage, DST-safe)
   share.js              Partage de voyage (liens d'invitation, observateurs)
 
+  sheet.js              Feuille glissante sur carte (écran voyage v2)
+
   trip/
-    trip.js             Écran voyage (tabs, topbar, stats)
+    trip.js             Écran voyage : vue d'ensemble v2 + sous-vues (anciens onglets)
+    tripv2.js           Vue d'ensemble v2 (carte + feuille Planifier/Suivre, observateur, visionneuse)
     mapcal.js           Onglet Carte & Planning
     journal.js          Onglet Carnet
     budget.js           Onglet Budget
@@ -91,6 +94,19 @@ js/
 - Types de lieux (`eventTypes`) : **fixes**, plus modifiables dans les Paramètres (v231) ; `settings.eventTypes` déjà enregistrés sont conservés tels quels (pas réécrits).
 - **Page Statistiques (v234)** : `_renderStats()` (home.js) dans le style v2 — `.hs` (tokens `--hv-*`), bouton retour (`go-home`), filtre par type en contrôle segmenté (`data-stats-type`), chiffres clés `.hs-kpis`/`.hs-minis`, cartes `.hs-card` (globe + drapeaux, années, saisons, destinations, distances, dépenses par mois/catégorie, compagnons) ; graphiques via `_hsBar()` / `_hsCols()`. Mêmes calculs qu'avant (`_calcStats`, `_getVisitedMap`…), ids du globe inchangés (`globe-canvas`, `wm-expand-btn`, `world-map-wrap` + `stat-fs`). L'ancien bandeau `_heroHtml`/`_filterTabsHtml` et ses classes `.hs-card/.hs-v/.hs-l` (collision de noms) ont été supprimés. Page qui défile avec le body ; fond = blanc/#14181d comme html sur l'accueil (pas de bande iOS).
 - Mode grands-parents garde l'ancien rendu pour l'instant.
+
+---
+
+## Écran voyage v2 (v237, bêta)
+
+- `openTrip` (trip.js) : les **sorties gardent l'écran classique** ; voyages/week-ends → `_showOverview()` → `renderTripV2(tripId, { observer, onOpenView })` (**js/trip/tripv2.js**). `#trip-v2` est préfixé dans `#screen-app` (classe `tv2-on` masque `#topbar`/`#panels`). Fond html/body = couleur de la feuille (`#05080f` pour un observateur).
+- **Feuille** : `createSheet(cfg)` (**js/sheet.js**) = même mécanique que la feuille de l'accueil (3 crans, transform/opacity seulement, vitesse au relâcher, carte décalée de `(t − mid)/2`, `.tv2-anim` coupe les flous, glissé horizontal = Planifier ↔ Suivre). Grand écran (≥ 901 px) : panneau fixe à gauche (400 px).
+- **Carte** : même instance MapLibre que l'accueil (`attachHomeMap(slot, { context:'trip', pins, route, … })`). Passage accueil → voyage : la caméra de l'accueil est mémorisée puis restaurée au retour et le tracé effacé. `collectTripPins(trip, eventTypes)` = tous les items géolocalisés numérotés (vignette photo `.hm-pin-photo` + badge `.hm-pin-num`) ; tracé `setHomeMapRoute(lines)` (couches `route-casing`/`route-line`, sous les PINs, à partir de `collectTripWaypoints` = `_collectAllWaypoints` de mapcal.js) ; `fitHomeMap(padding)` cadre PINs + tracé une fois par voyage.
+- **Propriétaire/membre** : barre du haut (retour, nom + initiales, 4 boutons ronds : réglages → `window._openTripMenu` (menu ⋯ de l'accueil), planning détaillé, bagages, budget). En-tête : statut, drapeaux, dates, stats (jours / activités / publiées / km), compagnons, bouton 🕘 Historique si partagé (`openActivityModal`). Bascule en bas `.tv2-seg` **Planifier** (frise des jours, étapes numérotées comme les PINs, trajets entre étapes avec mode + km, ＋ activité / ＋ jour → modales de mapcal.js exportées `openAddEventModal`/`openEditEventModal`/`openAddDayModal`) / **Suivre** (publications = items `journalData.validated`, ❤/💬/📷 depuis le doc partagé ; « À documenter » → `openValidateModal` de journal.js).
+- **Visionneuse plein écran** (`_openStory`, rattachée à `<html>`) : barres de progression, tap gauche/droite, glisser vers le bas pour fermer ; ❤ (`addObserverReaction`), 💬 (`openCommentsModal`), partager (`shareJournalItem`), modifier (propriétaire).
+- **Observateur** : uniquement le carnet — carte plein écran (PINs/tracé limités aux étapes publiées), puce « Jour N » + carrousel horizontal de publications en bas (le défilement fait voler la carte vers le PIN), ☰ → Quitter ce voyage.
+- **Sous-vues** (`_openSubview`, trip.js) : anciens onglets avec un en-tête `.tv2-subbar` (retour → vue d'ensemble) : `events` = Carte & Planning, `packing` = Bagages, `money` = Budget ↔ Dépenses partagées avec bascule `#tv2-subnav` en bas (le bouton ＋ du panneau remonte au-dessus). Leur contenu garde l'ancien style pour l'instant.
+- Rafraîchissement : `updateTrip` (store.js) émet `trip-updated` → tripv2 re-rend la feuille, les PINs et le tracé ; `refreshTrip(id)` (trip.js, appelé par `_rerenderCurrentView`) re-rend la vue courante. État par voyage (mode, cran, défilement par mode) gardé en mémoire (`_tripState`).
 
 ---
 

@@ -3530,6 +3530,8 @@ export function openEditTripModal(id = null, presetType = null) {
 
 // Expose on window so sortie.js detail view can call it without circular imports
 window._openEditTripModal = openEditTripModal;
+// Écran voyage v2 : bouton ⚙️ = même menu que le ⋯ des cartes de voyage
+window._openTripMenu = (tripId, btn) => _openTripMenu(tripId, btn);
 
 // ── Crop modal ────────────────────────────────────────────────────────────────
 
@@ -4370,7 +4372,8 @@ function _openTripMenu(tripId, btn) {
           leaveSharedTrip(tripId);
         }
         deleteTrip(tripId);
-        renderHome(_currentFilter);
+        // Depuis l'écran voyage (menu ⚙️), revenir à l'accueil
+        if (window.goHome) window.goHome(); else renderHome(_currentFilter);
         notify(`"${name}" supprimé.`, '🗑');
         break;
       }

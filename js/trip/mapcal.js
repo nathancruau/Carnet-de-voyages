@@ -3597,3 +3597,11 @@ function _esc(s) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
 }
+
+// ─── Écran voyage v2 (tripv2.js) ──────────────────────────────────────────────
+// Le nouvel écran réutilise telles quelles les fenêtres d'ajout/édition du planning
+// (elles ne dépendent pas de la carte Leaflet : chaque appel à _map est protégé).
+export const openEditEventModal   = (dayId, evtIdx, tripId) => _openEditEventModal(dayId, evtIdx, tripId);
+export const openAddEventModal    = (dayId, tripId, prefill) => _openAddEventModal(dayId, tripId, prefill);
+export const openAddDayModal      = tripId => _openAddDayModal(tripId);
+export const collectTripWaypoints = trip => _collectAllWaypoints(trip);

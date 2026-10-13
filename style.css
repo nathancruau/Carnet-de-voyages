@@ -2111,14 +2111,14 @@ a.tl-sv-pill:hover{background:var(--c3);color:var(--ink)}
    ACCUEIL v2 (refonte bêta) — carte globe/plate + feuille profil glissable
    Tout est préfixé .hv2-* / .hm-* ; le reste de l'app garde ses styles actuels.
    ══════════════════════════════════════════════════════════════════════════════ */
-.hv2,.hv2-modal,.hs{
+.hv2,.hv2-modal,.hs,.tv2{
   --hv-sheet:#ffffff; --hv-bg2:#f3f5f7; --hv-ink:#0f2233; --hv-ink2:#64748b; --hv-line:#e5e9ee;
   --hv-dark:#0d2436; --hv-coral:#ef2d56; --hv-chip:#f1f4f6; --hv-accent:#0d9488;
   /* env() plafonné : certains contextes iOS renvoient une valeur bien trop grande (cf. v202) */
   --hv-safe-t:min(env(safe-area-inset-top,0px),59px);
   --hv-safe-b:min(env(safe-area-inset-bottom,0px),34px);
 }
-[data-theme="dark"] .hv2,[data-theme="dark"] .hv2-modal,[data-theme="dark"] .hs{
+[data-theme="dark"] .hv2,[data-theme="dark"] .hv2-modal,[data-theme="dark"] .hs,[data-theme="dark"] .tv2{
   --hv-sheet:#14181d; --hv-bg2:#1c2128; --hv-ink:#eef2f5; --hv-ink2:#94a3af; --hv-line:#272e36;
   --hv-dark:#e9eef2; --hv-chip:#20262d;
 }
@@ -2164,6 +2164,14 @@ a.tl-sv-pill:hover{background:var(--c3);color:var(--ink)}
   background:var(--pc);border:2.5px solid #fff;box-sizing:border-box;
 }
 .hm-pin-head span{transform:rotate(45deg);font-size:14px;line-height:1}
+/* Écran voyage : vignette photo (carré arrondi, façon Polarsteps) + numéro d'étape */
+.hm-pin{position:relative}
+.hm-pin-photo{width:46px;height:50px}
+.hm-pin-photo .hm-pin-head{width:44px;height:44px;border-radius:13px;transform:none;padding:0;overflow:hidden;border:2.5px solid #fff;background:var(--pc)}
+.hm-pin-photo .hm-pin-head i{display:block;width:100%;height:100%;background:center/cover no-repeat}
+.hm-pin-num{position:absolute;left:50%;bottom:-2px;transform:translateX(-50%);min-width:18px;height:18px;padding:0 4px;box-sizing:border-box;
+  border-radius:9px;background:#0d2436;color:#fff;border:2px solid #fff;font:800 10px/14px var(--fn);text-align:center}
+.hm-pin:not(.hm-pin-photo) .hm-pin-num{bottom:auto;top:-8px;left:auto;right:-8px;transform:none}
 .hm-cluster{
   min-width:34px;height:34px;padding:0 8px;border-radius:17px;cursor:pointer;
   background:#0d2436;color:#fff;border:2.5px solid #fff;
@@ -2585,6 +2593,211 @@ a.tl-sv-pill:hover{background:var(--c3);color:var(--ink)}
 .hs-comp small{font-size:11.5px;color:var(--hv-ink2)}
 
 /* ══════════════════════════════════════════════════════════════════════════════
+   ÉCRAN VOYAGE v2 (refonte v237, tripv2.js + sheet.js) — préfixe .tv2-*
+   Carte en fond (même instance MapLibre que l'accueil), feuille glissante,
+   barre Planifier / Suivre. Observateur : carte + carrousel des publications.
+   ══════════════════════════════════════════════════════════════════════════════ */
+#screen-app.tv2-on > #topbar,#screen-app.tv2-on > #panels{display:none!important}
+#trip-v2[hidden]{display:none!important}
+.tv2{
+  position:fixed;top:0;left:0;right:0;z-index:5;overflow:hidden;
+  height:calc(100vh + var(--ios-gap,0px));height:calc(100lvh + var(--ios-gap,0px));
+  font-family:var(--fn);color:var(--hv-ink);
+  background:radial-gradient(ellipse at 50% 30%,#0b1a33 0%,#05080f 70%);
+}
+.tv2-map-slot,.tv2 .hm-host{position:absolute;inset:0}
+.tv2-map-slot{top:-260px;will-change:transform}
+.tv2 .hm-host .maplibregl-ctrl-bottom-right{top:calc(var(--hv-safe-t) + 214px + 260px)}
+.tv2-dim{position:absolute;inset:0;z-index:3;background:#05080f;opacity:0;pointer-events:none;will-change:opacity}
+.tv2-top{
+  position:absolute;left:0;right:0;top:0;z-index:5;pointer-events:none;will-change:opacity;
+  padding:calc(var(--hv-safe-t) + 8px) 14px 0;display:grid;grid-template-columns:40px 1fr 40px;gap:10px;align-items:start;
+}
+.tv2-top > *{pointer-events:auto}
+.tv2-title{pointer-events:none!important;text-align:center;color:#fff;text-shadow:0 1px 8px rgba(0,0,0,.55);min-width:0;padding-top:2px}
+.tv2-title small{display:block;font-size:12px;font-weight:700;opacity:.92;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tv2-title b{display:block;font-size:20px;font-weight:800;letter-spacing:-.3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tv2-title-comps{display:flex;justify-content:center;margin-bottom:3px}
+.tv2-title-comps span{width:20px;height:20px;border-radius:50%;margin:0 -3px;border:1.5px solid #fff;color:#fff;font-size:10px;font-weight:800;display:inline-flex;align-items:center;justify-content:center;text-shadow:none}
+.tv2-actions{display:flex;flex-direction:column;gap:8px}
+.tv2-sm{width:36px!important;height:36px!important}
+
+/* Feuille */
+.tv2-sheet{
+  position:absolute;left:0;right:0;bottom:0;z-index:4;height:100%;
+  background:var(--hv-sheet);border-radius:26px 26px 0 0;overflow:hidden;
+  box-shadow:0 -8px 32px rgba(0,0,0,.3);will-change:transform;transform:translateY(50%);
+}
+.tv2-sheet.tv2-sheet-flat{border-radius:0}
+.tv2-grab{position:absolute;top:0;left:0;right:0;z-index:2;height:21px;display:flex;justify-content:center;align-items:center;cursor:grab;touch-action:none;will-change:opacity}
+.tv2-grab span{width:38px;height:5px;border-radius:3px;background:#cfd6dc}
+[data-theme="dark"] .tv2-grab span{background:#3a434d}
+.tv2-scroll{
+  position:absolute;inset:0;will-change:transform;overflow:hidden;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;
+  padding:2px 16px calc(110px + var(--hv-safe-b) + 100lvh - 100dvh);
+}
+.tv2[data-snap="full"] .tv2-scroll{overflow-y:auto}
+.tv2-sheet-head{
+  display:flex;align-items:flex-end;justify-content:space-between;gap:6px;
+  height:calc(var(--hv-safe-t) + 58px);opacity:0;pointer-events:none;padding-bottom:6px;box-sizing:border-box;
+}
+.tv2-head-l,.tv2-head-r{display:flex;gap:6px}
+.tv2-anim .tv2-sheet *,.tv2-anim .tv2-top *,.tv2-anim .tv2-nav *{backdrop-filter:none!important;-webkit-backdrop-filter:none!important}
+.tv2-pane{will-change:transform}
+.tv2-in-r{animation:hv2PaneInR .26s cubic-bezier(.22,.7,.25,1)}
+.tv2-in-l{animation:hv2PaneInL .26s cubic-bezier(.22,.7,.25,1)}
+
+/* Barre Planifier / Suivre (et bascule Budget / Dépenses des sous-vues) */
+.tv2-nav,.tv2-subnav{position:fixed;left:0;right:0;z-index:7;display:flex;justify-content:center;pointer-events:none}
+.tv2-nav{bottom:calc(var(--hv-safe-b) + 10px - var(--ios-gap,0px))}
+.tv2-subnav{z-index:500;bottom:calc(min(env(safe-area-inset-bottom,0px),34px) + 10px - var(--ios-gap,0px))}
+.tv2-seg{pointer-events:auto;display:flex;padding:4px;border-radius:999px;background:rgba(13,24,36,.9);box-shadow:0 8px 26px rgba(0,0,0,.28);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px)}
+.tv2-seg button{border:none;background:none;color:rgba(255,255,255,.78);font:800 14px var(--fn);padding:11px 20px;min-width:110px;border-radius:999px;cursor:pointer;transition:background .18s,color .18s}
+.tv2-seg button.active{background:#fff;color:#0d2436}
+
+/* En-tête du voyage dans la feuille */
+.tv2-hero{padding:6px 2px 2px}
+.tv2-hero-top{display:flex;gap:8px;align-items:center;flex-wrap:wrap;min-height:22px}
+.tv2-chip{font-size:11.5px;font-weight:800;padding:4px 10px;border-radius:999px;background:var(--hv-chip);color:var(--hv-ink2)}
+.tv2-chip-soon{background:#e0f2fe;color:#0369a1}
+.tv2-chip-live{background:#dcfce7;color:#15803d}
+[data-theme="dark"] .tv2-chip-soon{background:#0c2d44;color:#7dd3fc}
+[data-theme="dark"] .tv2-chip-live{background:#0f3321;color:#86efac}
+.tv2-flags{font-size:16px;letter-spacing:2px}
+.tv2-hero h1{font-size:28px;font-weight:800;letter-spacing:-.6px;line-height:1.1;margin:8px 0 3px;font-family:var(--fn)}
+.tv2-hero-dates{font-size:13px;color:var(--hv-ink2);font-weight:600}
+.tv2-hero-stats{display:flex;margin-top:14px;background:var(--hv-bg2);border-radius:16px;padding:10px 2px}
+.tv2-hero-stats div{flex:1;text-align:center;display:flex;flex-direction:column;border-right:1px solid var(--hv-line)}
+.tv2-hero-stats div:last-child{border-right:none}
+.tv2-hero-stats b{font-size:18px;font-weight:800}
+.tv2-hero-stats span{font-size:11px;font-weight:600;color:var(--hv-ink2)}
+.tv2-hero-comps{display:flex;align-items:center;margin-top:12px;padding-left:6px}
+.tv2-av{width:32px;height:32px;border-radius:50%;margin-left:-6px;border:2.5px solid var(--hv-sheet);color:#fff;font-size:11.5px;font-weight:800;display:inline-flex;align-items:center;justify-content:center}
+.tv2-hist{margin-left:auto}
+.tv2-hero-link{margin-left:auto;border:none;background:none;color:var(--hv-ink2);font:700 12.5px var(--fn);cursor:pointer;padding:6px}
+.tv2-h2{font-size:18px;font-weight:800;letter-spacing:-.3px;margin:24px 0 10px;display:flex;align-items:baseline;gap:8px}
+.tv2-h2 small{font-size:13px;color:var(--hv-ink2);font-weight:700}
+
+/* Planifier : frise des jours et des étapes */
+.tv2-tl{margin-top:18px}
+.tv2-tl-cap{display:flex;align-items:center;gap:12px;padding:4px 0}
+.tv2-tl-cap i{width:42px;height:42px;border-radius:50%;background:#0d2436;color:#fff;display:flex;align-items:center;justify-content:center;font-style:normal;font-size:18px;flex-shrink:0}
+[data-theme="dark"] .tv2-tl-cap i{background:#273241}
+.tv2-tl-cap b{display:block;font-size:15px;font-weight:800}
+.tv2-tl-cap small{display:block;font-size:11.5px;font-weight:700;color:var(--hv-ink2);text-transform:uppercase;letter-spacing:.04em;margin-top:1px}
+.tv2-tl-end{margin-top:14px}
+.tv2-day{margin-top:18px}
+.tv2-day-hd{display:flex;align-items:center;gap:10px;cursor:pointer;padding:2px 0}
+.tv2-day-num{width:42px;height:42px;border-radius:13px;background:var(--hv-chip);font-weight:800;font-size:13px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.tv2-day-txt{flex:1;min-width:0}
+.tv2-day-txt b{display:block;font-size:15px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tv2-day-txt small{display:block;font-size:12px;color:var(--hv-ink2);font-weight:600}
+.tv2-add{width:34px;height:34px;border-radius:50%;border:1.5px solid var(--hv-line);background:var(--hv-sheet);color:var(--hv-ink);font-size:19px;line-height:1;cursor:pointer;flex-shrink:0}
+.tv2-step{
+  display:flex;align-items:center;gap:12px;width:100%;margin-top:8px;padding:10px 12px 10px 10px;box-sizing:border-box;
+  border-radius:20px;background:var(--hv-sheet);border:1px solid var(--hv-line);box-shadow:0 2px 10px rgba(15,34,51,.06);
+  text-align:left;cursor:pointer;color:inherit;font-family:inherit;
+}
+.tv2-step:active{transform:scale(.985)}
+.tv2-step-thumb{position:relative;width:56px;height:56px;border-radius:16px;flex-shrink:0;display:flex;align-items:center;justify-content:center;background:color-mix(in srgb,var(--sc) 18%,transparent)}
+.tv2-step-thumb img{width:100%;height:100%;object-fit:cover;border-radius:16px}
+.tv2-step-thumb i{font-style:normal;font-size:25px}
+.tv2-step-thumb b{position:absolute;right:-5px;bottom:-5px;min-width:22px;height:22px;padding:0 4px;box-sizing:border-box;border-radius:11px;background:#0d2436;color:#fff;border:2px solid var(--hv-sheet);font:800 11px/18px var(--fn);text-align:center}
+.tv2-step-txt{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.tv2-step-txt b{font-size:15.5px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tv2-step-txt small{font-size:12.5px;color:var(--hv-ink2);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tv2-step-txt em{font-style:normal;color:var(--hv-accent);font-weight:800}
+.tv2-step-go{font-size:22px;color:var(--hv-ink2);flex-shrink:0}
+.tv2-step-empty,.tv2-addday{width:100%;margin-top:8px;padding:14px;border-radius:18px;border:1.5px dashed var(--hv-line);background:none;color:var(--hv-ink2);font:700 13px var(--fn);cursor:pointer}
+.tv2-addday{margin-top:20px}
+.tv2-leg{margin:4px 0 0 19px;padding-left:24px;border-left:2px dashed var(--hv-line);height:30px;display:flex;align-items:center}
+.tv2-leg span{font-size:12px;font-weight:700;color:var(--hv-ink2);background:var(--hv-bg2);padding:4px 10px;border-radius:999px;white-space:nowrap}
+
+/* Suivre : publications */
+.tv2-posts{display:grid;grid-template-columns:1fr;gap:12px}
+@media (min-width:560px){.tv2-posts{grid-template-columns:1fr 1fr}}
+.tv2-post,.tv2-ocard{position:relative;display:block;border:none;padding:0;overflow:hidden;cursor:pointer;background:none;color:#fff;text-align:left;font-family:inherit}
+.tv2-post{width:100%;aspect-ratio:4/3;border-radius:22px}
+.tv2-post-media{position:absolute;inset:0;background:linear-gradient(135deg,var(--sc),#0d2436);display:flex;align-items:center;justify-content:center}
+.tv2-post-media img{width:100%;height:100%;object-fit:cover}
+.tv2-post-media i{font-size:54px;font-style:normal}
+.tv2-post-shade{position:absolute;inset:0;background:linear-gradient(180deg,rgba(0,0,0,0) 38%,rgba(0,0,0,.72))}
+.tv2-post-info{position:absolute;left:16px;right:16px;bottom:14px;display:flex;flex-direction:column;gap:2px}
+.tv2-post-info b{font-size:20px;font-weight:800;letter-spacing:-.3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tv2-post-info small{font-size:12.5px;font-weight:700;opacity:.92}
+.tv2-post-meta{display:flex;gap:12px;margin-top:6px;font-size:12.5px;font-weight:700}
+.tv2-post-meta span{display:inline-flex;align-items:center;gap:4px}
+.tv2-todo{display:flex;flex-direction:column;gap:8px}
+.tv2-todo-row{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:16px;background:var(--hv-bg2)}
+.tv2-todo-ic{width:36px;height:36px;border-radius:12px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:18px;background:color-mix(in srgb,var(--sc) 18%,transparent)}
+.tv2-todo-txt{flex:1;min-width:0;display:flex;flex-direction:column}
+.tv2-todo-txt b{font-size:14px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tv2-todo-txt small{font-size:12px;color:var(--hv-ink2);font-weight:600}
+.tv2-btn{border:none;background:#0d2436;color:#fff;font:800 13px var(--fn);padding:11px 18px;border-radius:999px;cursor:pointer;flex-shrink:0}
+[data-theme="dark"] .tv2-btn{background:#e9eef2;color:#0d2436}
+.tv2-btn-sm{padding:8px 13px;font-size:12px}
+.tv2-empty{text-align:center;padding:36px 12px;color:var(--hv-ink2);display:flex;flex-direction:column;align-items:center;gap:6px;font-size:13px}
+.tv2-empty div{font-size:40px}
+.tv2-empty b{color:var(--hv-ink);font-size:15px}
+.tv2-empty .tv2-btn{margin-top:10px}
+
+/* Observateur : carte + carrousel des publications */
+.tv2-obs .tv2-map-slot{transform:none!important}
+.tv2-obs-bottom{position:absolute;left:0;right:0;z-index:5;bottom:calc(var(--hv-safe-b) + 14px - var(--ios-gap,0px))}
+.tv2-daychip{display:inline-flex;margin:0 0 10px 16px;padding:7px 14px;border-radius:999px;background:rgba(13,148,136,.94);color:#fff;font:800 13px var(--fn);box-shadow:0 4px 14px rgba(0,0,0,.3)}
+.tv2-carousel{display:flex;gap:12px;overflow-x:auto;scroll-snap-type:x mandatory;padding:0 16px 6px;scrollbar-width:none;-webkit-overflow-scrolling:touch}
+.tv2-carousel::-webkit-scrollbar{display:none}
+.tv2-ocard{flex:0 0 72%;max-width:320px;height:212px;border-radius:24px;scroll-snap-align:center;box-shadow:0 10px 30px rgba(0,0,0,.35)}
+.tv2-ocard-start{flex-basis:44%;max-width:190px;background:#0d2436;display:flex;flex-direction:column;justify-content:flex-end;gap:3px;padding:16px;box-sizing:border-box;color:#fff;cursor:default}
+.tv2-ocard-start i{font-style:normal;font-size:24px;width:50px;height:50px;border-radius:50%;background:#fff;display:flex;align-items:center;justify-content:center;margin-bottom:auto}
+.tv2-ocard-start b{font-size:15px;font-weight:800}
+.tv2-ocard-start small{font-size:12px;font-weight:700;opacity:.8}
+.tv2-ocard-flag{position:absolute;top:12px;left:12px;font-size:22px;z-index:2}
+
+/* Visionneuse plein écran d'une publication (rattachée à <html>) */
+.tv2-story{position:fixed;top:0;left:0;right:0;height:100vh;height:100lvh;z-index:20000;background:#000;opacity:0;transition:opacity .2s ease;font-family:var(--fn);color:#fff}
+.tv2-story.open{opacity:1}
+.tv2-story-card{position:absolute;inset:0;overflow:hidden;will-change:transform}
+.tv2-story-media{position:absolute;inset:0;background:linear-gradient(160deg,var(--sc),#05080f);display:flex;align-items:center;justify-content:center}
+.tv2-story-media img{width:100%;height:100%;object-fit:cover}
+.tv2-story-media i{font-size:84px;font-style:normal}
+.tv2-story-shade{position:absolute;inset:0;pointer-events:none;background:linear-gradient(180deg,rgba(0,0,0,.45) 0,rgba(0,0,0,0) 18%,rgba(0,0,0,0) 48%,rgba(0,0,0,.82) 100%)}
+.tv2-story-bars{position:absolute;z-index:3;left:14px;right:14px;top:calc(min(env(safe-area-inset-top,0px),59px) + 10px);display:flex;gap:4px}
+.tv2-story-bars span{flex:1;height:3px;border-radius:2px;background:rgba(255,255,255,.35)}
+.tv2-story-bars span.done,.tv2-story-bars span.cur{background:#fff}
+.tv2-story-close{position:absolute;z-index:4;right:12px;top:calc(min(env(safe-area-inset-top,0px),59px) + 22px);width:40px;height:40px;border-radius:50%;border:none;background:rgba(0,0,0,.35);color:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer}
+.tv2-story-zone{position:absolute;z-index:2;top:14%;bottom:38%;border:none;background:none;cursor:pointer;-webkit-tap-highlight-color:transparent}
+.tv2-story-prev{left:0;width:35%}
+.tv2-story-next{right:0;width:65%}
+.tv2-story-info{position:absolute;z-index:3;left:0;right:0;bottom:0;padding:0 20px calc(min(env(safe-area-inset-bottom,0px),34px) + 18px)}
+.tv2-story-info h2{font-size:30px;font-weight:800;letter-spacing:-.5px;margin:0 0 6px;font-family:var(--fn);text-shadow:0 2px 12px rgba(0,0,0,.4)}
+.tv2-story-meta{font-size:12.5px;font-weight:800;letter-spacing:.04em;opacity:.92}
+.tv2-story-info p{font-size:14px;line-height:1.45;margin:10px 0 0;max-height:26vh;overflow:auto;opacity:.95}
+.tv2-story-actions{display:flex;justify-content:center;gap:26px;width:max-content;margin:16px auto 0;padding:10px 22px;border-radius:999px;background:rgba(24,26,30,.62);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)}
+.tv2-story-actions button{border:none;background:none;color:#fff;display:inline-flex;align-items:center;gap:5px;cursor:pointer;font:800 13px var(--fn);padding:2px}
+.tv2-story-actions button.on svg{fill:#ef2d56;stroke:#ef2d56}
+
+/* Sous-vues (planning détaillé, bagages, budget/dépenses) : en-tête au style v2 */
+.tv2-subbar{display:flex;align-items:center;gap:12px;padding:4px 2px 8px;font-family:var(--fn)}
+.tv2-subbar .hv2-round-light{background:var(--c2);color:var(--ink)}
+.tv2-subbar-t{display:flex;flex-direction:column;min-width:0}
+.tv2-subbar-t small{font-size:11.5px;font-weight:700;color:var(--ink3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tv2-subbar-t b{font-size:19px;font-weight:800;letter-spacing:-.3px;color:var(--ink)}
+.tv2-subnav .tv2-seg button{min-width:104px;padding:10px 18px}
+
+@media (min-width:901px){
+  .tv2-sheet{top:0;bottom:0;left:0;right:auto;width:400px;height:auto;border-radius:0 24px 24px 0;transform:none!important;transition:none!important}
+  .tv2-map-slot{top:0;transform:none!important}
+  .tv2 .hm-host .maplibregl-ctrl-bottom-right{top:calc(var(--hv-safe-t) + 214px)}
+  .tv2-grab,.tv2-sheet-head{display:none!important}
+  .tv2-scroll{overflow-y:auto!important;padding-top:20px;transform:none!important}
+  .tv2:not(.tv2-obs) .tv2-top{left:400px;opacity:1!important}
+  .tv2:not(.tv2-obs) .tv2-top [data-tv="back"]{visibility:hidden}
+  .tv2-nav{left:0;right:auto;width:400px}
+  .tv2-dim{display:none}
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
    iOS 26 standalone : compensation de --ios-gap (mesuré dans index.html)
    La fenêtre est plus courte que l'écran de la hauteur de la barre d'état, mais
    calée en haut : sans ça, tout élément fixe s'arrête ~59 px avant le bas réel.
@@ -2626,3 +2839,7 @@ html::after{
 @media (display-mode: standalone){
   html{height:100lvh!important}
 }
+/* Écran voyage v2 — sous-vue Budget/Dépenses : le bouton ＋ passe au-dessus du sélecteur du bas */
+#screen-app:has(> #tv2-subnav) .panel-fab{bottom:calc(74px + min(env(safe-area-inset-bottom,0px),34px) - var(--ios-gap,0px))!important}
+#screen-app:has(> #tv2-subnav) .panel-fab-menu{bottom:calc(136px + min(env(safe-area-inset-bottom,0px),34px) - var(--ios-gap,0px))!important}
+#screen-app:has(> #tv2-subnav) .panel{padding-bottom:150px}

@@ -27,7 +27,7 @@ function _persistState() {
   try { localStorage.setItem(THEME_KEY, state.settings?.theme || ''); } catch (_) {}
 }
 
-export const APP_VERSION = '236';
+export const APP_VERSION = '237';
 
 export const COMP_COLORS = [
   '#0d9488','#7c3aed','#e85d3e','#d97706',
@@ -487,6 +487,9 @@ export function updateTrip(id, updates) {
   if (_sharedSyncCallback && _sharedTripIds.has(id)) {
     _sharedSyncCallback(id, state.trips[idx], _detectChange(prev, updates));
   }
+  // L'écran voyage v2 (tripv2.js) se rafraîchit après les fenêtres d'ajout/édition
+  // réutilisées du planning et du carnet, qui ne connaissent pas ce nouvel écran.
+  try { window.dispatchEvent(new CustomEvent('trip-updated', { detail: { id } })); } catch (_) {}
   return state.trips[idx];
 }
 

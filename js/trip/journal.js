@@ -2227,3 +2227,13 @@ function _openEntryModal(tripId, entryId) {
   showModal(buildHtml());
   attachModalEvents();
 }
+
+// ─── Écran voyage v2 (tripv2.js) ──────────────────────────────────────────────
+// Fenêtres et actions du carnet réutilisées par le nouvel écran voyage.
+export const openValidateModal = (tripId, dayId, itemIdx) => _openValidateModal(tripId, dayId, itemIdx);
+export const shareJournalItem  = opts => _shareJournalItem(opts);
+export async function openCommentsModal(tripId, itemId, itemText) {
+  if (!_shareMod) { try { _shareMod = await import('../share.js'); } catch (_) { return; } }
+  _openCommentsModal(tripId, itemId, itemText);
+}
+export const eventTypeIcon = type => _eventTypeIcon(type);

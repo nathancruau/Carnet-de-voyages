@@ -67,6 +67,9 @@ let _padding    = null;           // dernier padding demandé (réappliqué au c
 let _countryKeys = [];            // index i → clé pays de la source « pins-i »
 let _srcCount    = 0;             // nombre de sources pays actuellement sur la carte
 let _styleReady  = false;
+let _route       = null;          // lignes de l'itinéraire (écran voyage) : [[ [lng,lat], … ], …]
+let _context     = 'home';        // 'home' | 'trip' — la vue de l'accueil est restaurée au retour
+let _homeCamera  = null;
 
 // ── Couleur par pays (reprise de l'ancienne « Carte détaillée ») ──────────────
 // Même palette et même hachage : un pays garde la même couleur partout.
@@ -151,6 +154,32 @@ export function collectMapPins(trips, eventTypes = []) {
 
 // Une source GeoJSON (avec regroupement) PAR PAYS : MapLibre ne regroupe que les points
 // d'une même source, donc un groupe ne mélange jamais deux pays.
+/**
+ * PINs d'UN voyage (écran voyage), tous statuts confondus, dans l'ordre du voyage
+ * (jours puis activités) et numérotés. Photo de l'étape en vignette si elle existe.
+ */
+export function collectTripPins(trip, eventTypes = []) {
+  const emojiOf = Object.fromEntries(eventTypes.map(et => [et.key, et.emoji]));
+  const pins = [];
+  if (!trip) return pins;
+  const base = { tripId: trip.id, tripName: trip.name || 'Voyage', tripType: trip.type || 'voyage' };
+  for (const day of (trip.days || [])) {
+    (day.items || []).forEach((item, idx) => {
+      const lat = parseFloat(item.lat), lng = parseFloat(item.lng);
+      if (isNaN(lat) || isNaN(lng)) return;
+      const jd = item.journalData || {};
+      const country = _countryKey(item.countryFlag || item.countryCode || day.flag || trip.flag);
+      pins.push({ ...base, id: item.id || `${day.id}_${idx}`, lat, lng, title: item.text || '—', date: day.date || null,
+                  dayId: day.id, itemIdx: idx, num: pins.length + 1, validated: !!jd.validated,
+                  pinType: item.type || null, emoji: emojiOf[item.type] || '📍',
+                  thumb: (jd.photos || [])[0] || item.photo || null,
+                  photo: (jd.photos || [])[0] || item.photo || null,
+                  country, color: _countryColor(country) });
+    });
+  }
+  return pins;
+}
+
 function _countryCollections() {
   const byCountry = new Map();
   _pins.forEach((p, i) => {
@@ -231,9 +260,13 @@ function _initialView() {
 function _pinEl(pin) {
   const el = document.createElement('button');
   el.type = 'button';
-  el.className = 'hm-pin';
+  el.className = 'hm-pin' + (pin.thumb ? ' hm-pin-photo' : '');
   el.style.setProperty('--pc', pin.color);
-  el.innerHTML = `<span class="hm-pin-head"><span>${pin.emoji}</span></span>`;
+  // Écran voyage : vignette photo (comme Polarsteps) et numéro d'étape
+  const head = pin.thumb
+    ? `<span class="hm-pin-head"><i style="background-image:url('${String(pin.thumb).replace(/'/g, '%27')}')"></i></span>`
+    : `<span class="hm-pin-head"><span>${pin.emoji}</span></span>`;
+  el.innerHTML = head + (pin.num ? `<b class="hm-pin-num">${pin.num}</b>` : '');
   el.title = pin.title;
   el.addEventListener('click', e => {
     e.stopPropagation();
@@ -321,6 +354,19 @@ function _clearMarkers() {
  */
 export async function attachHomeMap(slot, opts) {
   _opts = opts;
+  const ctx = opts.context || 'home';
+  if (_map && ctx !== _context) {
+    // Accueil → voyage : on mémorise la vue de l'accueil ; voyage → accueil : on la restaure
+    if (ctx === 'trip') {
+      const c = _map.getCenter();
+      _homeCamera = { center: [c.lng, c.lat], zoom: _map.getZoom() };
+    } else if (_homeCamera) {
+      _map.jumpTo(_homeCamera);
+    }
+  }
+  _context = ctx;
+  if (ctx === 'home') _route = null;
+  else if (opts.route !== undefined) _route = opts.route;
   if (!_host) {
     _host = document.createElement('div');
     _host.className = 'hm-host';
@@ -381,6 +427,7 @@ export async function attachHomeMap(slot, opts) {
       _styleReady = true;
       _syncSources();
       _applyBase(opts.base || 'relief');
+      _syncRoute();
       // Le padding posé avant le chargement du style n'est pas toujours conservé ;
       // le zoom initial est recalculé avec la zone visible réelle (feuille en place)
       if (_padding) {
@@ -410,11 +457,58 @@ export async function attachHomeMap(slot, opts) {
       if ((opts.projection || 'globe') !== _proj) _applyProjection(opts.projection || 'globe');
     }
     setHomeMapPins(opts.pins || []);
+    _syncRoute();
   }
 }
 
+/** Itinéraire de l'écran voyage : lignes pointillées entre les étapes (null = aucune). */
+export function setHomeMapRoute(lines) {
+  _route = lines && lines.length ? lines : null;
+  _syncRoute();
+}
+
+function _syncRoute() {
+  if (!_map || !_styleReady) return;
+  const data = { type: 'FeatureCollection', features: (_route || []).filter(l => l.length > 1).map(l => ({
+    type: 'Feature', geometry: { type: 'LineString', coordinates: l }, properties: {} })) };
+  const src = _map.getSource('route');
+  if (src) { src.setData(data); return; }
+  if (!_route) return;
+  _map.addSource('route', { type: 'geojson', data });
+  const before = (_map.getStyle()?.layers || []).find(l => l.id.startsWith('pins-anchor-'))?.id;
+  _map.addLayer({ id: 'route-casing', type: 'line', source: 'route',
+    layout: { 'line-cap': 'round', 'line-join': 'round' },
+    paint: { 'line-color': 'rgba(10,20,30,.35)', 'line-width': 5 } }, before);
+  _map.addLayer({ id: 'route-line', type: 'line', source: 'route',
+    layout: { 'line-cap': 'round', 'line-join': 'round' },
+    paint: { 'line-color': '#ffffff', 'line-width': 2.5, 'line-dasharray': [1.6, 1.6] } }, before);
+}
+
+/** Cadre la carte sur les PINs (et l'itinéraire) actuels. */
+export function fitHomeMap(padding, animate = true) {
+  if (!_map) return;
+  const go = () => {
+    const pts = _pins.map(p => [p.lng, p.lat]);
+    (_route || []).forEach(l => l.forEach(c => pts.push(c)));
+    if (!pts.length) return;
+    if (padding) _padding = padding;
+    if (pts.length === 1) {
+      if (padding) _map.setPadding(padding);
+      _map[animate ? 'flyTo' : 'jumpTo']({ center: pts[0], zoom: 9, duration: 1200 });
+      return;
+    }
+    let w = 180, e = -180, so = 90, n = -90;
+    for (const [lng, lat] of pts) { w = Math.min(w, lng); e = Math.max(e, lng); so = Math.min(so, lat); n = Math.max(n, lat); }
+    if (padding) _map.setPadding(padding);
+    // La marge passée ici s'ajoute à celle de la carte (zone masquée par la feuille)
+    _map.fitBounds([[w, so], [e, n]], { padding: { top: 50, bottom: 50, left: 40, right: 40 },
+      maxZoom: 11, duration: animate ? 1200 : 0, essential: true });
+  };
+  if (_styleReady) go(); else _map.once('load', () => setTimeout(go, 50));
+}
+
 export function setHomeMapPins(pins) {
-  const same = pins.length === _pins.length && pins.every((p, i) => p.id === _pins[i]?.id && p.lat === _pins[i].lat && p.lng === _pins[i].lng && p.country === _pins[i].country);
+  const same = pins.length === _pins.length && pins.every((p, i) => p.id === _pins[i]?.id && p.lat === _pins[i].lat && p.lng === _pins[i].lng && p.country === _pins[i].country && p.thumb === _pins[i].thumb && p.num === _pins[i].num);
   _pins = pins;
   if (!_map || same) return;
   _syncSources();

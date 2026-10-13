@@ -3,19 +3,25 @@
  *
  * Exported surface:
  *   openTrip(id)        — called when user opens a trip from the home screen
+ *                         (voyages/week-ends : écran voyage v2, tripv2.js ;
+ *                          sorties : écran sortie classique)
+ *   refreshTrip(id)     — données modifiées : rafraîchit la vue affichée
  *   destroyTripMap()    — called by app.js when leaving the trip view
- *   switchTab(tabId)    — switch between the five panels
- *   updateTopStats(id)  — refresh budget / expense counters in the topbar
+ *   switchTab(tabId)    — switch between the classic panels (sous-vues)
+ *   updateTopStats(id)  — refresh budget / expense counters (legacy topbar, no-op en v2)
+ *   openActivityModal(id) — historique des modifications (voyage partagé)
  */
 
-import { getTrip, isTripShared, getEventTypes } from '../store.js';
-import { fmtDate, notify, showModal } from '../utils.js';
+import { getTrip, getEventTypes } from '../store.js';
+import { showModal } from '../utils.js';
 
 // ─── Module state ─────────────────────────────────────────────────────────────
 
 let _tripId     = null;
 let _isObserver = false;
 let _prevTabId  = null;
+let _view       = 'overview';   // 'overview' (écran voyage v2) | 'events' | 'packing' | 'money'
+let _v2Mod      = null;
 
 // Caches the resolved module for each tab that has actually been opened this
 // session (set at the same dynamic-import call sites that render each tab).
@@ -60,20 +66,88 @@ export async function openTrip(id) {
     _isObserver = false;
   }
 
-  if (_isObserver) {
-    _renderObserverTopbar(trip);
-    _renderObserverPanels();
-    await switchTab('journal-timeline');
-    return;
+  // Écran voyage v2 (refonte) : carte + feuille Planifier / Suivre. Les anciens onglets
+  // restent accessibles en sous-vues (planning détaillé, bagages, budget/dépenses).
+  await _showOverview();
+}
+
+/** Vue d'ensemble du voyage (tripv2.js). Les sous-vues classiques sont vidées. */
+async function _showOverview() {
+  _view = 'overview';
+  _mapcalMod?.destroyMap();
+  _journalMod?.destroyJournalMap();
+  document.getElementById('tv2-subnav')?.remove();
+  const topbar = document.getElementById('topbar');
+  const panels = document.getElementById('panels');
+  if (topbar) topbar.innerHTML = '';
+  if (panels) panels.innerHTML = '';
+  const app = document.getElementById('screen-app');
+  app?.classList.remove('tab-map-active', 'tab-fixed-active', 'mc-carte-mode');
+  document.body.style.overflowY = '';
+  document.documentElement.style.overflowY = '';
+  _v2Mod = _v2Mod || await import('./tripv2.js');
+  await _v2Mod.renderTripV2(_tripId, { observer: _isObserver, onOpenView: _openSubview });
+}
+
+/**
+ * Sous-vue classique (anciens onglets) avec un en-tête au style v2 :
+ * 'events' = Carte & Planning complet, 'packing' = bagages,
+ * 'money' = Budget ↔ Dépenses partagées (bascule en bas de l'écran).
+ */
+async function _openSubview(view, tab) {
+  const trip = getTrip(_tripId);
+  if (!trip) return;
+  _view = view;
+  _v2Mod?.hideTripV2();
+  const titles = { mapcal: 'Planning détaillé', packing: 'Bagages', budget: 'Budget', tricount: 'Dépenses partagées' };
+  const panelTab = view === 'events' ? 'mapcal' : view === 'packing' ? 'packing' : (tab || 'budget');
+  const topbar = document.getElementById('topbar');
+  if (topbar) {
+    topbar.innerHTML = `
+      <div class="tv2-subbar">
+        <button class="hv2-round hv2-round-light tv2-sm" id="tv2-sub-back" title="Retour au voyage">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+        </button>
+        <div class="tv2-subbar-t"><small>${_esc(trip.name || 'Voyage')}</small><b id="tv2-sub-title">${titles[panelTab]}</b></div>
+      </div>`;
+    topbar.querySelector('#tv2-sub-back').addEventListener('click', () => _showOverview());
   }
+  const panels = document.getElementById('panels');
+  if (panels) {
+    panels.innerHTML = view === 'money'
+      ? `<div class="panel" id="panel-budget"></div><div class="panel" id="panel-tricount"></div>`
+      : `<div class="panel" id="panel-${panelTab}"></div>`;
+  }
+  document.getElementById('tv2-subnav')?.remove();
+  if (view === 'money') {
+    // Budget prévu ↔ dépenses partagées : une seule vue, bascule en bas de l'écran
+    const nav = document.createElement('nav');
+    nav.id = 'tv2-subnav';
+    nav.className = 'tv2-subnav';
+    nav.innerHTML = `<div class="tv2-seg">
+      <button data-sub="budget" class="${panelTab === 'budget' ? 'active' : ''}">Budget</button>
+      <button data-sub="tricount" class="${panelTab === 'tricount' ? 'active' : ''}">Dépenses</button></div>`;
+    document.getElementById('screen-app')?.appendChild(nav);
+    nav.addEventListener('click', e => {
+      const b = e.target.closest('[data-sub]');
+      if (!b || b.dataset.sub === _prevTabId) return;
+      nav.querySelectorAll('[data-sub]').forEach(x => x.classList.toggle('active', x === b));
+      const t = document.getElementById('tv2-sub-title');
+      if (t) t.textContent = titles[b.dataset.sub];
+      switchTab(b.dataset.sub);
+    });
+  }
+  await switchTab(panelTab);
+}
 
-  _isObserver = false;
-  _renderTopbar(trip);
-  _renderPanels();
-  updateTopStats(id);
-
-  // Activate mapcal first; the panel is now in the DOM so the map can size itself.
-  await switchTab('mapcal');
+/** Données modifiées (réseau, autre appareil) : rafraîchit la vue affichée sans la quitter. */
+export function refreshTrip(id) {
+  if (id !== _tripId) return;
+  const trip = getTrip(id);
+  if (!trip) { window.goHome?.(); return; }
+  if (trip.type === 'sortie') { openTrip(id); return; }
+  if (_view === 'overview') _v2Mod?.refreshTripV2(id);
+  else if (_prevTabId) _renderActiveTab(_prevTabId, id, _isObserver);
 }
 
 /**
@@ -83,6 +157,8 @@ export async function openTrip(id) {
  * the journal tab has no journal map to destroy.
  */
 export function destroyTripMap() {
+  _v2Mod?.destroyTripV2();
+  document.getElementById('tv2-subnav')?.remove();
   _mapcalMod?.destroyMap();
   _journalMod?.destroyJournalMap();
   _sortieMod?.destroySortieMap();
@@ -210,195 +286,8 @@ function _renderSortieTopbar(trip) {
   topbar.querySelector('#back-home-btn').addEventListener('click', () => window.goHome?.());
 }
 
-function _renderObserverTopbar(trip) {
-  const topbar = document.getElementById('topbar');
-  if (!topbar) return;
-
-  const startLabel = fmtDate(trip.startDate);
-  const endLabel   = fmtDate(trip.endDate);
-
-  topbar.innerHTML = `
-    <div class="topbar-row1">
-      <button class="back-btn" id="back-home-btn">← Bibliothèque</button>
-      <span class="trip-tag">${_esc(trip.flag || '')} ${_esc(trip.name || 'Voyage')}</span>
-      <div class="topbar-right">
-        <span class="dates-tag">${startLabel} – ${endLabel}</span>
-        <span class="observer-badge">👁 Observation</span>
-        <button class="bc obs-leave-btn" id="obs-leave-btn" style="font-size:11px;padding:4px 10px">Quitter ce voyage</button>
-      </div>
-    </div>
-    <div class="topbar-row2" style="padding:4px 16px 6px;display:flex;align-items:center;gap:8px;min-height:0">
-      <div id="obs-owner-info" style="font-size:11px;color:var(--ink4);display:flex;align-items:center;gap:4px"></div>
-    </div>
-  `;
-
-  topbar.querySelector('#back-home-btn').addEventListener('click', () => window.goHome?.());
-
-  topbar.querySelector('#obs-leave-btn')?.addEventListener('click', async () => {
-    if (!confirm('Quitter ce voyage partagé ? Vous ne recevrez plus ses mises à jour.')) return;
-    try {
-      const { leaveSharedTrip } = await import('../share.js');
-      const { deleteTrip }      = await import('../store.js');
-      await leaveSharedTrip(_tripId);
-      deleteTrip(_tripId);
-    } catch (_) {}
-    window.goHome?.();
-  });
-
-  // Async: fill owner info from shared doc
-  import('../share.js').then(({ getSharedDocData }) => {
-    const doc = getSharedDocData(_tripId);
-    if (!doc?.members) return;
-    const owners = Object.values(doc.members)
-      .filter(m => m.role === 'owner' || m.role === 'member')
-      .map(m => m.companionName).filter(Boolean);
-    const el = document.getElementById('obs-owner-info');
-    if (el && owners.length > 0) {
-      const names = owners.length === 1 ? owners[0]
-        : owners.slice(0, -1).join(', ') + ' et ' + owners[owners.length - 1];
-      el.innerHTML = `<span style="opacity:.7">Voyage de</span> <b>${_esc(names)}</b>`;
-    }
-  }).catch(() => {});
-}
-
-function _renderObserverPanels() {
-  const panels = document.getElementById('panels');
-  if (!panels) return;
-  panels.innerHTML = `<div class="panel active" id="panel-journal"></div>`;
-}
-
-function _renderTopbar(trip) {
-  const topbar = document.getElementById('topbar');
-  if (!topbar) return;
-
-  // Companion avatars — wrapped for presence-dot overlay; UID added later by _enrichSharedTopbar
-  const comps = (trip.companions || []).map(c =>
-    `<div class="comp-avatar-wrap" data-comp-id="${_esc(c.id)}">
-      <div class="comp-avatar" style="background:${c.color || '#9c9890'}" title="${_esc(c.name)}">${_initials(c.name)}</div>
-    </div>`
-  ).join('');
-
-  const startLabel = fmtDate(trip.startDate);
-  const endLabel   = fmtDate(trip.endDate);
-  const isShared   = isTripShared(_tripId);
-
-  topbar.innerHTML = `
-    <div class="topbar-row1">
-      <button class="back-btn" id="back-home-btn">← Bibliothèque</button>
-      <span class="trip-tag">${_esc(trip.flag || '')} ${_esc(trip.name || 'Voyage')}</span>
-      <div class="topbar-right">
-        <span class="dates-tag">${startLabel} – ${endLabel}</span>
-        ${comps ? `<div class="companions-row" style="display:flex;align-items:center;gap:3px">${comps}</div>` : ''}
-        ${isShared ? `<button class="activity-log-btn" id="activity-log-btn" title="Historique des modifications">📋</button>` : ''}
-        <span class="ts-pill" title="Budget planifié">💰&nbsp;<span id="ts-b">—</span></span>
-        <span class="ts-pill" title="Dépenses réelles">💳&nbsp;<span id="ts-e">—</span></span>
-      </div>
-    </div>
-    <div class="topbar-row2">
-      <div class="nav-tabs">
-        <span class="nav-tabs-group-lbl">Planifié</span>
-        <div class="nav-tab active" data-tab="mapcal"><span class="nav-tab-em">🗺</span><span class="nav-tab-lbl"> Carte &amp; Planning</span></div>
-        <div class="nav-tab" data-tab="budget"><span class="nav-tab-em">💰</span><span class="nav-tab-lbl"> Budget</span></div>
-        <div class="nav-tab" data-tab="packing"><span class="nav-tab-em">🎒</span><span class="nav-tab-lbl"> Bagages</span></div>
-        <div class="nav-tabs-sep"></div>
-        <span class="nav-tabs-group-lbl">Réel</span>
-        <div class="nav-tab" data-tab="journal"><span class="nav-tab-em">📔</span><span class="nav-tab-lbl"> Carnet</span></div>
-        <div class="nav-tab" data-tab="tricount"><span class="nav-tab-em">💳</span><span class="nav-tab-lbl"> Dépenses</span></div>
-      </div>
-    </div>
-  `;
-
-  // Back button
-  topbar.querySelector('#back-home-btn').addEventListener('click', () => {
-    window.goHome && window.goHome();
-  });
-
-  // Tab clicks via event delegation on the whole topbar
-  topbar.addEventListener('click', e => {
-    const tab = e.target.closest('.nav-tab');
-    if (tab && tab.dataset.tab) switchTab(tab.dataset.tab);
-  });
-
-  // Shared-trip extras
-  if (isShared) {
-    topbar.querySelector('#activity-log-btn')?.addEventListener('click', () => {
-      _openActivityModal(_tripId);
-    });
-    // Add owner avatar + map UIDs → apply initial presence dots
-    _enrichSharedTopbar(_tripId).catch(() => {});
-  }
-
-  // Called by share.js on every Firestore presence snapshot
-  window._refreshPresenceDots = (tripId, presenceData) => {
-    if (tripId !== _tripId) return;
-    _updatePresenceDots(presenceData);
-  };
-}
-
-/**
- * For shared trips: add the owner's avatar (if missing) and tag every
- * companion avatar with data-uid so presence dots can match by UID.
- */
-async function _enrichSharedTopbar(tripId) {
-  const { getSharedDocData } = await import('../share.js');
-  const doc = getSharedDocData(tripId);
-  if (!doc) return;
-
-  const members = doc.members || {};
-
-  // Tag each companion avatar with the UID of whoever claimed it
-  document.querySelectorAll('.comp-avatar-wrap[data-comp-id]').forEach(wrap => {
-    const entry = Object.entries(members).find(([, m]) => m.companionId === wrap.dataset.compId);
-    if (entry) wrap.dataset.uid = entry[0];
-  });
-
-  // Add the trip owner's avatar if they don't already have one shown
-  const ownerEntry = Object.entries(members).find(([, m]) => m.role === 'owner');
-  if (ownerEntry) {
-    const [ownerUid, ownerMember] = ownerEntry;
-    if (!document.querySelector(`.comp-avatar-wrap[data-uid="${ownerUid}"]`)) {
-      const row = document.querySelector('.companions-row');
-      if (row) {
-        const wrap = document.createElement('div');
-        wrap.className = 'comp-avatar-wrap';
-        wrap.dataset.uid = ownerUid;
-        const name = ownerMember.companionName || 'Org';
-        wrap.innerHTML = `<div class="comp-avatar" style="background:#0d9488" title="${_esc(name)}">${_initials(name)}</div>`;
-        row.insertBefore(wrap, row.firstChild);
-      }
-    }
-  }
-
-  // Apply initial presence dots now that UIDs are in place
-  if (doc.presence) _updatePresenceDots(doc.presence);
-}
-
-/** Add / remove green presence dots — matched by data-uid on each avatar wrap. */
-function _updatePresenceDots(presenceData) {
-  const TIMEOUT_MS = 2 * 60 * 1000;
-  const now = Date.now();
-
-  const onlineUids = new Set();
-  for (const [uid, p] of Object.entries(presenceData || {})) {
-    if (p.lastSeen && now - new Date(p.lastSeen).getTime() < TIMEOUT_MS) {
-      onlineUids.add(uid);
-    }
-  }
-
-  document.querySelectorAll('.comp-avatar-wrap[data-uid]').forEach(wrap => {
-    const online = onlineUids.has(wrap.dataset.uid);
-    let dot      = wrap.querySelector('.presence-dot');
-    if (online && !dot) {
-      dot = document.createElement('div');
-      dot.className = 'presence-dot';
-      wrap.appendChild(dot);
-    } else if (!online && dot) {
-      dot.remove();
-    }
-  });
-}
-
-async function _openActivityModal(tripId) {
+/** Historique des modifications d'un voyage partagé (bouton dans l'écran voyage v2). */
+export async function openActivityModal(tripId) {
   const { getSharedDocData } = await import('../share.js');
   const doc      = getSharedDocData(tripId);
   const activity = (doc?.activity || [])
@@ -438,18 +327,6 @@ function _relativeTime(isoTs) {
   const hrs = Math.floor(mins / 60);
   if (hrs < 24) return `il y a ${hrs} h`;
   return `il y a ${Math.floor(hrs / 24)} j`;
-}
-
-function _renderPanels() {
-  const panels = document.getElementById('panels');
-  if (!panels) return;
-  panels.innerHTML = `
-    <div class="panel active" id="panel-mapcal"></div>
-    <div class="panel" id="panel-journal"></div>
-    <div class="panel" id="panel-budget"></div>
-    <div class="panel" id="panel-tricount"></div>
-    <div class="panel" id="panel-packing"></div>
-  `;
 }
 
 /**
@@ -497,12 +374,4 @@ function _esc(s) {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
-}
-
-/** First letter of each word, max 2 chars — matches home.js behaviour */
-function _initials(name) {
-  if (!name) return '?';
-  const parts = name.trim().split(/\s+/);
-  if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
-  return parts[0].slice(0, 2).toUpperCase();
 }

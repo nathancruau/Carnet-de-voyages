@@ -4,7 +4,7 @@
 
 import { loadData, getState, setState, setSyncCallback, getSettings, getTrips, hasPendingLocalChanges, getRecentlyDeletedIds } from './store.js';
 import { renderHome } from './home.js';
-import { openTrip, destroyTripMap } from './trip/trip.js';
+import { openTrip, refreshTrip, destroyTripMap } from './trip/trip.js';
 import { closeModal, showModal, esc } from './utils.js';
 import { initAuth, loginWithGoogle, syncToFirestore, isFirebaseConfigured, listenUserDoc, setSyncErrorCallback } from './auth.js';
 import { checkDepartureNotifications } from './notifications.js';
@@ -361,7 +361,8 @@ window._rerenderCurrentView = (updatedTripId) => {
   if (currentScreen === 'home') {
     renderHome();
   } else if (currentScreen === 'app' && currentTripId === updatedTripId) {
-    openTrip(currentTripId);
+    // Rafraîchit la vue affichée (écran voyage v2 ou sous-vue) sans revenir au début
+    refreshTrip(currentTripId);
   }
 };
 
