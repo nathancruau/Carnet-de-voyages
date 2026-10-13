@@ -77,6 +77,7 @@ async function _showOverview() {
   _mapcalMod?.destroyMap();
   _journalMod?.destroyJournalMap();
   document.getElementById('tv2-subnav')?.remove();
+  document.getElementById('screen-app')?.classList.remove('tv2-sub-v2');
   const topbar = document.getElementById('topbar');
   const panels = document.getElementById('panels');
   if (topbar) topbar.innerHTML = '';
@@ -99,6 +100,14 @@ async function _openSubview(view, tab) {
   if (!trip) return;
   _view = view;
   _v2Mod?.hideTripV2();
+  // Sous-vues déjà refaites au style v2 (fond gris, en-tête sans bordure)
+  const v2Sub = view === 'packing';
+  document.getElementById('screen-app')?.classList.toggle('tv2-sub-v2', v2Sub);
+  if (v2Sub) {
+    const bg = document.documentElement.dataset.theme === 'dark' ? '#1c2128' : '#f3f5f7';
+    document.documentElement.style.setProperty('background', bg, 'important');
+    document.body.style.setProperty('background', bg, 'important');
+  }
   const titles = { mapcal: 'Planning détaillé', packing: 'Bagages', budget: 'Budget', tricount: 'Dépenses partagées' };
   const panelTab = view === 'events' ? 'mapcal' : view === 'packing' ? 'packing' : (tab || 'budget');
   const topbar = document.getElementById('topbar');
@@ -159,6 +168,7 @@ export function refreshTrip(id) {
 export function destroyTripMap() {
   _v2Mod?.destroyTripV2();
   document.getElementById('tv2-subnav')?.remove();
+  document.getElementById('screen-app')?.classList.remove('tv2-sub-v2');
   _mapcalMod?.destroyMap();
   _journalMod?.destroyJournalMap();
   _sortieMod?.destroySortieMap();
