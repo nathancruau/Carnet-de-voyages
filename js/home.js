@@ -1045,52 +1045,6 @@ function _hsCols(items, max) {
   }).join('')}</div>`;
 }
 
-// ── Live feed helpers ─────────────────────────────────────────────────────────
-
-function _liveGpxSlide(item) {
-  const s = item.gpxStats;
-  if (!s) return null;
-  const distKm = s.distanceM >= 1000 ? (s.distanceM / 1000).toFixed(1) + ' km' : s.distanceM + ' m';
-  let dur = '';
-  if (s.durationSecs) {
-    const h = Math.floor(s.durationSecs / 3600);
-    const m = Math.floor((s.durationSecs % 3600) / 60);
-    dur = h > 0 ? `${h}h${m.toString().padStart(2, '0')}` : `${m} min`;
-  }
-  const stats = [
-    { v: distKm,                         l: 'Distance' },
-    s.elevGain  ? { v: `+${s.elevGain} m`,   l: 'Dénivelé +' }  : null,
-    s.elevLoss  ? { v: `-${s.elevLoss} m`,   l: 'Dénivelé −' }  : null,
-    dur         ? { v: dur,                   l: 'Durée' }       : null,
-    s.speedAvgKph != null ? { v: `${s.speedAvgKph} km/h`, l: 'Vitesse moy.' } : null,
-  ].filter(Boolean);
-  return `<div class="tl-gpx-card">
-    <div class="tl-gpx-icon">🥾</div>
-    <div class="tl-gpx-name">${_esc(item.text || '')}</div>
-    <div class="tl-gpx-stats">${stats.map(st =>
-      `<div class="tl-gpx-stat"><span>${_esc(st.v)}</span><small>${_esc(st.l)}</small></div>`
-    ).join('')}</div>
-  </div>`;
-}
-
-function _liveCarouselHtml(slides, carId) {
-  if (slides.length === 0) return '';
-  const arrows = slides.length > 1 ? `
-    <button class="tl-car-prev" data-car-nav="prev" data-car-id="${_esc(carId)}" aria-label="Précédente">❮</button>
-    <button class="tl-car-next" data-car-nav="next" data-car-id="${_esc(carId)}" aria-label="Suivante">❯</button>` : '';
-  const dots = slides.length > 1
-    ? `<div class="tl-car-dots">${slides.map((_, i) =>
-        `<div class="tl-dot${i === 0 ? ' active' : ''}"></div>`).join('')}</div>`
-    : '';
-  return `<div class="tl-carousel" data-car-id="${_esc(carId)}">
-    <div class="tl-car-track" data-car-track="${_esc(carId)}">
-      ${slides.map(s => `<div class="tl-car-slide">${s}</div>`).join('')}
-    </div>
-    ${arrows}
-    ${dots}
-  </div>`;
-}
-
 function _initHomeCarousels(el) {
   el.querySelectorAll('[data-car-track]').forEach(track => {
     const carEl = track.closest('[data-car-id]');
@@ -1155,112 +1109,180 @@ function _commentsForItem(sharedDoc, itemId) {
   return map.get(itemId) || [];
 }
 
-function _buildLiveFeedHtml(observingTrips) {
+// ── En direct (v243) ──────────────────────────────────────────────────────────
+// Fil des publications des voyages suivis, façon réseau social : en-tête avec la
+// personne (→ son profil = tous ses voyages qu'on suit) et le voyage (→ le voyage
+// observé), photos et vidéos affichées entières (fond flou, jamais recadrées),
+// ❤ / 💬 / « Voir le voyage ». En haut, une rangée des personnes suivies.
+
+const _LV_COLORS = ['#0d9488', '#7c3aed', '#db2777', '#0284c7', '#d97706', '#16a34a', '#e85d3e', '#4f46e5'];
+let _lvTrips = [];   // derniers voyages suivis rendus (pour la page profil)
+
+function _lvColor(key) {
+  let h = 0;
+  for (const ch of String(key)) h = (h * 31 + ch.charCodeAt(0)) | 0;
+  return _LV_COLORS[Math.abs(h) % _LV_COLORS.length];
+}
+
+function _lvInitials(name) {
+  return (name || '?').trim().split(/\s+/).map(w => w[0]).slice(0, 2).join('').toUpperCase();
+}
+
+/** Propriétaire d'un voyage suivi : { id, name, color } (id = uid Firebase, sinon le voyage). */
+function _lvOwner(trip) {
+  const doc = getSharedDocData(trip.id);
+  const id = doc?.ownerId || 'trip:' + trip.id;
+  const name = (doc?.ownerId && doc.members?.[doc.ownerId]?.companionName)
+    || Object.values(doc?.members || {}).find(m => m.role === 'owner')?.companionName
+    || 'Voyageur';
+  return { id, name, color: _lvColor(id) };
+}
+
+function _lvAgo(ts) {
+  if (!ts) return '';
+  const d = new Date(ts), s = (Date.now() - d.getTime()) / 1000;
+  if (isNaN(s)) return '';
+  if (s < 60) return "à l'instant";
+  if (s < 3600) return `il y a ${Math.floor(s / 60)} min`;
+  if (s < 86400) return `il y a ${Math.floor(s / 3600)} h`;
+  if (s < 7 * 86400) return `il y a ${Math.floor(s / 86400)} j`;
+  return d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });
+}
+
+function _lvPosts(trips) {
   const posts = [];
-  for (const trip of observingTrips) {
+  for (const trip of trips) {
+    const owner = _lvOwner(trip);
     for (const day of (trip.days || [])) {
       for (const item of (day.items || [])) {
-        if (item.journalData?.validated) {
-          posts.push({ trip, day, item, ts: item.journalData.validatedAt || 0 });
-        }
+        if (item.journalData?.validated) posts.push({ trip, day, item, owner, ts: item.journalData.validatedAt || '' });
       }
     }
   }
-  posts.sort((a, b) => {
-    const ta = a.ts ? new Date(a.ts).getTime() : 0;
-    const tb = b.ts ? new Date(b.ts).getTime() : 0;
-    return tb - ta;
-  });
+  return posts.sort((a, b) => (new Date(b.ts).getTime() || 0) - (new Date(a.ts).getTime() || 0));
+}
 
-  if (posts.length === 0) {
-    return `<div style="text-align:center;padding:50px 20px;color:var(--ink4)">
-      <div style="font-size:44px;margin-bottom:12px">📡</div>
-      <div style="font-size:15px;font-weight:600;color:var(--ink3)">Aucune publication pour l'instant</div>
-      <div style="font-size:12px;margin-top:6px">Les voyageurs publieront leurs aventures au fil du voyage</div>
-    </div>`;
-  }
+function _lvMediaHtml(item) {
+  const jd = item.journalData || {};
+  const media = [...(jd.photos || []).filter(Boolean).map(src => ({ t: 'img', src })),
+                 ...(jd.videos || []).filter(Boolean).map(src => ({ t: 'vid', src }))];
+  if (!media.length) return '';
+  const slides = media.map(m => m.t === 'img'
+    ? `<div class="lv-slide"><img class="lv-bg" src="${_esc(m.src)}" alt="" aria-hidden="true" loading="lazy" decoding="async"><img class="lv-img" src="${_esc(m.src)}" alt="" loading="lazy" decoding="async" onclick="window._pho && window._pho(this.src)"></div>`
+    : `<div class="lv-slide"><video class="lv-img" src="${_esc(m.src)}#t=0.1" controls playsinline preload="metadata"></video></div>`).join('');
+  return `<div class="lv-media">${slides}</div>${media.length > 1 ? `<div class="lv-dots">${media.map((_, i) => `<i class="${i ? '' : 'on'}"></i>`).join('')}</div>` : ''}`;
+}
 
-  return posts.map(({ trip, day, item }, idx) => {
-    const jd     = item.journalData;
-    const photos = jd.photos || [];
-    const ts     = jd.validatedAt;
-    const dateStr = ts
-      ? new Date(ts).toLocaleDateString('fr-FR', { day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' })
-      : '';
-
-    // Build carousel: GPX card first (if trace), then photos
-    const slides = [];
-    if (item.gpxStats) {
-      const gpx = _liveGpxSlide(item);
-      if (gpx) slides.push(gpx);
-    }
-    photos.forEach(src => {
-      slides.push(`<img src="${_esc(src)}" loading="lazy" decoding="async" onclick="window._pho && window._pho(this.src)">`);
-    });
-    const carousel = _liveCarouselHtml(slides, 'lv_' + (item.id || idx));
-
-    // Traveler names: combine Firebase member names + trip companion names (deduplicated)
-    const sharedDoc  = getSharedDocData(trip.id);
-    const currentUid = getCurrentUser()?.uid || null;
-    const _membersNames   = Object.values(sharedDoc?.members || {}).filter(m => m.role !== 'observer').map(m => m.companionName).filter(Boolean);
-    const _companionNames = (trip.companions || []).map(c => c.name).filter(Boolean);
-    const _allNamesSet    = new Set([..._membersNames, ..._companionNames]);
-    const travelerNames   = _allNamesSet.size > 0 ? [..._allNamesSet].slice(0, 4).join(', ') : null;
-
-    // Interactions (likes + comments) for this post
-    let interactionsHtml = '';
-    if (sharedDoc && item.id) {
-      const itemReactions   = sharedDoc.reactions?.[item.id] || {};
-      const itemComments    = _commentsForItem(sharedDoc, item.id);
-      const heartCount      = Object.values(itemReactions).filter(e => e === '❤️').length;
-      const commentCount    = itemComments.length;
-      const myReacted       = currentUid ? itemReactions[currentUid] === '❤️' : false;
-      const isOwnerOrMember = currentUid && (sharedDoc.members?.[currentUid]?.role === 'owner' || sharedDoc.members?.[currentUid]?.role === 'member');
-
-      let reactorChips = '';
-      if (heartCount > 0) {
-        const reactors = Object.entries(itemReactions).filter(([, v]) => v === '❤️');
-        reactorChips = reactors.map(([uid]) => {
-          const name   = sharedDoc.members?.[uid]?.companionName || '?';
-          const delBtn = isOwnerOrMember
-            ? `<button class="tl-reactor-del" data-action="lv-remove-reaction" data-trip-id="${_esc(trip.id)}" data-item-id="${_esc(item.id)}" data-target-uid="${_esc(uid)}" title="Retirer">×</button>`
-            : '';
-          return `<span class="tl-reactor-chip${uid === currentUid ? ' mine' : ''}">❤️ ${_esc(name)}${delBtn}</span>`;
-        }).join('');
-      }
-
-      interactionsHtml = `
-        <div class="tl-interactions" style="padding:6px 14px 10px">
-          <button class="tl-react-btn${myReacted ? ' reacted' : ''}"
-                  data-action="lv-toggle-reaction" data-trip-id="${_esc(trip.id)}" data-item-id="${_esc(item.id)}">
-            ❤️${heartCount > 0 ? `<span class="tl-react-count">${heartCount}</span>` : ''}
-          </button>
-          ${reactorChips ? `<div class="tl-reactor-list">${reactorChips}</div>` : ''}
-          <button class="tl-comment-open-btn"
-                  data-action="lv-open-comments"
-                  data-trip-id="${_esc(trip.id)}"
-                  data-item-id="${_esc(item.id)}"
-                  data-item-text="${_esc(item.text || '')}">
-            💬${commentCount > 0 ? `<span class="tl-react-count">${commentCount}</span>` : ''}
-          </button>
-        </div>`;
-    }
-
-    return `<div class="live-post">
-      <div class="live-post-hd">
-        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:3px">
-          <div class="live-post-badge" style="background:${trip.color||'#0d9488'};margin-bottom:0">${trip.flag||'🌍'} <span>${_esc(trip.name)}</span></div>
-          ${dateStr ? `<div class="live-post-time">${dateStr}</div>` : ''}
+function _lvPostHtml({ trip, day, item, owner, ts }) {
+  const jd = item.journalData || {};
+  const et = getEventTypes().find(t => t.key === item.type) || {};
+  const doc = getSharedDocData(trip.id);
+  const uid = getCurrentUser()?.uid || null;
+  const reactions = (doc && item.id && doc.reactions?.[item.id]) || {};
+  const likes = Object.values(reactions).filter(e => e === '❤️').length;
+  const mine = !!(uid && reactions[uid] === '❤️');
+  const comments = doc && item.id ? _commentsForItem(doc, item.id).length : 0;
+  const flag = item.countryFlag || (trip.flag && trip.flag !== '🌍' ? trip.flag : '');
+  const canReact = !!(doc && item.id);
+  return `
+    <article class="lv-post">
+      <header class="lv-hd">
+        <button class="lv-av" style="background:${_esc(owner.color)}" data-action="lv-profile" data-owner="${_esc(owner.id)}">${_esc(_lvInitials(owner.name))}</button>
+        <div class="lv-who">
+          <button class="lv-name" data-action="lv-profile" data-owner="${_esc(owner.id)}">${_esc(owner.name)}</button>
+          <button class="lv-trip" data-action="open-trip" data-trip-id="${_esc(trip.id)}">${flag ? _esc(flag) + ' ' : ''}${_esc(trip.name || 'Voyage')} · Jour ${day.num}</button>
         </div>
-        ${travelerNames ? `<div class="live-post-travelers">🧳 ${_esc(travelerNames)}</div>` : ''}
-        <div class="live-post-day">Jour ${day.num}${customDayTitle(day) ? ' · ' + _esc(customDayTitle(day)) : ''}</div>
-        ${item.text ? `<div style="font-size:13px;font-weight:600;color:var(--ink);margin-top:3px">${_esc(item.text)}</div>` : ''}
+        <span class="lv-time">${_esc(_lvAgo(ts))}</span>
+      </header>
+      ${_lvMediaHtml(item)}
+      <div class="lv-body">
+        <b>${et.emoji ? et.emoji + ' ' : ''}${_esc(item.text || 'Étape')}${jd.weather ? ' ' + _esc(jd.weather) : ''}</b>
+        ${jd.notes ? `<p>${_esc(jd.notes).replace(/\n/g, '<br>')}</p>` : ''}
+        ${item.gpxStats ? `<small class="lv-gpx">🥾 ${_esc(item.gpxStats.distanceM >= 1000 ? (item.gpxStats.distanceM / 1000).toFixed(1) + ' km' : item.gpxStats.distanceM + ' m')}${item.gpxStats.elevGain ? ` · +${_esc(item.gpxStats.elevGain)} m` : ''}</small>` : ''}
       </div>
-      ${carousel}
-      ${jd.notes ? `<div class="live-post-notes">${_esc(jd.notes).replace(/\n/g,'<br>')}</div>` : ''}
-      ${interactionsHtml}
-    </div>`;
+      <footer class="lv-actions">
+        ${canReact ? `<button class="lv-act${mine ? ' on' : ''}" data-action="lv-toggle-reaction" data-trip-id="${_esc(trip.id)}" data-item-id="${_esc(item.id)}">${mine ? '❤️' : '🤍'}${likes ? `<span>${likes}</span>` : ''}</button>
+        <button class="lv-act" data-action="lv-open-comments" data-trip-id="${_esc(trip.id)}" data-item-id="${_esc(item.id)}" data-item-text="${_esc(item.text || '')}">💬${comments ? `<span>${comments}</span>` : ''}</button>` : ''}
+        <button class="lv-open" data-action="open-trip" data-trip-id="${_esc(trip.id)}">Voir le voyage ›</button>
+      </footer>
+    </article>`;
+}
+
+function _buildLiveFeedHtml(observingTrips) {
+  _lvTrips = observingTrips;
+  const posts = _lvPosts(observingTrips);
+  if (posts.length === 0) {
+    return `<div class="hv2-empty"><div>📡</div>Aucune publication pour l'instant.<br>Les voyageurs publieront leurs aventures au fil du voyage.</div>`;
+  }
+  // Personnes suivies (la plus récemment active d'abord)
+  const people = new Map();
+  for (const p of posts) if (!people.has(p.owner.id)) people.set(p.owner.id, { ...p.owner, n: 0 });
+  for (const p of posts) people.get(p.owner.id).n++;
+  const strip = `<div class="lv-people">${[...people.values()].map(o => `
+    <button class="lv-person" data-action="lv-profile" data-owner="${_esc(o.id)}">
+      <span class="lv-av lv-av-l" style="background:${_esc(o.color)}">${_esc(_lvInitials(o.name))}</span>
+      <small>${_esc((o.name || '').split(/\s+/)[0])}</small>
+    </button>`).join('')}</div>`;
+  return strip + posts.slice(0, 80).map(_lvPostHtml).join('');
+}
+
+// Points de pagination des photos d'une publication (défilement horizontal)
+document.addEventListener('scroll', e => {
+  const m = e.target;
+  if (!m.classList?.contains('lv-media')) return;
+  const dots = m.nextElementSibling?.classList.contains('lv-dots') ? m.nextElementSibling.children : null;
+  if (!dots) return;
+  const i = Math.round(m.scrollLeft / Math.max(1, m.clientWidth));
+  [...dots].forEach((d, k) => d.classList.toggle('on', k === i));
+}, { capture: true, passive: true });
+
+/** Page « profil » d'une personne : tous ses voyages que l'on suit + ses dernières publications. */
+function _openLiveProfile(ownerId) {
+  const trips = _lvTrips.filter(t => _lvOwner(t).id === ownerId);
+  if (!trips.length) return;
+  const owner = _lvOwner(trips[0]);
+  const posts = _lvPosts(trips);
+  const countries = new Set();
+  trips.forEach(t => (t.days || []).forEach(d => (d.items || []).forEach(it => { if (it.journalData?.validated && it.countryCode) countries.add(it.countryCode); })));
+  const today = new Date().toISOString().slice(0, 10);
+  const cards = trips.slice().sort((a, b) => (b.startDate || '').localeCompare(a.startDate || '')).map(t => {
+    const n = posts.filter(p => p.trip.id === t.id).length;
+    const cover = t.photo || posts.find(p => p.trip.id === t.id && (p.item.journalData.photos || [])[0])?.item.journalData.photos[0];
+    const live = t.startDate && t.startDate <= today && (!t.endDate || today <= t.endDate);
+    return `
+      <button class="lvp-trip" data-trip-id="${_esc(t.id)}">
+        <span class="lvp-cover" style="background:${_esc(t.color || owner.color)}">${cover ? `<img src="${_esc(cover)}" alt="" loading="lazy">` : ''}</span>
+        <span class="lvp-txt"><b>${_esc(t.name || 'Voyage')}</b>
+          <small>${t.startDate ? _esc(fmtDate(t.startDate)) : ''}${t.endDate && t.endDate !== t.startDate ? ' → ' + _esc(fmtDate(t.endDate)) : ''}</small>
+          <small>${n} publication${n > 1 ? 's' : ''}${live ? ' · <em>● En cours</em>' : ''}</small></span>
+        <i>›</i>
+      </button>`;
   }).join('');
+  const grid = posts.filter(p => (p.item.journalData.photos || [])[0]).slice(0, 12).map(p =>
+    `<button class="lvp-ph" data-trip-id="${_esc(p.trip.id)}"><img src="${_esc(p.item.journalData.photos[0])}" alt="" loading="lazy"></button>`).join('');
+  showModal(`
+    <div class="hv2-modal-head"><h3>Profil</h3>
+      <button class="hv2-round hv2-round-light" onclick="closeModal()" title="Fermer">✕</button></div>
+    <div class="lvp-head">
+      <span class="lv-av lv-av-xl" style="background:${_esc(owner.color)}">${_esc(_lvInitials(owner.name))}</span>
+      <b>${_esc(owner.name)}</b>
+      <div class="lvp-stats">
+        <div><b>${trips.length}</b><span>voyage${trips.length > 1 ? 's' : ''}</span></div>
+        <div><b>${posts.length}</b><span>publication${posts.length > 1 ? 's' : ''}</span></div>
+        <div><b>${countries.size}</b><span>pays</span></div>
+      </div>
+    </div>
+    <div class="hv2-fsec">Voyages</div>
+    <div class="lvp-trips">${cards}</div>
+    ${grid ? `<div class="hv2-fsec">Dernières photos</div><div class="lvp-grid">${grid}</div>` : ''}
+    <p class="lvp-note">Seuls les voyages que ${_esc(owner.name.split(/\s+/)[0])} a partagés avec vous apparaissent ici.</p>`,
+    { boxClass: 'hv2-modal', fullscreenMobile: true });
+  document.querySelector('.mbox')?.addEventListener('click', e => {
+    const b = e.target.closest('[data-trip-id]');
+    if (!b) return;
+    closeModal();
+    window.navigateToTrip(b.dataset.tripId);
+  });
 }
 
 function _openLiveCommentsModal(tripId, itemId, itemText) {
@@ -2702,6 +2724,10 @@ function _attachListeners(wrap) {
         if (tripId && itemId && targetUid) deleteObserverReaction(tripId, itemId, targetUid).catch(() => {});
         break;
       }
+
+      case 'lv-profile':
+        _openLiveProfile(target.dataset.owner);
+        break;
 
       case 'lv-open-comments':
         _openLiveCommentsModal(
