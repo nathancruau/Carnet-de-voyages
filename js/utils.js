@@ -122,8 +122,11 @@ export function showModal(htmlContent, { onClose, fullscreenMobile = false, boxC
     ov.appendChild(box);
   }
   // className réinitialisé à chaque ouverture : un boxClass d'une modale précédente ne déborde pas
-  box.className = 'mbox' + (fullscreenMobile ? ' mbox-fullscreen-mobile' : '') + (boxClass ? ' ' + boxClass : '');
+  // Sans boxClass (anciennes fenêtres : création/modification de voyage, statistiques,
+  // partage, événement…), habillage v2 générique `.v2-skin` (CSS seul, même HTML).
+  box.className = 'mbox' + (fullscreenMobile ? ' mbox-fullscreen-mobile' : '') + (boxClass ? ' ' + boxClass : ' hv2-modal v2-skin');
   box.innerHTML = htmlContent;
+  box.scrollTop = 0;   // la boîte est réutilisée : ne pas hériter du défilement de la fenêtre précédente
   ov.classList.add('open');
 
   // Clicks inside the box must not bubble up to the overlay's close handler

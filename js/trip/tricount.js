@@ -12,6 +12,7 @@ import { attachCalcKeypad } from '../calckeypad.js';
 
 let _activeTab = 'depenses'; // 'depenses' | 'bilans' | 'budgetvsdep'
 let _activeTrip = null;
+let _catFilter  = 'all'; // filtre de l'onglet Dépenses : 'all' | catId | '_none' | '_transfer'
 
 // ── Currency support ──────────────────────────────────────────────────────────
 
@@ -246,7 +247,7 @@ export function renderTricount(tripId) {
 
   // On garde l'onglet choisi d'un rendu à l'autre (ajout/modification d'une
   // dépense), mais on repart sur « Dépenses » en changeant de voyage.
-  if (_activeTrip !== tripId) { _activeTab = 'depenses'; _activeTrip = tripId; }
+  if (_activeTrip !== tripId) { _activeTab = 'depenses'; _catFilter = 'all'; _activeTrip = tripId; }
 
   const participants = getParticipants(trip);
   const balances    = computeBalances(trip);
@@ -340,8 +341,29 @@ function _renderDepenses(trip, participants) {
   const days     = trip.days         || [];
   if (!expenses.length) return _empty('💸', 'Aucune dépense', 'Ajoutez la première avec « ＋ Dépense ».');
 
+  // Filtre par type de dépense (catégorie) — pastilles défilantes, seulement les
+  // catégories réellement utilisées ; « Virements » et « Sans catégorie » si présents.
+  const used = new Set(expenses.filter(e => e.type !== 'transfer').map(e => e.catId || '_none'));
+  const hasTransfers = expenses.some(e => e.type === 'transfer');
+  const filters = [['all', '', 'Toutes'],
+    ...cats.filter(c => used.has(c.id)).map(c => [c.id, c.icon || '📦', c.name]),
+    ...(used.has('_none') || [...used].some(id => id !== '_none' && !cats.some(c => c.id === id)) ? [['_none', '❔', 'Sans catégorie']] : []),
+    ...(hasTransfers ? [['_transfer', '💸', 'Virements']] : [])];
+  if (!filters.some(f => f[0] === _catFilter)) _catFilter = 'all';
+  const match = e => _catFilter === 'all' ? true
+    : _catFilter === '_transfer' ? e.type === 'transfer'
+    : e.type === 'transfer' ? false
+    : _catFilter === '_none' ? !e.catId || !cats.some(c => c.id === e.catId)
+    : e.catId === _catFilter;
+  const shown = expenses.filter(match);
+  const shownTotal = shown.filter(e => e.type !== 'transfer').reduce((s, e) => s + _eurAmount(e), 0);
+  const filterHtml = filters.length > 2 ? `
+    <div class="tr-filters">${filters.map(([k, ic, l]) =>
+      `<button class="tr-fchip${_catFilter === k ? ' on' : ''}" data-action="filter-cat" data-cat="${_esc(k)}">${ic ? `<i>${_esc(ic)}</i>` : ''}${_esc(l)}</button>`).join('')}</div>
+    ${_catFilter !== 'all' ? `<div class="tr-fsum">${shown.length} élément${shown.length > 1 ? 's' : ''}${shownTotal ? ` · ${_fmtEur(shownTotal)}` : ''}</div>` : ''}` : '';
+
   // Plus récentes d'abord, regroupées par date (ordre d'ajout conservé dans une même date)
-  const list = expenses.map((e, i) => ({ e, i }))
+  const list = expenses.map((e, i) => ({ e, i })).filter(({ e }) => match(e))
     .sort((a, b) => (b.e.date || '').localeCompare(a.e.date || '') || b.i - a.i);
   const groups = [];
   for (const { e } of list) {
@@ -386,7 +408,7 @@ function _renderDepenses(trip, participants) {
       <div class="tr-card">${g.items.map(row).join('')}</div>`;
   }).join('');
 
-  return html + _renderCatDonut(trip, expenses.filter(e => e.type !== 'transfer'));
+  return filterHtml + html + (_catFilter === 'all' ? _renderCatDonut(trip, expenses.filter(e => e.type !== 'transfer')) : '');
 }
 
 // ── Répartition par catégorie (anneau) ────────────────────────────────────────
@@ -553,6 +575,10 @@ function _handleClick(e, tripId) {
       updateTopStats(tripId);
       renderTricount(tripId);
     }
+
+  } else if (action === 'filter-cat') {
+    _catFilter = btn.dataset.cat || 'all';
+    _refreshMain(tripId);
 
   } else if (action === 'switch-tab') {
     _activeTab = btn.dataset.tab || 'depenses';
@@ -1210,7 +1236,7 @@ function _openExpenseModal(tripId, expId) {
     document.querySelectorAll('#ex-payer-split-section .tri-payer-amount').forEach(attachCalcKeypad);
   }
 
-  showModal(buildHtml(), { boxClass: 'hv2-modal tri-modal' });
+  showModal(buildHtml(), { boxClass: 'hv2-modal v2-skin' });
   attachEvents();
 }
 
@@ -1274,7 +1300,7 @@ function _openTransferModal(tripId, expId = null) {
       <button class="bc" onclick="closeModal()">Annuler</button>
       ${isEdit ? `<button class="bc" id="tr-delete" style="color:var(--coral)">🗑 Supprimer</button>` : ''}
       <button class="bs" id="tr-save">Enregistrer</button>
-    </div>`, { boxClass: 'hv2-modal tri-modal' });
+    </div>`, { boxClass: 'hv2-modal v2-skin' });
 
   attachCalcKeypad(document.getElementById('tr-amount'));
 

@@ -18,7 +18,7 @@
    ============================================================ */
 
 import { getTrip, getEventTypes, getSettings, isTripShared } from '../store.js';
-import { fmtDate, customDayTitle, trIc, notify } from '../utils.js';
+import { fmtDate, customDayTitle, trIc, trNm, trCol, notify, showModal, closeModal } from '../utils.js';
 import { attachHomeMap, setHomeMapPins, setHomeMapRoute, setHomeMapPadding, fitHomeMap, flyToPin, collectTripPins } from '../homemap.js';
 import { createSheet } from '../sheet.js';
 import { haversineMeters } from '../gpx.js';
@@ -376,6 +376,55 @@ function _distanceKm(trip) {
 
 // ── Planifier ─────────────────────────────────────────────────────────────────
 
+// Tronçons du trajet, calculés sur les mêmes points que la carte (_collectAllWaypoints
+// de mapcal.js : étapes géolocalisées + départ/retour de nuit). Chaque tronçon est
+// rattaché au point où il ARRIVE — c'est là que mapcal.js lit et écrit son mode.
+let _legs = [];
+function _collectLegs(trip) {
+  _legs = [];
+  const byItem = new Map(), departs = new Map(), returns = new Map();
+  let wps = [];
+  try { wps = _mapcal?.collectTripWaypoints(trip) || []; } catch (_) {}
+  for (let i = 1; i < wps.length; i++) {
+    const from = wps[i - 1], to = wps[i];
+    const km = haversineMeters(from, to) / 1000;
+    if (km < 0.05) continue;
+    const leg = { i: _legs.length, from, to, km, mode: to.mode || 'car' };
+    _legs.push(leg);
+    if (to.itemId) byItem.set(to.itemId, leg);
+    else if (to.isDepartNight) departs.set(to.dayId, leg);
+    else if (to.isReturnNight) returns.set(to.dayId, leg);
+  }
+  return { byItem, departs, returns };
+}
+
+function _legHtml(leg, toLabel = '') {
+  if (!leg) return '';
+  const km = leg.km < 10 ? leg.km.toFixed(1).replace('.', ',') : Math.round(leg.km).toLocaleString('fr-FR');
+  return `<button class="tv2-leg" data-tv="leg" data-leg="${leg.i}" style="--lc:${_esc(trCol(leg.mode))}" title="Changer le moyen de transport">
+    <span>${trIc(leg.mode)} ${km} km${toLabel ? ` · ${_esc(toLabel)}` : ''}</span><i>✎</i></button>`;
+}
+
+function _openLegModes(legIdx) {
+  const leg = _legs[legIdx];
+  if (!leg) return;
+  const modes = ['car', 'train', 'bus', 'plane', 'ferry', 'foot', 'bike'];
+  const km = leg.km < 10 ? leg.km.toFixed(1).replace('.', ',') : Math.round(leg.km).toLocaleString('fr-FR');
+  showModal(`
+    <div class="hv2-modal-head"><h3>Moyen de transport</h3>
+      <button class="hv2-round hv2-round-light" onclick="closeModal()" title="Fermer">✕</button></div>
+    <div class="tv2-legmod-route"><b>${_esc(leg.from.label || 'Départ')}</b><span>→</span><b>${_esc(leg.to.label || 'Arrivée')}</b><small>${km} km à vol d'oiseau</small></div>
+    <div class="hv2-tiles tv2-modes">${modes.map(m => `
+      <button class="hv2-tile${m === leg.mode ? ' active' : ''}" data-mode="${m}"><b>${trIc(m)}</b><span>${_esc(trNm(m))}</span></button>`).join('')}
+    </div>`, { boxClass: 'hv2-modal' });
+  document.querySelector('.tv2-modes')?.addEventListener('click', e => {
+    const b = e.target.closest('[data-mode]');
+    if (!b) return;
+    closeModal();
+    if (b.dataset.mode !== leg.mode) _mapcal?.setWaypointMode(_tripId, leg.to, b.dataset.mode);
+  });
+}
+
 function _planHtml(trip) {
   const ets = Object.fromEntries(getEventTypes().map(et => [et.key, et]));
   const days = trip.days || [];
@@ -383,7 +432,8 @@ function _planHtml(trip) {
     return `<div class="tv2-empty"><div>🗓</div><b>Aucun jour planifié</b><span>Ajoutez les dates du voyage dans ses réglages, ou un premier jour.</span>
       <button class="tv2-btn" data-tv="add-day">＋ Ajouter un jour</button></div>`;
   }
-  let num = 0, prev = null;
+  const { byItem, departs, returns } = _collectLegs(trip);
+  let num = 0;
   const start = days[0]?.date || trip.startDate;
   const end = days[days.length - 1]?.date || trip.endDate;
   let html = `<div class="tv2-tl">
@@ -398,24 +448,16 @@ function _planHtml(trip) {
           <div class="tv2-day-txt"><b>${title ? _esc(title) : `Jour ${day.num}`}</b>${day.date ? `<small>${_esc(_longDate(day.date))}</small>` : ''}</div>
           <button class="tv2-add" data-tv="add-evt" data-day-id="${_esc(day.id)}" title="Ajouter une activité">＋</button>
         </div>`;
+    const dep = departs.get(day.id);
+    if (dep) html += _legHtml(dep, `🌙 ${dep.to.label || 'Nuit'}`);
     if (!items.length) {
       html += `<button class="tv2-step-empty" data-tv="add-evt" data-day-id="${_esc(day.id)}">＋ Ajouter une activité</button>`;
     }
     items.forEach((item, idx) => {
       const et = ets[item.type] || {};
-      const lat = parseFloat(item.lat), lng = parseFloat(item.lng);
-      const hasPos = !isNaN(lat) && !isNaN(lng);
-      if (hasPos) {
-        num++;
-        if (prev) {
-          const km = haversineMeters(prev, { lat, lng }) / 1000;
-          if (km >= 0.3) {
-            const mode = item.type === 'drive' && item.transport ? item.transport : (item.routeMode || 'car');
-            html += `<div class="tv2-leg"><span>${trIc(mode)} ${km < 10 ? km.toFixed(1).replace('.', ',') : Math.round(km).toLocaleString('fr-FR')} km</span></div>`;
-          }
-        }
-        prev = { lat, lng };
-      }
+      const hasPos = !isNaN(parseFloat(item.lat)) && !isNaN(parseFloat(item.lng));
+      if (hasPos) num++;
+      if (item.id && byItem.has(item.id)) html += _legHtml(byItem.get(item.id));
       const jd = item.journalData || {};
       const thumb = (jd.photos || [])[0] || item.photo;
       const sub = [];
@@ -435,6 +477,8 @@ function _planHtml(trip) {
           <span class="tv2-step-go">›</span>
         </button>`;
     });
+    const ret = returns.get(day.id);
+    if (ret) html += _legHtml(ret, `🌙 ${ret.to.label || 'Nuit'}`);
     html += `</div>`;
   }
   html += `
@@ -524,6 +568,7 @@ function _onOwnerClick(e) {
     case 'edit-evt': _mapcal?.openEditEventModal(b.dataset.dayId, +b.dataset.idx, tripId); break;
     case 'document': _journal?.openValidateModal(tripId, b.dataset.dayId, +b.dataset.idx); break;
     case 'story':    _openStory(+b.dataset.post); break;
+    case 'leg':      _openLegModes(+b.dataset.leg); break;
     case 'activity': import('./trip.js').then(m => m.openActivityModal(tripId)); break;
     case 'day': {
       const pins = _pins.filter(p => p.dayId === b.dataset.dayId);
@@ -543,6 +588,18 @@ function _onPinTap(pin) {
 }
 
 // ── Observateur ───────────────────────────────────────────────────────────────
+
+// Sélecteur de jours de la vue observateur : une pastille par jour publié, qu'on fait
+// glisser à gauche/droite (le jour centré devient le jour affiché) ou qu'on touche.
+function _daysStripHtml() {
+  if (!_posts.length) return `<div class="tv2-days"><span class="tv2-dchip on">À venir</span></div>`;
+  const seen = new Map();
+  _posts.forEach((p, i) => { if (!seen.has(p.day.id)) seen.set(p.day.id, { num: p.day.num, date: p.day.date, first: i }); });
+  return `<div class="tv2-days" id="tv2-days">${[...seen.values()].map((d, k) => `
+    <button class="tv2-dchip${k === 0 ? ' on' : ''}" data-first="${d.first}" data-day-num="${d.num}">
+      <b>Jour ${d.num}</b>${d.date ? `<small>${_esc(new Date(d.date + 'T12:00:00').toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' }))}</small>` : ''}
+    </button>`).join('')}</div>`;
+}
 
 function _renderObserver(host, trip, isRefresh = false) {
   _posts = _collectPosts(trip);
@@ -572,6 +629,8 @@ function _renderObserver(host, trip, isRefresh = false) {
   if (isRefresh && host.querySelector('#tv2')) {
     const car = host.querySelector('.tv2-carousel');
     if (car) car.innerHTML = startCard + (cards || `<div class="tv2-ocard tv2-ocard-start"><i>📡</i><b>En attente de publications…</b><small>Les voyageurs publieront leurs étapes au fil du voyage</small></div>`);
+    const strip = host.querySelector('.tv2-days');
+    if (strip) strip.outerHTML = _daysStripHtml();
     _pins = _tripPins(trip, true); setHomeMapPins(_pins); setHomeMapRoute(_routeLines(trip, true));
     return;
   }
@@ -588,7 +647,7 @@ function _renderObserver(host, trip, isRefresh = false) {
         <div class="tv2-actions"><button class="hv2-round" data-tv="obs-menu" title="Options">${ICON.menu}</button></div>
       </div>
       <div class="tv2-obs-bottom">
-        <div class="tv2-daychip" id="tv2-daychip">${_posts.length ? `Jour ${_posts[0].day.num}` : 'À venir'}</div>
+        ${_daysStripHtml()}
         <div class="tv2-carousel">${startCard}${cards || `<div class="tv2-ocard tv2-ocard-start"><i>📡</i><b>En attente de publications…</b><small>Les voyageurs publieront leurs étapes au fil du voyage</small></div>`}</div>
       </div>
     </div>`;
@@ -600,9 +659,25 @@ function _renderObserver(host, trip, isRefresh = false) {
     else if (b.dataset.tv === 'story') _openStory(+b.dataset.post);
     else if (b.dataset.tv === 'obs-menu') _openObserverMenu();
   });
-  // Défiler le carrousel recentre la carte sur l'étape affichée
+  // Défiler le carrousel recentre la carte sur l'étape affichée et le sélecteur de jours
   const car = root.querySelector('.tv2-carousel');
-  let t = 0;
+  let t = 0, tStrip = 0, progStrip = 0, progCar = 0;
+  const centerChip = (chip, smooth = true) => {
+    const strip = root.querySelector('.tv2-days');
+    if (!strip || !chip) return;
+    strip.querySelectorAll('.tv2-dchip').forEach(c => c.classList.toggle('on', c === chip));
+    progStrip = Date.now();
+    strip.scrollTo({ left: chip.offsetLeft + chip.offsetWidth / 2 - strip.clientWidth / 2, behavior: smooth ? 'smooth' : 'auto' });
+  };
+  const goToPost = idx => {
+    const el = car.querySelector(`.tv2-ocard[data-post="${idx}"]`);
+    if (!el) return;
+    progCar = Date.now();
+    car.scrollTo({ left: el.offsetLeft + el.offsetWidth / 2 - car.clientWidth / 2, behavior: 'smooth' });
+    const post = _posts[idx];
+    const pin = post && _pins.find(p => p.id === post.item.id);
+    if (pin) flyToPin(pin);
+  };
   car.addEventListener('scroll', () => {
     clearTimeout(t);
     t = setTimeout(() => {
@@ -611,13 +686,35 @@ function _renderObserver(host, trip, isRefresh = false) {
       let best = null, bd = Infinity;
       cardsEls.forEach(el => { const d = Math.abs(el.offsetLeft + el.offsetWidth / 2 - mid); if (d < bd) { bd = d; best = el; } });
       if (!best) return;
-      const chip = document.getElementById('tv2-daychip');
-      if (chip) chip.textContent = `Jour ${best.dataset.dayNum}`;
       const post = _posts[+best.dataset.post];
+      const chip = [...root.querySelectorAll('.tv2-dchip[data-day-num]')].find(c => c.dataset.dayNum === best.dataset.dayNum);
+      if (chip && !chip.classList.contains('on')) centerChip(chip);
+      if (Date.now() - progCar < 700) return;   // déjà centrée par goToPost
       const pin = post && _pins.find(p => p.id === post.item.id);
       if (pin) flyToPin(pin);
     }, 160);
   }, { passive: true });
+  // Sélecteur de jours : glisser = changer de jour (celui au centre), toucher = y aller
+  root.addEventListener('click', e => {
+    const chip = e.target.closest('.tv2-dchip[data-first]');
+    if (!chip) return;
+    centerChip(chip);
+    goToPost(+chip.dataset.first);
+  });
+  root.addEventListener('scroll', e => {
+    const strip = e.target;
+    if (!strip.classList?.contains('tv2-days')) return;
+    clearTimeout(tStrip);
+    tStrip = setTimeout(() => {
+      if (Date.now() - progStrip < 700) return;   // défilement provoqué par le code
+      const mid = strip.scrollLeft + strip.clientWidth / 2;
+      let best = null, bd = Infinity;
+      strip.querySelectorAll('.tv2-dchip[data-first]').forEach(el => { const d = Math.abs(el.offsetLeft + el.offsetWidth / 2 - mid); if (d < bd) { bd = d; best = el; } });
+      if (!best || best.classList.contains('on')) return;
+      centerChip(best);
+      goToPost(+best.dataset.first);
+    }, 180);
+  }, { capture: true, passive: true });
 
   _pins = _tripPins(trip, true);
   attachHomeMap(root.querySelector('#tv2-map-slot'), {

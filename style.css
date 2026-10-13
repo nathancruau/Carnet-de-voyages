@@ -2848,11 +2848,11 @@ html::after{
    BAGAGES v2 (v238) — sous-vue « Bagages » de l'écran voyage, style des modales v2
    ══════════════════════════════════════════════════════════════════════════════ */
 .tv2-subbar{padding-top:calc(min(env(safe-area-inset-top,0px),59px) + 6px);padding-left:12px;padding-right:12px}
-.pk,#screen-app.tv2-sub-v2,.pk-modal,.tr,.tri-modal{
+.pk,#screen-app.tv2-sub-v2,.pk-modal,.tr,.v2-skin{
   --hv-sheet:#ffffff; --hv-bg2:#f3f5f7; --hv-ink:#0f2233; --hv-ink2:#64748b; --hv-line:#e5e9ee;
   --hv-dark:#0d2436; --hv-coral:#ef2d56; --hv-chip:#e9edf1; --hv-accent:#0d9488;
 }
-[data-theme="dark"] .pk,[data-theme="dark"] #screen-app.tv2-sub-v2,[data-theme="dark"] .pk-modal,[data-theme="dark"] .tr,[data-theme="dark"] .tri-modal{
+[data-theme="dark"] .pk,[data-theme="dark"] #screen-app.tv2-sub-v2,[data-theme="dark"] .pk-modal,[data-theme="dark"] .tr,[data-theme="dark"] .v2-skin{
   --hv-sheet:#14181d; --hv-bg2:#1c2128; --hv-ink:#eef2f5; --hv-ink2:#94a3af; --hv-line:#272e36;
   --hv-dark:#e9eef2; --hv-chip:#262d35;
 }
@@ -3011,25 +3011,78 @@ html::after{
 
 /* Fenêtres Dépense / Virement : mêmes champs, habillage v2 (tokens locaux remappés
    pour que les styles en ligne de l'éditeur de répartition suivent) */
-.mbox.tri-modal{--c:var(--hv-sheet);--c2:var(--hv-chip);--c3:var(--hv-line);--ink:var(--hv-ink);--ink3:var(--hv-ink2);--ink4:var(--hv-ink2)}
-.mbox.tri-modal h3{font-family:var(--fn);font-size:22px;font-weight:800;letter-spacing:-.3px;margin:0 0 14px;padding:calc(var(--hv-safe-t,0px) + 16px) 52px 0 0}
-.mbox.tri-modal:not(.mbox-fullscreen-mobile) h3{padding-top:18px}
-.mbox.tri-modal .mc{top:12px;right:14px;width:40px;height:40px;border-radius:50%;background:var(--hv-sheet);color:var(--hv-ink);font-size:15px;box-shadow:0 1px 3px rgba(15,34,51,.1)}
-.mbox.tri-modal .fg{margin-bottom:14px}
-.mbox.tri-modal .fg > label,.mbox.tri-modal .fg > div > label:first-child{font-size:12px!important;font-weight:800!important;color:var(--hv-ink2)!important;letter-spacing:.5px;margin:0 4px 6px}
-.mbox.tri-modal .fg input:not([type=checkbox]),.mbox.tri-modal .fg select,.mbox.tri-modal .fg textarea{background:var(--hv-sheet);border:none;border-radius:14px;padding:13px 14px;font-size:15px;font-weight:600;color:var(--hv-ink);box-shadow:inset 0 0 0 1px var(--hv-line)}
-.mbox.tri-modal .fg input:focus,.mbox.tri-modal .fg select:focus,.mbox.tri-modal .fg textarea:focus{box-shadow:inset 0 0 0 2px var(--hv-accent)}
-.mbox.tri-modal #ex-amount,.mbox.tri-modal #tr-amount{font-size:24px;font-weight:800;letter-spacing:-.5px}
-.mbox.tri-modal #ex-currency{width:120px!important;border:none!important;border-radius:14px!important;padding:14px 10px!important;font-weight:700!important}
-.mbox.tri-modal .fg label[style*="cursor:pointer"]:has(input[type=checkbox]){border-radius:12px!important;padding:8px 10px!important}
-.mbox.tri-modal .tri-part-amount,.mbox.tri-modal .tri-payer-amount{padding:6px 8px!important;font-size:13px!important;border-radius:9px!important;width:84px!important}
-.mbox.tri-modal p{color:var(--hv-ink2)!important;font-size:13px!important;font-weight:600}
-.mbox.tri-modal .ma{flex-wrap:wrap;gap:8px;margin-top:20px}
-.mbox.tri-modal .ma .bs{order:-1;flex:1 1 100%;padding:15px;border-radius:16px;background:var(--hv-dark);color:var(--hv-sheet);font-size:15px;font-weight:800;box-shadow:none}
-.mbox.tri-modal .ma .bc{flex:1;padding:12px;border-radius:14px;background:var(--hv-sheet);color:var(--hv-ink);font-weight:700;font-size:14px}
+.v2-skin{--c:var(--hv-sheet);--c2:var(--hv-chip);--c3:var(--hv-line);--ink:var(--hv-ink);--ink3:var(--hv-ink2);--ink4:var(--hv-ink2)}
+.v2-skin h3{font-family:var(--fn);font-size:22px;font-weight:800;letter-spacing:-.3px;margin:0 0 14px;padding:calc(var(--hv-safe-t,0px) + 16px) 52px 0 0}
+.mbox.v2-skin:not(.mbox-fullscreen-mobile) h3{padding-top:18px}
+.v2-skin .mc{top:12px;right:14px;width:40px;height:40px;border-radius:50%;background:var(--hv-sheet);color:var(--hv-ink);font-size:15px;box-shadow:0 1px 3px rgba(15,34,51,.1)}
+.v2-skin .fg{margin-bottom:14px}
+.v2-skin .fg > label,.v2-skin .fg > div > label:first-child{font-size:12px!important;font-weight:800!important;color:var(--hv-ink2)!important;letter-spacing:.5px;margin:0 4px 6px}
+.v2-skin .fg input:not([type=checkbox]),.v2-skin .fg select,.v2-skin .fg textarea{background:var(--hv-sheet);border:none;border-radius:14px;padding:13px 14px;font-size:15px;font-weight:600;color:var(--hv-ink);box-shadow:inset 0 0 0 1px var(--hv-line)}
+.v2-skin .fg input:focus,.v2-skin .fg select:focus,.v2-skin .fg textarea:focus{box-shadow:inset 0 0 0 2px var(--hv-accent)}
+.v2-skin #ex-amount,.v2-skin #tr-amount{font-size:24px;font-weight:800;letter-spacing:-.5px}
+.v2-skin #ex-currency{width:120px!important;border:none!important;border-radius:14px!important;padding:14px 10px!important;font-weight:700!important}
+.v2-skin .fg label[style*="cursor:pointer"]:has(input[type=checkbox]){border-radius:12px!important;padding:8px 10px!important}
+.v2-skin .tri-part-amount,.v2-skin .tri-payer-amount{padding:6px 8px!important;font-size:13px!important;border-radius:9px!important;width:84px!important}
+.v2-skin p{color:var(--hv-ink2)!important;font-size:13px!important;font-weight:600}
+.v2-skin .ma{flex-wrap:wrap;gap:8px;margin-top:20px}
+.v2-skin .ma .bs{order:-1;flex:1 1 100%;padding:15px;border-radius:16px;background:var(--hv-dark);color:var(--hv-sheet);font-size:15px;font-weight:800;box-shadow:none}
+.v2-skin .ma .bc{flex:1;padding:12px;border-radius:14px;background:var(--hv-sheet);color:var(--hv-ink);font-weight:700;font-size:14px}
 .tr-donut-svg{width:104px;height:104px}
 .tr-legs{min-width:150px}
 .tr-leg{align-items:flex-start}
 .tr-leg i{margin-top:5px}
 .tr-leg b{text-align:right}
 .tr-leg b small{display:block;font-size:11px}
+
+/* v240 — tronçon entre deux étapes (Planifier) : bouton → choix du moyen de transport */
+button.tv2-leg{display:flex;width:auto;border:none;border-left:2px dashed var(--hv-line);background:none;cursor:pointer;font-family:var(--fn);gap:6px;color:var(--hv-ink2)}
+button.tv2-leg span{box-shadow:inset 0 0 0 1.5px color-mix(in srgb,var(--lc) 45%,transparent)}
+button.tv2-leg i{font-style:normal;font-size:11px;opacity:.55}
+button.tv2-leg:active span{background:var(--hv-chip)}
+.tv2-legmod-route{display:flex;flex-wrap:wrap;align-items:center;gap:6px;background:var(--hv-sheet);border-radius:16px;padding:12px 14px;margin:4px 0 14px;font-size:14px}
+.tv2-legmod-route span{color:var(--hv-ink2);font-weight:800}
+.tv2-legmod-route small{flex-basis:100%;font-size:12px;font-weight:600;color:var(--hv-ink2)}
+.tv2-modes{grid-template-columns:repeat(4,minmax(0,1fr))}
+.tv2-modes .hv2-tile b{font-size:22px}
+
+/* v240 — vue observateur : sélecteur de jours glissable (remplace la puce « Jour N ») */
+.tv2-days{display:flex;gap:8px;overflow-x:auto;scroll-snap-type:x mandatory;padding:2px calc(50% - 52px) 10px;scrollbar-width:none;-webkit-overflow-scrolling:touch;
+  -webkit-mask-image:linear-gradient(90deg,transparent,#000 18%,#000 82%,transparent);mask-image:linear-gradient(90deg,transparent,#000 18%,#000 82%,transparent)}
+.tv2-days::-webkit-scrollbar{display:none}
+.tv2-dchip{flex:0 0 auto;min-width:104px;scroll-snap-align:center;display:flex;flex-direction:column;align-items:center;gap:1px;border:none;cursor:pointer;
+  padding:7px 14px;border-radius:999px;background:rgba(15,23,42,.62);color:rgba(255,255,255,.75);font-family:var(--fn);
+  box-shadow:0 4px 14px rgba(0,0,0,.25);transition:background .2s,color .2s,transform .2s;-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px)}
+.tv2-dchip b{font-size:13.5px;font-weight:800}
+.tv2-dchip small{font-size:10.5px;font-weight:700;opacity:.8}
+.tv2-dchip.on{background:rgba(13,148,136,.96);color:#fff;transform:scale(1.06)}
+
+/* v240 — Dépenses : filtre par type de dépense */
+.tr-filters{display:flex;gap:6px;overflow-x:auto;margin:14px -16px 0;padding:0 16px 2px;scrollbar-width:none}
+.tr-filters::-webkit-scrollbar{display:none}
+.tr-fchip{flex-shrink:0;display:inline-flex;align-items:center;gap:6px;border:none;border-radius:999px;padding:8px 13px;background:var(--hv-sheet);color:var(--hv-ink);font:700 13px var(--fn);cursor:pointer;box-shadow:inset 0 0 0 1px var(--hv-line)}
+.tr-fchip i{font-style:normal}
+.tr-fchip.on{background:var(--hv-dark);color:var(--hv-sheet);box-shadow:none}
+.tr-fsum{margin:10px 4px -6px;font-size:13px;font-weight:700;color:var(--hv-ink2)}
+#_evt-sheet.v2-skin{background:var(--hv-bg2)!important;color:var(--hv-ink)!important}
+#_evt-sheet.v2-skin h3{padding:0 0 4px;font-size:24px}
+.v2-skin .tp{border:none;border-radius:999px;padding:8px 12px;background:var(--hv-sheet);color:var(--hv-ink);font:700 13px var(--fn);box-shadow:inset 0 0 0 1px var(--hv-line)}
+.v2-skin .tp.sel{box-shadow:none}
+.v2-skin .ee-loc-cur{background:var(--hv-sheet);border-radius:14px;padding:12px 14px;font-size:14px;font-weight:700;margin-bottom:8px;box-shadow:inset 0 0 0 1px var(--hv-line)}
+.v2-skin .ee-loc-cur small{font-weight:600;color:var(--hv-ink2)}
+.v2-skin .ee-loc-cur em{font-style:normal;color:var(--hv-accent)}
+.v2-skin #loc-results .loc-result{border:none!important;background:var(--hv-sheet)!important;border-radius:12px!important;padding:10px 12px!important;font-size:13px!important;margin-top:6px!important;box-shadow:inset 0 0 0 1px var(--hv-line)}
+/* Statistiques du voyage (tripstats.js) dans une fenêtre v2 */
+.v2-skin .stat-card,.v2-skin .stat-kpi-tile{background:var(--hv-sheet)!important;border:none!important;border-radius:18px!important;box-shadow:0 1px 3px rgba(15,34,51,.06)!important}
+.v2-skin .stat-kpi-val{font-family:var(--fn)!important;font-weight:800!important;letter-spacing:-.4px;color:var(--hv-ink)!important}
+.v2-skin .stat-kpi-lbl{color:var(--hv-ink2)!important;font-weight:800!important}
+.v2-skin .stat-card-title{font-family:var(--fn)!important;font-size:16px!important;font-weight:800!important;color:var(--hv-ink)!important}
+/* Menu ⋯ d'un voyage (accueil + réglages de l'écran voyage) et calendrier des fenêtres v2 */
+.tc-dropdown{background:var(--hv-sheet,#fff)!important;border:none!important;border-radius:18px!important;padding:6px!important;box-shadow:0 12px 40px rgba(15,34,51,.22)!important;--hv-sheet:#fff;--hv-chip:#f1f4f6;--hv-ink:#0f2233;--hv-line:#e5e9ee}
+[data-theme="dark"] .tc-dropdown{--hv-sheet:#1c2128;--hv-chip:#262d35;--hv-ink:#eef2f5;--hv-line:#272e36}
+.tc-dropdown button{border:none!important;border-radius:12px!important;padding:12px 14px!important;font:700 14.5px var(--fn)!important;color:var(--hv-ink)!important;background:none!important}
+.tc-dropdown button:hover,.tc-dropdown button:active{background:var(--hv-chip)!important}
+.tc-dropdown button[style*="coral"],.tc-dropdown button.danger{color:#ef2d56!important}
+.v2-skin .dp-nav-lbl{font-family:var(--fn);font-size:16px;font-weight:800;color:var(--hv-ink)}
+.v2-skin h3{font-family:var(--fn)!important;font-size:22px!important;font-weight:800!important}
+.mbox.v2-skin > h3:first-child{padding-top:calc(var(--hv-safe-t,0px) + 18px)!important}
+.mbox.v2-skin:not(.mbox-fullscreen-mobile) > h3:first-child{padding-top:18px!important}

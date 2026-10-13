@@ -1700,6 +1700,7 @@ function _showMobileEventSheet(html) {
   document.getElementById('_evt-sheet')?.remove();
   const sheet = document.createElement('div');
   sheet.id = '_evt-sheet';
+  sheet.className = 'ev-sheet v2-skin';
   sheet.style.cssText = [
     'position:fixed;inset:0;z-index:10000',
     'background:var(--c);color:var(--ink)',
@@ -1709,7 +1710,8 @@ function _showMobileEventSheet(html) {
     'transform:translateY(100%);transition:transform .28s cubic-bezier(.25,.8,.25,1)',
   ].join(';');
   sheet.innerHTML = html;
-  document.body.appendChild(sheet);
+  // Rattachée à <html> et pas à body (iOS 26 : body verrouillé découpe les fixed, cf. CLAUDE.md)
+  document.documentElement.appendChild(sheet);
   requestAnimationFrame(() => requestAnimationFrame(() => { sheet.style.transform = 'translateY(0)'; }));
 }
 
@@ -1800,6 +1802,17 @@ function _openEditEventModal(dayId, evtIdx, tripId) {
       <label>Notes</label>
       <textarea id="ee-notes" class="notes-ta" placeholder="Vos notes…" style="min-height:55px">${_esc(item.notes || '')}</textarea>
     </div>
+    <div class="fg">
+      <label>Emplacement</label>
+      <div class="ee-loc-cur" id="ee-loc-cur">${item.lat != null
+        ? `📍 ${_esc(item.placeName || item.text || 'Position')} <small>(${Number(item.lat).toFixed(4)}, ${Number(item.lng).toFixed(4)})</small>`
+        : '<span style="color:var(--ink4)">Aucun emplacement</span>'}</div>
+      <div id="ee-loc-widget"></div>
+      <div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap">
+        <button type="button" class="bc" id="ee-loc-here" style="font-size:12px;padding:7px 10px">🎯 Ma position</button>
+        ${item.lat != null ? `<button type="button" class="bc" id="ee-loc-clear" style="font-size:12px;padding:7px 10px;color:#e85d3e">Retirer l'emplacement</button>` : ''}
+      </div>
+    </div>
     ${item.lat != null ? `
     <div class="fg">
       <label>Pays du PIN</label>
@@ -1818,6 +1831,33 @@ function _openEditEventModal(dayId, evtIdx, tripId) {
   const typesContainer = document.getElementById('ee-types');
   const transportRow   = document.getElementById('ee-transport-row');
   const sleepDatesRow  = document.getElementById('ee-sleep-dates');
+
+  // Emplacement : même recherche de lieu que la fenêtre d'ajout (sans « cliquer sur
+  // la carte », la carte n'est pas forcément à l'écran). undefined = inchangé,
+  // null = retiré, { lat, lng, label } = nouvel emplacement.
+  let newLoc = undefined;
+  const locCur = document.getElementById('ee-loc-cur');
+  const setLoc = (loc) => {
+    newLoc = loc;
+    if (!locCur) return;
+    locCur.innerHTML = loc
+      ? `📍 ${_esc(loc.label || 'Position')} <small>(${loc.lat.toFixed(4)}, ${loc.lng.toFixed(4)})</small> <em>· modifié</em>`
+      : '<span style="color:var(--ink4)">Emplacement retiré</span>';
+  };
+  const locWidgetEl = document.getElementById('ee-loc-widget');
+  if (locWidgetEl) {
+    _buildLocationSearch(locWidgetEl, ({ lat, lng, label }) => setLoc({ lat, lng, label: (label || '').split(',')[0] }), null);
+    locWidgetEl.querySelector('#loc-map-click')?.parentElement?.remove();
+    locWidgetEl.querySelector('#loc-selected')?.remove();
+  }
+  document.getElementById('ee-loc-here')?.addEventListener('click', () => {
+    if (!navigator.geolocation) { notify('Géolocalisation indisponible', '⚠️'); return; }
+    navigator.geolocation.getCurrentPosition(
+      pos => setLoc({ lat: pos.coords.latitude, lng: pos.coords.longitude, label: 'Ma position' }),
+      ()  => notify('Position introuvable', '⚠️'),
+      { enableHighAccuracy: true, timeout: 10000 });
+  });
+  document.getElementById('ee-loc-clear')?.addEventListener('click', () => setLoc(null));
 
   typesContainer?.addEventListener('click', e => {
     const pill = e.target.closest('[data-ee-type]');
@@ -1900,9 +1940,22 @@ function _openEditEventModal(dayId, evtIdx, tripId) {
       notes,
       ...(selType === 'sleep' ? { dateFrom: sleepFrom, dateTo: sleepTo } : {}),
       ...(countryFlag !== undefined ? { countryFlag, countryCode: countryFlag ? fmtFlag(countryFlag) : null } : {}),
+      ...(newLoc === null ? { lat: null, lng: null } : {}),
+      ...(newLoc ? { lat: newLoc.lat, lng: newLoc.lng, placeName: newLoc.label || oldItem.placeName || null } : {}),
     };
 
     updateTrip(tripId, { days: freshTrip.days.map(d => d.id === dayId ? { ...d, items: updatedItems } : d) });
+
+    // Nouvel emplacement : le pays du PIN est re-détecté (en arrière-plan, comme à l'ajout)
+    if (newLoc && oldItem.id) {
+      reverseGeocodeCountry(newLoc.lat, newLoc.lng).then(geo => {
+        if (!geo) return;
+        const t = getTrip(tripId);
+        if (!t) return;
+        updateTrip(tripId, { days: t.days.map(d => ({ ...d, items: (d.items || []).map(it =>
+          it.id === oldItem.id && it.lat === newLoc.lat ? { ...it, countryCode: geo.code, countryFlag: geo.flag } : it) })) });
+      }).catch(() => {});
+    }
 
     if (oldItem.id) {
       const t3 = getTrip(tripId);
@@ -2124,6 +2177,10 @@ function _openEDP(dayId, evtIdx, tripId) {
         <input type="text" id="edp-country-flag" value="${_esc(item.countryFlag || '')}" placeholder="🇫🇷" maxlength="8"
           style="${inputStyle};width:70px" title="Détecté automatiquement depuis la position — modifiable si besoin">
       </div>` : ''}
+      <div class="edp-sect">
+        <div class="edp-sect-lbl">Emplacement</div>
+        <button class="bc" id="edp-loc" style="width:100%;font-size:12px">📍 ${item.lat != null ? 'Modifier l’emplacement' : 'Ajouter un emplacement'}</button>
+      </div>
       ${gpxSectionHtml}
     </div>
     <div class="edp-actions">
@@ -2133,6 +2190,13 @@ function _openEDP(dayId, evtIdx, tripId) {
   `;
 
   mapCol.appendChild(edp);
+
+  // L'emplacement se modifie dans la fenêtre complète (recherche de lieu / ma position)
+  edp.querySelector('#edp-loc')?.addEventListener('click', () => {
+    _closeEDP();
+    _activeEvtKey = null;
+    _openEditEventModal(dayId, evtIdx, tripId);
+  });
 
   // Animate in
   requestAnimationFrame(() => { edp.classList.add('open'); });
@@ -3605,3 +3669,24 @@ export const openEditEventModal   = (dayId, evtIdx, tripId) => _openEditEventMod
 export const openAddEventModal    = (dayId, tripId, prefill) => _openAddEventModal(dayId, tripId, prefill);
 export const openAddDayModal      = tripId => _openAddDayModal(tripId);
 export const collectTripWaypoints = trip => _collectAllWaypoints(trip);
+
+/**
+ * Mode de transport du tronçon qui ARRIVE au point `wp` (un élément de
+ * collectTripWaypoints) — même règle d'écriture que le clic sur le tracé :
+ * item.transport pour un « trajet » (drive), sinon item.routeMode ; pour un point
+ * de nuit, day.departNightMode / day.returnNightMode ; sinon day.routeMode.
+ */
+export function setWaypointMode(tripId, wp, mode) {
+  const trip = getTrip(tripId);
+  if (!trip || !wp) return;
+  const days = (trip.days || []).map(day => {
+    if (day.id !== wp.dayId) return day;
+    if (wp.itemId) {
+      return { ...day, items: (day.items || []).map(it => it.id !== wp.itemId ? it
+        : it.type === 'drive' ? { ...it, transport: mode } : { ...it, routeMode: mode }) };
+    }
+    const field = wp.isDepartNight ? 'departNightMode' : wp.isReturnNight ? 'returnNightMode' : 'routeMode';
+    return { ...day, [field]: mode };
+  });
+  updateTrip(tripId, { days });
+}
