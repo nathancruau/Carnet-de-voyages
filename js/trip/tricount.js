@@ -11,6 +11,7 @@ import { attachCalcKeypad } from '../calckeypad.js';
 // ── Module state ──────────────────────────────────────────────────────────────
 
 let _activeTab = 'depenses'; // 'depenses' | 'bilans' | 'budgetvsdep'
+let _activeTrip = null;
 
 // ── Currency support ──────────────────────────────────────────────────────────
 
@@ -99,20 +100,6 @@ function _payerLabel(exp, participants) {
     return exp.payers.map(pp => participants.find(p => p.id === pp.id)?.name || pp.id).join(' + ');
   }
   return participants.find(p => p.id === exp.paidById)?.name || exp.paidById || '?';
-}
-
-/** One payer-chip per contributor for a compte commun, or the classic single chip otherwise. */
-function _payerChipsHtml(exp, participants) {
-  if (exp.payers && exp.payers.length > 0) {
-    return exp.payers.map(pp => {
-      const p = participants.find(pt => pt.id === pp.id);
-      return `<span class="payer-chip" style="background:${_esc(p?.color || '#888')}" title="${_esc((p?.name || pp.id) + ' : ' + _fmtEur(pp.amount))}">${_esc(p ? p.name : pp.id)}</span>`;
-    }).join(' ');
-  }
-  const payer = participants.find(p => p.id === exp.paidById);
-  return payer
-    ? `<span class="payer-chip" style="background:${_esc(payer.color || '#0d9488')}">${_esc(payer.name)}</span>`
-    : `<span class="payer-chip" style="background:var(--c4);color:var(--ink3)">${_esc(exp.paidById || '?')}</span>`;
 }
 
 // ── Participants ──────────────────────────────────────────────────────────────
@@ -236,9 +223,12 @@ const _handlers = new WeakMap();
 // Keyed by panel too, even though the listener is bound to `document` (not
 // panel) — this is just how we remember "the previous render's closer" so it
 // can be removed before adding the new one, same pattern as _handlers above.
-const _fabCloseHandlers = new WeakMap();
 
 // ── Render ────────────────────────────────────────────────────────────────────
+// Style v2 (v239) : même famille que Bagages / l'écran voyage — carte résumé
+// (total + soldes de chacun), boutons Dépense / Virement, onglets segmentés
+// Dépenses / Bilans / Budget, listes en cartes blanches. Calculs inchangés
+// (computeBalances, computeSettlements, _eurAmount), modales inchangées.
 
 export function renderTricount(tripId) {
   const panel = document.getElementById('panel-tricount');
@@ -254,308 +244,152 @@ export function renderTricount(tripId) {
     _handlers.delete(panel);
   }
 
-  // Always start on the main expenses tab when entering a trip for the first time
-  // so a stale "bilans" or "budgetvsdep" selection from a previous trip isn't shown
-  _activeTab = 'depenses';
+  // On garde l'onglet choisi d'un rendu à l'autre (ajout/modification d'une
+  // dépense), mais on repart sur « Dépenses » en changeant de voyage.
+  if (_activeTrip !== tripId) { _activeTab = 'depenses'; _activeTrip = tripId; }
 
   const participants = getParticipants(trip);
   const balances    = computeBalances(trip);
   const settlements = computeSettlements(balances);
 
   panel.innerHTML = `
-    <div class="tri-layout">
-      <div class="tri-side">
-        <div class="tri-side-sc" id="tri-side-content">
-          ${_renderSide(trip, participants, balances)}
-        </div>
-      </div>
-      <div class="tri-main" id="tri-main-content">
-        ${_renderMain(trip, participants, balances, settlements)}
-      </div>
-    </div>
-    <div class="panel-fab-menu" id="tri-fab-menu">
-      <button class="pfm-btn" data-action="add-expense">💶 Dépense</button>
-      <button class="pfm-btn" data-action="add-transfer">💸 Virement / Remboursement</button>
-    </div>
-    <button class="panel-fab" data-action="tri-fab" title="Ajouter">＋</button>`;
+    <div class="tr">
+      ${_renderSummary(trip, participants, balances)}
+      <div id="tri-main-content">${_renderMain(trip, participants, balances, settlements)}</div>
+    </div>`;
 
   const handler = e => _handleClick(e, tripId);
   _handlers.set(panel, handler);
   panel.addEventListener('click', handler);
-
-  // Close FAB menu on outside click. renderTricount() re-renders panel.innerHTML
-  // (and thus a fresh #tri-fab-menu) after every expense/transfer add/edit/
-  // delete/settle, but this listener is bound to `document`, which is never
-  // recreated — so the old one must be removed first, otherwise every render
-  // stacks one more permanent listener on `document` for the rest of the session.
-  if (_fabCloseHandlers.has(panel)) {
-    document.removeEventListener('click', _fabCloseHandlers.get(panel));
-  }
-  const fabCloseHandler = ev => {
-    const fab = document.getElementById('tri-fab-menu');
-    if (!fab) return;
-    if (!fab.contains(ev.target) && !ev.target.closest('[data-action="tri-fab"]')) {
-      fab.classList.remove('visible');
-    }
-  };
-  _fabCloseHandlers.set(panel, fabCloseHandler);
-  document.addEventListener('click', fabCloseHandler);
 }
 
-// ── Side panel ────────────────────────────────────────────────────────────────
+function _initials(name) {
+  return (name || '?').trim().split(/\s+/).map(w => w[0]).slice(0, 2).join('').toUpperCase();
+}
 
-function _renderSide(trip, participants, balances) {
-  let html = `<div class="bs-lbl" style="padding:4px 2px 8px">Participants</div>`;
+function _av(p, size = '') {
+  return `<span class="tr-av${size}" style="background:${_esc(p?.color || '#64748b')}">${_esc(_initials(p?.name))}</span>`;
+}
 
-  for (const p of participants) {
-    const bal      = balances[p.id] ?? 0;
-    const initials = (p.name || '?').slice(0, 2).toUpperCase();
-    const balColor = bal > 0.01 ? 'var(--grn)' : bal < -0.01 ? 'var(--coral)' : 'var(--ink4)';
-    const balLabel = bal > 0.01 ? '+' + _fmtEur(bal) : _fmtEur(bal);
+// ── Résumé (haut de page) ─────────────────────────────────────────────────────
 
-    html += `
-      <div style="display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:8px;margin-bottom:3px">
-        <div class="comp-avatar" style="background:${_esc(p.color || '#0d9488')};width:28px;height:28px;font-size:11px;font-weight:800">${initials}</div>
-        <div style="flex:1;min-width:0">
-          <div style="font-size:11px;font-weight:700;color:var(--ink)">${_esc(p.name)}</div>
-          <div style="font-size:10px;font-weight:700;color:${balColor}">${balLabel}</div>
-        </div>
+function _renderSummary(trip, participants, balances) {
+  const realOnly = (trip.realExpenses || []).filter(e => e.type !== 'transfer');
+  const total    = realOnly.reduce((s, e) => s + _eurAmount(e), 0);
+  const nDays    = (trip.days || []).length;
+  const planned  = (trip.budgetLines || []).reduce((s, l) => s + (Number(l.amount) || 0), 0);
+  const sub = [
+    `${realOnly.length} dépense${realOnly.length !== 1 ? 's' : ''}`,
+    nDays && total ? `${_fmtEur(total / nDays)} / jour` : '',
+    planned ? `${Math.round(total / planned * 100)} % du budget` : '',
+  ].filter(Boolean).join(' · ');
+
+  const bals = participants.map(p => {
+    const bal = balances[p.id] ?? 0;
+    const cls = bal > 0.01 ? 'pos' : bal < -0.01 ? 'neg' : '';
+    return `
+      <div class="tr-bal">
+        ${_av(p)}
+        <span class="tr-bal-n">${_esc(p.name)}</span>
+        <b class="tr-bal-v ${cls}">${bal > 0.01 ? '+' : ''}${Math.abs(bal) < 0.01 ? '0,00 €' : _fmtEur(bal)}</b>
       </div>`;
-  }
+  }).join('');
 
-  html += `
-    <div style="padding:8px 4px;margin-top:4px;display:flex;flex-direction:column;gap:5px">
-      <button class="btn-new" style="width:100%;justify-content:center;font-size:11px" data-action="add-expense">
-        &#xFE0F; Ajouter une d&eacute;pense
-      </button>
-      <button class="btn-new" style="width:100%;justify-content:center;font-size:11px;background:var(--c2);color:var(--ink3);border-color:var(--c3)" data-action="add-transfer">
-        💸 Virement / remboursement
-      </button>
+  return `
+    <div class="tr-hero">
+      <span class="tr-hero-l">Total dépensé</span>
+      <b class="tr-hero-v">${_fmtEur(total)}</b>
+      <span class="tr-hero-s">${sub}</span>
+      ${participants.length ? `<div class="tr-bals">${bals}</div>` : ''}
+    </div>
+    <div class="tr-actions">
+      <button class="pk-btn pk-btn-dark" data-action="add-expense">＋ Dépense</button>
+      <button class="pk-btn" data-action="add-transfer">💸 Virement</button>
     </div>`;
-
-  return html;
 }
 
-// ── Main panel ────────────────────────────────────────────────────────────────
+// ── Onglets ───────────────────────────────────────────────────────────────────
 
 function _renderMain(trip, participants, balances, settlements) {
-  const isDepenses    = _activeTab === 'depenses';
-  const isBilans      = _activeTab === 'bilans';
-  const isBudgetVsDep = _activeTab === 'budgetvsdep';
-
-  function tabStyle(active) {
-    return `padding:5px 16px;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer;
-            background:${active ? '#fff' : 'transparent'};
-            color:${active ? 'var(--teal)' : 'var(--ink3)'};
-            box-shadow:${active ? 'var(--sh)' : 'none'};transition:all .15s`;
-  }
-
-  const desktopTabs = `
-    <div class="tri-tab-row-inline" style="display:flex;gap:3px;background:var(--c2);border-radius:8px;padding:3px;border:1px solid var(--c3);margin-bottom:16px;width:fit-content">
-      <div data-action="switch-tab" data-tab="depenses" style="${tabStyle(isDepenses)}">D&eacute;penses</div>
-      <div data-action="switch-tab" data-tab="bilans" style="${tabStyle(isBilans)}">Bilans</div>
-      <div data-action="switch-tab" data-tab="budgetvsdep" style="${tabStyle(isBudgetVsDep)}">Budget vs D&eacute;p.</div>
-    </div>`;
-
-  const mobTabs = `
-    <div class="tri-mob-tabs">
-      <button class="bm-tab${isDepenses ? ' active' : ''}" data-action="switch-tab" data-tab="depenses">💶 D&eacute;penses</button>
-      <button class="bm-tab${isBilans ? ' active' : ''}" data-action="switch-tab" data-tab="bilans">⚖️ Bilans</button>
-      <button class="bm-tab${isBudgetVsDep ? ' active' : ''}" data-action="switch-tab" data-tab="budgetvsdep">📊 Budget</button>
-    </div>`;
-
+  const tabs = [['depenses', 'Dépenses'], ['bilans', 'Bilans'], ['budgetvsdep', 'Budget']];
+  const seg = `<div class="tr-seg">${tabs.map(([k, l]) =>
+    `<button class="${_activeTab === k ? 'on' : ''}" data-action="switch-tab" data-tab="${k}">${l}</button>`).join('')}</div>`;
   let content;
-  if (isDepenses) {
-    content = _renderDepenses(trip, participants);
-  } else if (isBilans) {
-    content = _renderBilans(trip, participants, balances, settlements);
-  } else {
-    content = _renderBudgetVsDep(trip);
-  }
-
-  return mobTabs + desktopTabs + `<div class="tri-main-pad">${content}</div>`;
+  if (_activeTab === 'bilans')           content = _renderBilans(trip, participants, balances, settlements);
+  else if (_activeTab === 'budgetvsdep') content = _renderBudgetVsDep(trip);
+  else                                   content = _renderDepenses(trip, participants);
+  return seg + content;
 }
 
-// ── Dépenses tab ──────────────────────────────────────────────────────────────
+function _empty(icon, title, sub = '') {
+  return `<div class="pk-empty tr-empty"><div>${icon}</div><b>${title}</b>${sub ? `<span>${sub}</span>` : ''}</div>`;
+}
+
+function _longDay(iso) {
+  try {
+    const s = new Date(iso + 'T12:00:00').toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
+    return s.charAt(0).toUpperCase() + s.slice(1);
+  } catch (_) { return iso; }
+}
+
+// ── Dépenses ──────────────────────────────────────────────────────────────────
 
 function _renderDepenses(trip, participants) {
-  const expenses    = trip.realExpenses || [];
-  const realOnly    = expenses.filter(e => e.type !== 'transfer');
-  const cats        = trip.budgetCats   || [];
-  const days        = trip.days         || [];
-  const totalSpent  = realOnly.reduce((s, e) => s + _eurAmount(e), 0);
-  const isMobile    = window.innerWidth <= 768;
+  const expenses = trip.realExpenses || [];
+  const cats     = trip.budgetCats   || [];
+  const days     = trip.days         || [];
+  if (!expenses.length) return _empty('💸', 'Aucune dépense', 'Ajoutez la première avec « ＋ Dépense ».');
 
-  if (expenses.length === 0) {
-    return `
-      <div style="text-align:center;padding:40px 20px;color:var(--ink4)">
-        <div style="font-size:32px;margin-bottom:10px">&#x1F4B8;</div>
-        <div style="font-size:13px">Aucune d&eacute;pense enregistr&eacute;e</div>
-        <div style="font-size:11px;margin-top:4px">Appuyez sur ＋ pour ajouter une d&eacute;pense</div>
-      </div>`;
+  // Plus récentes d'abord, regroupées par date (ordre d'ajout conservé dans une même date)
+  const list = expenses.map((e, i) => ({ e, i }))
+    .sort((a, b) => (b.e.date || '').localeCompare(a.e.date || '') || b.i - a.i);
+  const groups = [];
+  for (const { e } of list) {
+    const key = e.date || '';
+    let g = groups[groups.length - 1];
+    if (!g || g.key !== key) { g = { key, items: [] }; groups.push(g); }
+    g.items.push(e);
   }
 
-  const header = `
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">
-      <div>
-        <span style="font-family:var(--sf);font-size:16px;font-weight:700">D&eacute;penses</span>
-        <span style="font-size:12px;color:var(--ink4);margin-left:8px">${realOnly.length} d&eacute;pense${realOnly.length !== 1 ? 's' : ''} &middot; ${_fmtEur(totalSpent)}</span>
-      </div>
-    </div>`;
-
-  const donutHtml = _renderCatDonut(trip, realOnly);
-
-  if (isMobile) {
-    let cards = '';
-    for (const exp of [...expenses].reverse()) {
-      if (exp.type === 'transfer') {
-        const fromP = participants.find(p => p.id === exp.fromId);
-        const toP   = participants.find(p => p.id === exp.toId);
-        cards += `
-          <div class="tec tec-transfer" data-action="edit-transfer" data-exp-id="${_esc(exp.id)}">
-            <div class="tec-icon">💸</div>
-            <div class="tec-info">
-              <div class="tec-desc">Virement${exp.note ? ' · ' + _esc(exp.note) : ''}</div>
-              <div class="tec-sub">${_esc(fromP?.name || exp.fromId)} → ${_esc(toP?.name || exp.toId)}${exp.date ? ' · ' + fmtDateShort(exp.date) : ''}</div>
-            </div>
-            <div class="tec-right">
-              <div class="tec-amount">${_fmtEur(exp.amount)}</div>
-            </div>
-          </div>`;
-        continue;
-      }
-
-      const cat   = cats.find(c => c.id === exp.catId);
-      const day   = days.find(d => d.id === exp.dayId);
-      const refHtml = [exp.date ? fmtDateShort(exp.date) : '', day ? 'Jour ' + day.num : ''].filter(Boolean).join(' · ');
-      const payerName = _payerLabel(exp, participants);
-      const amountHtml = exp.currency && exp.currency !== 'EUR'
-        ? `${Number(exp.amount).toLocaleString('fr-FR', {minimumFractionDigits:2,maximumFractionDigits:2})} ${exp.currency}`
-        : _fmtEur(exp.amount);
-
-      cards += `
-        <div class="tec" data-action="edit-expense" data-exp-id="${_esc(exp.id)}">
-          <div class="tec-icon">${cat?.icon || '💶'}</div>
-          <div class="tec-info">
-            <div class="tec-desc">${_esc(exp.desc || '—')}</div>
-            <div class="tec-sub">${_esc(payerName)}${refHtml ? ' · ' + refHtml : ''}</div>
-          </div>
-          <div class="tec-right">
-            <div class="tec-amount">${amountHtml}</div>
-            ${exp.currency && exp.currency !== 'EUR' ? `<div style="font-size:10px;color:var(--ink4)">${_fmtEur(exp.amountEur || exp.amount)}</div>` : ''}
-          </div>
-        </div>`;
-    }
-
-    return header + `<div class="tri-exp-cards">${cards}</div>` + donutHtml;
-  }
-
-  // Desktop: table view
-  let rows = '';
-  for (const exp of [...expenses].reverse()) {
+  const row = exp => {
     if (exp.type === 'transfer') {
       const fromP = participants.find(p => p.id === exp.fromId);
       const toP   = participants.find(p => p.id === exp.toId);
-      rows += `
-        <tr style="background:var(--c2)" class="bud-line-row" data-action="edit-transfer" data-exp-id="${_esc(exp.id)}">
-          <td>
-            <div style="display:flex;align-items:center;gap:5px">
-              <span style="font-size:14px">💸</span>
-              <div>
-                <div style="font-weight:600;color:var(--ink)">Virement</div>
-                ${exp.note ? `<div style="font-size:10px;color:var(--ink4)">${_esc(exp.note)}</div>` : ''}
-              </div>
-            </div>
-          </td>
-          <td style="font-weight:700">${_fmtEur(exp.amount)}</td>
-          <td colspan="2">
-            <span class="payer-chip" style="background:${_esc(fromP?.color || '#888')}">${_esc(fromP?.name || exp.fromId)}</span>
-            <span style="font-size:11px;color:var(--ink4);margin:0 3px">→</span>
-            <span class="payer-chip" style="background:${_esc(toP?.color || '#888')}">${_esc(toP?.name || exp.toId)}</span>
-          </td>
-          <td></td>
-          <td style="font-size:10px;color:var(--ink4);white-space:nowrap">${exp.date ? fmtDateShort(exp.date) : ''}</td>
-          <td>
-            <div style="display:flex;gap:4px">
-              <button class="tc-edit-btn" data-action="delete-expense" data-exp-id="${_esc(exp.id)}" title="Supprimer" style="color:var(--coral)">&#x1F5D1;</button>
-            </div>
-          </td>
-        </tr>`;
-      continue;
+      return `
+        <button class="tr-row" data-action="edit-transfer" data-exp-id="${_esc(exp.id)}">
+          <span class="tr-ic" style="--cc:#64748b">💸</span>
+          <span class="tr-txt"><b>Virement${exp.note ? ' · ' + _esc(exp.note) : ''}</b>
+            <small>${_esc(fromP?.name || exp.fromId)} → ${_esc(toP?.name || exp.toId)}</small></span>
+          <span class="tr-amt tr-amt-muted">${_fmtEur(exp.amount)}</span>
+        </button>`;
     }
+    const cat = cats.find(c => c.id === exp.catId);
+    const day = days.find(d => d.id === exp.dayId);
+    const nShared = exp.splits?.length || (exp.sharedWith || []).length;
+    const sub = [`Payé par ${_esc(_payerLabel(exp, participants))}`,
+      nShared > 1 ? `÷ ${nShared}` : '', day ? 'Jour ' + day.num : ''].filter(Boolean).join(' · ');
+    const foreign = exp.currency && exp.currency !== 'EUR';
+    return `
+      <button class="tr-row" data-action="edit-expense" data-exp-id="${_esc(exp.id)}">
+        <span class="tr-ic" style="--cc:${_esc(cat?.color || '#0d9488')}">${cat?.icon || '💶'}</span>
+        <span class="tr-txt"><b>${_esc(exp.desc || '—')}</b><small>${sub}</small></span>
+        <span class="tr-amt">${foreign
+          ? `${Number(exp.amount).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${_esc(exp.currency)}<small>${_fmtEur(exp.amountEur || exp.amount)}</small>`
+          : _fmtEur(exp.amount)}${exp.receipt ? '<small>📎 reçu</small>' : ''}</span>
+      </button>`;
+  };
 
-    const cat   = cats.find(c => c.id === exp.catId);
-    const day   = days.find(d => d.id === exp.dayId);
+  const html = groups.map(g => {
+    const dayTotal = g.items.filter(e => e.type !== 'transfer').reduce((s, e) => s + _eurAmount(e), 0);
+    return `
+      <div class="tr-day"><span>${g.key ? _esc(_longDay(g.key)) : 'Sans date'}</span>${dayTotal ? `<b>${_fmtEur(dayTotal)}</b>` : ''}</div>
+      <div class="tr-card">${g.items.map(row).join('')}</div>`;
+  }).join('');
 
-    const payerHtml = _payerChipsHtml(exp, participants);
-
-    let sharedHtml;
-    if (exp.splits && exp.splits.length > 0) {
-      sharedHtml = exp.splits.map(split => {
-        const p = participants.find(pt => pt.id === split.id);
-        return `<span class="split-chip" title="${_esc((p?.name || split.id) + ' : ' + _fmtEur(split.amount))}">${_esc(p ? p.name : split.id)}&nbsp;<span style="opacity:.7">${_fmtEur(split.amount)}</span></span>`;
-      }).join('');
-    } else {
-      const splitCount = (exp.sharedWith || []).length;
-      const share = splitCount > 0 ? (Number(exp.amount) || 0) / splitCount : 0;
-      sharedHtml = (exp.sharedWith || []).map(pid => {
-        const p = participants.find(pt => pt.id === pid);
-        return `<span class="split-chip">${_esc(p ? p.name : pid)}&nbsp;<span style="opacity:.7">${_fmtEur(share)}</span></span>`;
-      }).join('');
-    }
-
-    const catHtml = cat
-      ? `<span style="font-size:9px;font-weight:800;padding:1px 6px;border-radius:999px;background:${_esc(cat.color || '#0d9488')}22;color:${_esc(cat.color || '#0d9488')}">${_esc(cat.icon || '')} ${_esc(cat.name)}</span>`
-      : '';
-
-    const dateHtml = exp.date ? fmtDateShort(exp.date) : '';
-    const dayHtml  = day ? 'Jour ' + day.num : '';
-    const refHtml  = [dateHtml, dayHtml].filter(Boolean).join(' \xb7 ');
-
-    rows += `
-      <tr>
-        <td>
-          <div style="font-weight:600;color:var(--ink)">${_esc(exp.desc || '—')}</div>
-          ${exp.note ? `<div style="font-size:10px;color:var(--ink4);margin-top:1px">${_esc(exp.note)}</div>` : ''}
-          ${exp.receipt ? `<img src="${_esc(exp.receipt)}" alt="Reçu" title="Voir le reçu" style="max-height:28px;max-width:40px;border-radius:3px;object-fit:cover;margin-top:3px;cursor:pointer;display:block" onclick="window._pho && window._pho(this.src)">` : ''}
-        </td>
-        <td style="font-weight:700">
-          ${exp.currency && exp.currency !== 'EUR'
-            ? `${Number(exp.amount).toLocaleString('fr-FR', {minimumFractionDigits:2,maximumFractionDigits:2})} ${exp.currency}<div style="font-size:10px;color:var(--ink4)">${_fmtEur(exp.amountEur || exp.amount)}</div>`
-            : _fmtEur(exp.amount)}
-        </td>
-        <td><div class="split-chips">${payerHtml}</div></td>
-        <td><div class="split-chips">${sharedHtml || '—'}</div></td>
-        <td>${catHtml}</td>
-        <td style="font-size:10px;color:var(--ink4);white-space:nowrap">${_esc(refHtml)}</td>
-        <td>
-          <div style="display:flex;gap:4px">
-            <button class="tc-edit-btn" data-action="edit-expense" data-exp-id="${_esc(exp.id)}" title="Modifier">&#x270F;&#xFE0F;</button>
-            <button class="tc-edit-btn" data-action="delete-expense" data-exp-id="${_esc(exp.id)}" title="Supprimer" style="color:var(--coral)">&#x1F5D1;</button>
-          </div>
-        </td>
-      </tr>`;
-  }
-
-  return header + `
-    <table class="tri-exp-table">
-      <thead>
-        <tr>
-          <th>Description</th>
-          <th>Montant</th>
-          <th>Pay&eacute; par</th>
-          <th>Partag&eacute; avec</th>
-          <th>Cat&eacute;gorie</th>
-          <th>R&eacute;f&eacute;rence</th>
-          <th></th>
-        </tr>
-      </thead>
-      <tbody>${rows}</tbody>
-    </table>
-    ${donutHtml}`;
+  return html + _renderCatDonut(trip, expenses.filter(e => e.type !== 'transfer'));
 }
 
-// ── Category donut chart ──────────────────────────────────────────────────────
+// ── Répartition par catégorie (anneau) ────────────────────────────────────────
 
 function _renderCatDonut(trip, expenses) {
   const cats  = trip.budgetCats || [];
@@ -566,296 +400,126 @@ function _renderCatDonut(trip, expenses) {
   for (const exp of expenses) {
     if (exp.catId) spentByCat[exp.catId] = (spentByCat[exp.catId] || 0) + _eurAmount(exp);
   }
-
   const budgetByCat = {};
   for (const line of (trip.budgetLines || [])) {
     if (line.catId) budgetByCat[line.catId] = (budgetByCat[line.catId] || 0) + (Number(line.amount) || 0);
   }
-
   const segments = cats
-    .map(cat => ({
-      label:   cat.name,
-      icon:    cat.icon  || '📦',
-      color:   cat.color || '#888',
-      spent:   spentByCat[cat.id]  || 0,
-      planned: budgetByCat[cat.id] || 0,
-    }))
-    .filter(s => s.spent > 0);
-
+    .map(cat => ({ label: cat.name, icon: cat.icon || '📦', color: cat.color || '#888',
+                   spent: spentByCat[cat.id] || 0, planned: budgetByCat[cat.id] || 0 }))
+    .filter(s => s.spent > 0)
+    .sort((a, b) => b.spent - a.spent);
   if (segments.length === 0) return '';
 
-  const R = 40, cx = 50, cy = 50;
-  const circ = 2 * Math.PI * R;
-  let offset = 0;
-  let arcs = '';
+  const R = 40, cx = 50, cy = 50, circ = 2 * Math.PI * R;
+  let offset = 0, arcs = '';
   for (const seg of segments) {
     const dash = (seg.spent / total) * circ;
-    arcs += `<circle cx="${cx}" cy="${cy}" r="${R}" fill="none"
-      stroke="${_esc(seg.color)}" stroke-width="16"
-      stroke-dasharray="${dash.toFixed(2)} ${(circ - dash).toFixed(2)}"
-      stroke-dashoffset="${(-offset).toFixed(2)}"
-      transform="rotate(-90 ${cx} ${cy})"/>`;
+    arcs += `<circle cx="${cx}" cy="${cy}" r="${R}" fill="none" stroke="${_esc(seg.color)}" stroke-width="14"
+      stroke-dasharray="${Math.max(0, dash - 1.2).toFixed(2)} ${(circ - Math.max(0, dash - 1.2)).toFixed(2)}"
+      stroke-dashoffset="${(-offset).toFixed(2)}" transform="rotate(-90 ${cx} ${cy})"/>`;
     offset += dash;
   }
-
-  // Overspend is signaled on the amount text alone (coral), never on the arc/dot
-  // itself — two different categories both over budget used to turn coral on
-  // the swatch too, making them visually identical regardless of their actual
-  // distinct cat.color (this is what most reports of "same color" in this donut
-  // turned out to be, not a real palette collision like the one v195 fixed).
+  // Dépassement signalé sur le montant seul (corail), jamais sur la couleur de la
+  // catégorie elle-même (cf. v196 : deux catégories en dépassement devenaient identiques).
   const legend = segments.map(s => {
     const over = s.planned > 0 && s.spent > s.planned;
     return `
-      <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
-        <div style="width:10px;height:10px;border-radius:50%;background:${_esc(s.color)};flex-shrink:0"></div>
-        <div style="font-size:11px;color:var(--ink2);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_esc(s.icon)} ${_esc(s.label)}</div>
-        <div style="font-size:11px;font-weight:700;color:${over ? 'var(--coral)' : 'var(--ink)'}">
-          ${_fmtEur(s.spent)}${s.planned > 0 ? `<span style="font-weight:400;color:var(--ink4)"> / ${_fmtEur(s.planned)}</span>` : ''}
-        </div>
+      <div class="tr-leg">
+        <i style="background:${_esc(s.color)}"></i>
+        <span>${_esc(s.icon)} ${_esc(s.label)}</span>
+        <b class="${over ? 'neg' : ''}">${_fmtEur(s.spent)}${s.planned > 0 ? `<small> / ${_fmtEur(s.planned)}</small>` : ''}</b>
       </div>`;
   }).join('');
 
   return `
-    <div style="margin-top:20px;background:var(--c);border:1.5px solid var(--c3);border-radius:10px;padding:14px 16px">
-      <div style="font-size:12px;font-weight:700;color:var(--ink2);margin-bottom:12px">R&eacute;partition par cat&eacute;gorie</div>
-      <div class="tri-donut-row" style="display:flex;align-items:center;gap:20px;flex-wrap:wrap">
-        <svg width="100" height="100" viewBox="0 0 100 100" style="flex-shrink:0">
-          <circle cx="${cx}" cy="${cy}" r="${R}" fill="none" stroke="var(--c3)" stroke-width="16"/>
-          ${arcs}
-        </svg>
-        <div style="flex:1;min-width:140px">${legend}</div>
+    <div class="tr-sec">Par catégorie</div>
+    <div class="tr-card tr-donut">
+      <div class="tr-donut-svg">
+        <svg viewBox="0 0 100 100"><circle cx="${cx}" cy="${cy}" r="${R}" fill="none" stroke="var(--hv-chip)" stroke-width="14"/>${arcs}</svg>
+        <div><b>${_fmtEur(total)}</b></div>
       </div>
+      <div class="tr-legs">${legend}</div>
     </div>`;
 }
 
-// ── Bilans tab ────────────────────────────────────────────────────────────────
+// ── Bilans ────────────────────────────────────────────────────────────────────
 
 function _renderBilans(trip, participants, balances, settlements) {
-  if ((trip.realExpenses || []).length === 0) {
+  if ((trip.realExpenses || []).length === 0) return _empty('⚖️', 'Pas encore de bilan', 'Ajoutez des dépenses pour voir qui doit quoi.');
+
+  const max = Math.max(0.01, ...participants.map(p => Math.abs(balances[p.id] ?? 0)));
+  const bars = participants.map(p => {
+    const bal = balances[p.id] ?? 0;
+    const pos = bal > 0.01, neg = bal < -0.01;
+    const w = Math.round(Math.abs(bal) / max * 100);
     return `
-      <div style="text-align:center;padding:40px 20px;color:var(--ink4)">
-        <div style="font-size:32px;margin-bottom:10px">&#x1F4CA;</div>
-        <div style="font-size:13px">Ajoutez des d&eacute;penses pour voir les bilans</div>
-      </div>`;
-  }
-
-  // Balance cards
-  let balCards = '';
-  for (const p of participants) {
-    const bal      = balances[p.id] ?? 0;
-    const isPos    = bal > 0.01;
-    const isNeg    = bal < -0.01;
-    const balClass = isPos ? 'positive' : isNeg ? 'negative' : '';
-    const label    = isPos ? '\xe0 recevoir' : isNeg ? '\xe0 rembourser' : '\xe9quilibr\xe9';
-    const display  = Math.abs(bal) < 0.01 ? '0,00 €' : _fmtEur(Math.abs(bal));
-
-    balCards += `
-      <div class="balance-card" style="max-width:100%">
-        <div class="bc-name" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_esc(p.name)}</div>
-        <div class="bc-amt ${balClass}">${display}</div>
-        <div class="bc-label" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${label}</div>
-      </div>`;
-  }
-
-  // Settlements
-  let settleHtml = '';
-  if (settlements.length > 0) {
-    const rows = settlements.map(s => {
-      const from = participants.find(p => p.id === s.from);
-      const to   = participants.find(p => p.id === s.to);
-      return `
-        <div class="settlement-row">
-          <strong>${_esc(from ? from.name : s.from)}</strong>
-          <span>→</span>
-          <strong>${_esc(to ? to.name : s.to)}</strong>
-          <span>:</span>
-          <span style="font-weight:700;color:var(--teal)">${_fmtEur(s.amount)}</span>
-        </div>`;
-    }).join('');
-
-    settleHtml = `
-      <div class="settlements">
-        <h4>Remboursements sugg&eacute;r&eacute;s</h4>
-        ${rows}
-      </div>`;
-  } else {
-    settleHtml = `
-      <div class="settlements" style="background:var(--tl);border-color:var(--teal)">
-        <h4 style="color:var(--td)">✓ Tout est &eacute;quilibr&eacute;</h4>
-        <div style="font-size:12px;color:var(--td)">Aucun remboursement n&eacute;cessaire.</div>
-      </div>`;
-  }
-
-  return `
-    <div style="font-family:var(--sf);font-size:16px;font-weight:700;margin-bottom:14px">Bilans</div>
-    <div class="balance-cards">${balCards}</div>
-    ${settleHtml}`;
-}
-
-// ── Budget vs Dépenses tab ────────────────────────────────────────────────────
-
-function _renderBudgetVsDep(trip) {
-  const cats        = trip.budgetCats    || [];
-  const expenses    = trip.realExpenses  || [];
-  const budgetLines = trip.budgetLines   || [];
-
-  if (cats.length === 0) {
-    return `
-      <div style="text-align:center;padding:40px 20px;color:var(--ink4)">
-        <div style="font-size:32px;margin-bottom:10px">&#x1F4CA;</div>
-        <div style="font-size:13px">Aucune cat&eacute;gorie de budget d&eacute;finie</div>
-        <div style="font-size:11px;margin-top:4px">Ajoutez des cat&eacute;gories dans le budget pr&eacute;visionnel du voyage</div>
-      </div>`;
-  }
-
-  // Sum real expenses by category
-  const spentByCat = {};
-  for (const exp of expenses) {
-    if (exp.catId) {
-      spentByCat[exp.catId] = (spentByCat[exp.catId] || 0) + _eurAmount(exp);
-    }
-  }
-
-  // Sum budget lines by category
-  const budgetByCat = {};
-  for (const line of budgetLines) {
-    if (line.catId) {
-      budgetByCat[line.catId] = (budgetByCat[line.catId] || 0) + (Number(line.amount) || 0);
-    }
-  }
-
-  let totalPlanned = 0;
-  let totalSpent   = 0;
-  let rows = '';
-
-  for (const cat of cats) {
-    const planned = budgetByCat[cat.id] || 0;
-    const spent   = spentByCat[cat.id]  || 0;
-    const diff    = planned - spent;
-    const isOver  = diff < -0.01;
-    const isUnder = diff > 0.01;
-    const diffColor = isOver ? 'var(--coral)' : isUnder ? 'var(--grn)' : 'var(--ink4)';
-    const diffSign  = isOver ? '+' : '';
-    const pct       = planned > 0 ? Math.min(100, Math.round((spent / planned) * 100)) : (spent > 0 ? 100 : 0);
-    const barColor  = isOver ? 'var(--coral)' : (cat.color || '#0d9488');
-
-    totalPlanned += planned;
-    totalSpent   += spent;
-
-    rows += `
-      <tr>
-        <td>
-          <div style="display:flex;align-items:center;gap:6px">
-            <span style="font-size:15px">${_esc(cat.icon || '📦')}</span>
-            <span style="font-size:12px;font-weight:600;color:var(--ink)">${_esc(cat.name)}</span>
-          </div>
-        </td>
-        <td style="font-weight:600;color:var(--ink2)">${_fmtEur(planned)}</td>
-        <td style="font-weight:700;color:var(--ink)">${_fmtEur(spent)}</td>
-        <td style="font-weight:700;color:${diffColor}">${diffSign}${_fmtEur(Math.abs(diff))}${isOver ? ' &#x26A0;' : ''}</td>
-        <td style="min-width:100px">
-          <div style="display:flex;align-items:center;gap:6px">
-            <div style="flex:1;background:var(--c3);border-radius:4px;height:10px;overflow:hidden;min-width:60px">
-              <div style="width:${pct}%;height:100%;background:${barColor};border-radius:4px;transition:width .3s"></div>
-            </div>
-            <span style="font-size:10px;color:var(--ink4);white-space:nowrap">${pct}%</span>
-          </div>
-        </td>
-      </tr>`;
-  }
-
-  const totalDiff   = totalPlanned - totalSpent;
-  const isOverTotal = totalDiff < -0.01;
-  const totalPct    = totalPlanned > 0 ? Math.min(100, Math.round((totalSpent / totalPlanned) * 100)) : 0;
-  const totalDiffColor = isOverTotal ? 'var(--coral)' : 'var(--grn)';
-  const totalDiffSign  = isOverTotal ? '+' : '';
-  const totalBarColor  = isOverTotal ? 'var(--coral)' : 'var(--grn)';
-
-  const isMobile = window.innerWidth <= 768;
-
-  if (isMobile) {
-    let cards = '';
-    for (const cat of cats) {
-      const planned = budgetByCat[cat.id] || 0;
-      const spent   = spentByCat[cat.id]  || 0;
-      const diff    = planned - spent;
-      const isOver  = diff < -0.01;
-      const diffColor = isOver ? 'var(--coral)' : diff > 0.01 ? 'var(--grn)' : 'var(--ink4)';
-      const diffSign  = isOver ? '+' : '';
-      const pct       = planned > 0 ? Math.min(100, Math.round((spent / planned) * 100)) : (spent > 0 ? 100 : 0);
-      const barColor  = isOver ? 'var(--coral)' : (cat.color || '#0d9488');
-
-      cards += `
-        <div style="background:var(--c);border:1px solid var(--c3);border-radius:10px;padding:11px 13px;margin-bottom:8px">
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
-            <div style="display:flex;align-items:center;gap:7px">
-              <span style="font-size:18px">${_esc(cat.icon||'📦')}</span>
-              <span style="font-size:13px;font-weight:700;color:var(--ink)">${_esc(cat.name)}</span>
-            </div>
-            <span style="font-size:12px;font-weight:700;color:${diffColor}">${diffSign}${_fmtEur(Math.abs(diff))}${isOver?' ⚠️':''}</span>
-          </div>
-          <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--ink3);margin-bottom:7px">
-            <span>Budget : <b style="color:var(--ink2)">${_fmtEur(planned)}</b></span>
-            <span>Dépensé : <b style="color:var(--ink)">${_fmtEur(spent)}</b></span>
-          </div>
-          <div style="display:flex;align-items:center;gap:7px">
-            <div style="flex:1;background:var(--c3);border-radius:4px;height:8px;overflow:hidden">
-              <div style="width:${pct}%;height:100%;background:${barColor};border-radius:4px;transition:width .3s"></div>
-            </div>
-            <span style="font-size:10px;color:var(--ink4);white-space:nowrap;min-width:28px;text-align:right">${pct}%</span>
-          </div>
-        </div>`;
-    }
-
-    const totalDiff2   = totalPlanned - totalSpent;
-    const isOverTotal2 = totalDiff2 < -0.01;
-    const totalDiffColor2 = isOverTotal2 ? 'var(--coral)' : 'var(--grn)';
-    const totalDiffSign2  = isOverTotal2 ? '+' : '';
-
-    return `
-      <div style="font-family:var(--sf);font-size:16px;font-weight:700;margin-bottom:12px">Budget vs D&eacute;penses</div>
-      ${cards}
-      <div style="background:var(--c2);border:1.5px solid var(--c3);border-radius:10px;padding:11px 13px;display:flex;justify-content:space-between;align-items:center">
-        <span style="font-size:13px;font-weight:800;color:var(--ink)">TOTAL</span>
-        <div style="text-align:right">
-          <div style="font-size:12px;color:var(--ink3)">Budget : ${_fmtEur(totalPlanned)} · Dépensé : ${_fmtEur(totalSpent)}</div>
-          <div style="font-size:13px;font-weight:800;color:${totalDiffColor2}">${totalDiffSign2}${_fmtEur(Math.abs(totalDiff2))}${isOverTotal2?' ⚠️':''}</div>
+      <div class="tr-bil">
+        ${_av(p, ' tr-av-l')}
+        <div class="tr-bil-t">
+          <div><b>${_esc(p.name)}</b><span class="${pos ? 'pos' : neg ? 'neg' : ''}">${pos ? '+' : neg ? '−' : ''}${_fmtEur(Math.abs(bal))}</span></div>
+          <div class="tr-bil-bar"><i class="${pos ? 'pos' : 'neg'}" style="width:${pos || neg ? w : 0}%"></i></div>
+          <small>${pos ? 'doit recevoir' : neg ? 'doit rembourser' : 'équilibré'}</small>
         </div>
       </div>`;
-  }
+  }).join('');
+
+  const settle = settlements.length ? settlements.map(st => {
+    const from = participants.find(p => p.id === st.from);
+    const to   = participants.find(p => p.id === st.to);
+    return `
+      <div class="tr-set">
+        ${_av(from)}<span class="tr-set-n">${_esc(from ? from.name : st.from)}</span>
+        <span class="tr-set-arrow">→</span>
+        ${_av(to)}<span class="tr-set-n">${_esc(to ? to.name : st.to)}</span>
+        <b>${_fmtEur(st.amount)}</b>
+      </div>`;
+  }).join('') : `<div class="tr-ok">✓ Tout est équilibré — aucun remboursement nécessaire.</div>`;
 
   return `
-    <div style="font-family:var(--sf);font-size:16px;font-weight:700;margin-bottom:14px">Budget vs D&eacute;penses</div>
-    <div style="overflow-x:auto">
-      <table class="tri-exp-table">
-        <thead>
-          <tr>
-            <th>Cat&eacute;gorie</th>
-            <th>Budget pr&eacute;vu</th>
-            <th>D&eacute;penses r&eacute;elles</th>
-            <th>&Eacute;cart</th>
-            <th>Progression</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${rows}
-          <tr style="border-top:2px solid var(--c3);font-weight:800">
-            <td><span style="font-size:12px;font-weight:800;color:var(--ink)">TOTAL</span></td>
-            <td style="font-weight:800;color:var(--ink)">${_fmtEur(totalPlanned)}</td>
-            <td style="font-weight:800;color:var(--ink)">${_fmtEur(totalSpent)}</td>
-            <td style="font-weight:800;color:${totalDiffColor}">${totalDiffSign}${_fmtEur(Math.abs(totalDiff))}${isOverTotal ? ' &#x26A0;' : ''}</td>
-            <td>
-              <div style="display:flex;align-items:center;gap:6px">
-                <div style="flex:1;background:var(--c3);border-radius:4px;height:10px;overflow:hidden;min-width:60px">
-                  <div style="width:${totalPct}%;height:100%;background:${totalBarColor};border-radius:4px;transition:width .3s"></div>
-                </div>
-                <span style="font-size:10px;color:var(--ink4);white-space:nowrap">${totalPct}%</span>
-              </div>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-    </div>`;
+    <div class="tr-sec">Soldes</div>
+    <div class="tr-card tr-pad">${bars}</div>
+    <div class="tr-sec">Remboursements suggérés</div>
+    <div class="tr-card">${settle}</div>`;
+}
+
+// ── Budget prévu vs dépensé ───────────────────────────────────────────────────
+
+function _renderBudgetVsDep(trip) {
+  const cats        = trip.budgetCats   || [];
+  const expenses    = trip.realExpenses || [];
+  const budgetLines = trip.budgetLines  || [];
+  if (cats.length === 0) return _empty('📊', 'Aucune catégorie de budget', 'Ajoutez des catégories dans le budget prévisionnel du voyage.');
+
+  const spentByCat = {}, budgetByCat = {};
+  for (const exp of expenses) if (exp.catId) spentByCat[exp.catId] = (spentByCat[exp.catId] || 0) + _eurAmount(exp);
+  for (const line of budgetLines) if (line.catId) budgetByCat[line.catId] = (budgetByCat[line.catId] || 0) + (Number(line.amount) || 0);
+
+  let totalPlanned = 0, totalSpent = 0;
+  const row = (icon, name, color, planned, spent, isTotal) => {
+    const diff = planned - spent, over = diff < -0.01;
+    const pct = planned > 0 ? Math.round(spent / planned * 100) : (spent > 0 ? 100 : 0);
+    return `
+      <div class="tr-bud${isTotal ? ' tr-bud-total' : ''}">
+        <div class="tr-bud-h">
+          ${isTotal ? '' : `<span class="tr-ic tr-ic-s" style="--cc:${_esc(color)}">${_esc(icon)}</span>`}
+          <b>${_esc(name)}</b>
+          <span class="${over ? 'neg' : diff > 0.01 ? 'pos' : ''}">${over ? `+${_fmtEur(-diff)} ⚠` : diff > 0.01 ? `reste ${_fmtEur(diff)}` : '—'}</span>
+        </div>
+        <div class="tr-bil-bar"><i style="width:${Math.min(100, pct)}%;background:${over ? 'var(--hv-coral)' : _esc(color)}"></i></div>
+        <small>${_fmtEur(spent)} dépensés${planned ? ` sur ${_fmtEur(planned)} · ${pct} %` : ' · pas de budget prévu'}</small>
+      </div>`;
+  };
+  const rows = cats.map(cat => {
+    const planned = budgetByCat[cat.id] || 0, spent = spentByCat[cat.id] || 0;
+    totalPlanned += planned; totalSpent += spent;
+    return row(cat.icon || '📦', cat.name, cat.color || '#0d9488', planned, spent, false);
+  }).join('');
+
+  return `
+    <div class="tr-card tr-pad">${row('', 'Total', '#0d9488', totalPlanned, totalSpent, true)}</div>
+    <div class="tr-sec">Par catégorie</div>
+    <div class="tr-card tr-pad">${rows}</div>`;
 }
 
 // ── Event delegation ──────────────────────────────────────────────────────────
@@ -866,16 +530,10 @@ function _handleClick(e, tripId) {
 
   const action = btn.dataset.action;
 
-  if (action === 'tri-fab') {
-    const menu = document.getElementById('tri-fab-menu');
-    if (menu) menu.classList.toggle('visible');
-
-  } else if (action === 'add-expense') {
-    document.getElementById('tri-fab-menu')?.classList.remove('visible');
+  if (action === 'add-expense') {
     _openExpenseModal(tripId, null);
 
   } else if (action === 'add-transfer') {
-    document.getElementById('tri-fab-menu')?.classList.remove('visible');
     _openTransferModal(tripId);
 
   } else if (action === 'edit-transfer') {
@@ -1264,6 +922,7 @@ function _openExpenseModal(tripId, expId) {
 
       <div class="ma">
         <button class="bc" onclick="closeModal()">Annuler</button>
+        ${isEdit ? `<button class="bc" id="ex-delete" style="color:var(--coral)">🗑 Supprimer</button>` : ''}
         <button class="bs" id="ex-save">Enregistrer</button>
       </div>`;
   }
@@ -1535,12 +1194,23 @@ function _openExpenseModal(tripId, expId) {
       renderTricount(tripId);
     });
 
+    document.getElementById('ex-delete')?.addEventListener('click', () => {
+      if (!confirm('Supprimer cette d\xe9pense ?')) return;
+      const fresh = getTrip(tripId);
+      if (!fresh) { closeModal(); return; }
+      updateTrip(tripId, { realExpenses: (fresh.realExpenses || []).filter(ex => ex.id !== expId) });
+      notify('D\xe9pense supprim\xe9e', '🗑');
+      updateTopStats(tripId);
+      closeModal();
+      renderTricount(tripId);
+    });
+
     attachCalcKeypad(document.getElementById('ex-amount'));
     document.querySelectorAll('#ex-split-section .tri-part-amount').forEach(attachCalcKeypad);
     document.querySelectorAll('#ex-payer-split-section .tri-payer-amount').forEach(attachCalcKeypad);
   }
 
-  showModal(buildHtml());
+  showModal(buildHtml(), { boxClass: 'hv2-modal tri-modal' });
   attachEvents();
 }
 
@@ -1604,7 +1274,7 @@ function _openTransferModal(tripId, expId = null) {
       <button class="bc" onclick="closeModal()">Annuler</button>
       ${isEdit ? `<button class="bc" id="tr-delete" style="color:var(--coral)">🗑 Supprimer</button>` : ''}
       <button class="bs" id="tr-save">Enregistrer</button>
-    </div>`);
+    </div>`, { boxClass: 'hv2-modal tri-modal' });
 
   attachCalcKeypad(document.getElementById('tr-amount'));
 

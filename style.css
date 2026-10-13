@@ -2848,11 +2848,11 @@ html::after{
    BAGAGES v2 (v238) — sous-vue « Bagages » de l'écran voyage, style des modales v2
    ══════════════════════════════════════════════════════════════════════════════ */
 .tv2-subbar{padding-top:calc(min(env(safe-area-inset-top,0px),59px) + 6px);padding-left:12px;padding-right:12px}
-.pk,#screen-app.tv2-sub-v2,.pk-modal{
+.pk,#screen-app.tv2-sub-v2,.pk-modal,.tr,.tri-modal{
   --hv-sheet:#ffffff; --hv-bg2:#f3f5f7; --hv-ink:#0f2233; --hv-ink2:#64748b; --hv-line:#e5e9ee;
   --hv-dark:#0d2436; --hv-coral:#ef2d56; --hv-chip:#e9edf1; --hv-accent:#0d9488;
 }
-[data-theme="dark"] .pk,[data-theme="dark"] #screen-app.tv2-sub-v2,[data-theme="dark"] .pk-modal{
+[data-theme="dark"] .pk,[data-theme="dark"] #screen-app.tv2-sub-v2,[data-theme="dark"] .pk-modal,[data-theme="dark"] .tr,[data-theme="dark"] .tri-modal{
   --hv-sheet:#14181d; --hv-bg2:#1c2128; --hv-ink:#eef2f5; --hv-ink2:#94a3af; --hv-line:#272e36;
   --hv-dark:#e9eef2; --hv-chip:#262d35;
 }
@@ -2862,7 +2862,7 @@ html::after{
 #screen-app.tv2-sub-v2 .tv2-subbar-t small{color:var(--hv-ink2)}
 #screen-app.tv2-sub-v2 .tv2-subbar-t b{color:var(--hv-ink);font-size:24px}
 
-.pk{font-family:var(--fn);color:var(--hv-ink);max-width:1100px;margin:0 auto;padding:6px 16px 120px}
+.pk{font-family:var(--fn);color:var(--hv-ink);max-width:1100px;width:100%;min-width:0;box-sizing:border-box;margin:0 auto;padding:6px 16px 120px}
 .pk-hero{display:flex;align-items:center;gap:16px;background:var(--hv-sheet);border-radius:20px;padding:16px 18px;box-shadow:0 1px 3px rgba(15,34,51,.06)}
 .pk-ring-wrap{position:relative;width:72px;height:72px;flex-shrink:0}
 .pk-ring{width:72px;height:72px;transform:rotate(-90deg)}
@@ -2936,3 +2936,100 @@ html::after{
 .pk-save{display:block;width:100%;margin-top:22px;padding:15px;border:none;border-radius:16px;background:var(--hv-dark);color:var(--hv-sheet);font:800 15px var(--fn);cursor:pointer}
 .pk-save:active{transform:scale(.98)}
 .pk-del{display:block;width:100%;margin-top:8px;padding:13px;border:none;background:none;color:var(--hv-coral);font:800 14px var(--fn);cursor:pointer}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   DÉPENSES PARTAGÉES v2 (v239) — sous-vue Budget ↔ Dépenses, onglet Dépenses
+   (tricount.js, classes .tr-*), mêmes tokens que Bagages (.pk-*)
+   ══════════════════════════════════════════════════════════════════════════════ */
+.tr{font-family:var(--fn);color:var(--hv-ink);max-width:760px;width:100%;min-width:0;box-sizing:border-box;margin:0 auto;padding:6px 16px 150px}
+.tr-hero{background:var(--hv-sheet);border-radius:20px;padding:18px 18px 14px;box-shadow:0 1px 3px rgba(15,34,51,.06)}
+.tr-hero-l{display:block;font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:var(--hv-ink2)}
+.tr-hero-v{display:block;font-size:34px;font-weight:800;letter-spacing:-1px;margin-top:2px}
+.tr-hero-s{display:block;font-size:13px;font-weight:600;color:var(--hv-ink2);margin-top:2px}
+.tr-bals{display:flex;gap:8px;overflow-x:auto;margin:14px -18px 0;padding:0 18px 2px;scrollbar-width:none}
+.tr-bals::-webkit-scrollbar{display:none}
+.tr-bal{display:flex;align-items:center;gap:8px;flex-shrink:0;background:var(--hv-chip);border-radius:999px;padding:5px 12px 5px 5px}
+.tr-bal-n{font-size:13px;font-weight:700;max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tr-bal-v{font-size:13px;font-weight:800;color:var(--hv-ink2)}
+.tr .pos{color:#16a34a!important}
+.tr .neg{color:var(--hv-coral)!important}
+.tr-av{width:28px;height:28px;border-radius:50%;color:#fff;font-size:10px;font-weight:800;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0}
+.tr-av-l{width:38px;height:38px;font-size:12.5px}
+.tr-actions{display:flex;gap:8px;margin:14px 0}
+.tr-seg{display:flex;background:var(--hv-chip);border-radius:12px;padding:3px;gap:2px;max-width:440px}
+.tr-seg button{flex:1;border:none;background:none;border-radius:9px;padding:9px 4px;font:700 13px var(--fn);color:var(--hv-ink2);cursor:pointer}
+.tr-seg button.on{background:var(--hv-sheet);color:var(--hv-ink);box-shadow:0 1px 4px rgba(0,0,0,.12)}
+.tr-sec{font-size:12px;font-weight:800;color:var(--hv-ink2);text-transform:uppercase;letter-spacing:.5px;margin:22px 4px 8px}
+.tr-day{display:flex;justify-content:space-between;align-items:baseline;margin:20px 4px 8px;font-size:13px;font-weight:800;color:var(--hv-ink2)}
+.tr-day b{font-size:13px;color:var(--hv-ink)}
+.tr-card{background:var(--hv-sheet);border-radius:18px;overflow:hidden;box-shadow:0 1px 3px rgba(15,34,51,.06)}
+.tr-pad{padding:6px 14px}
+.tr-row{display:flex;align-items:center;gap:12px;width:100%;padding:11px 14px;border:none;background:none;text-align:left;font-family:var(--fn);color:var(--hv-ink);cursor:pointer;box-shadow:inset 0 1px 0 var(--hv-line)}
+.tr-row:first-child{box-shadow:none}
+.tr-row:active{background:var(--hv-chip)}
+.tr-ic{width:40px;height:40px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:19px;flex-shrink:0;background:color-mix(in srgb,var(--cc) 16%,transparent)}
+.tr-ic-s{width:30px;height:30px;border-radius:9px;font-size:15px}
+.tr-txt{flex:1;min-width:0}
+.tr-txt b{display:block;font-size:14.5px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tr-txt small{display:block;font-size:12px;font-weight:600;color:var(--hv-ink2);margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tr-amt{text-align:right;font-size:14.5px;font-weight:800;white-space:nowrap;flex-shrink:0}
+.tr-amt small{display:block;font-size:11px;font-weight:700;color:var(--hv-ink2)}
+.tr-amt-muted{color:var(--hv-ink2)}
+.tr-donut{display:flex;align-items:center;gap:18px;padding:16px;flex-wrap:wrap}
+.tr-donut-svg{position:relative;width:118px;height:118px;flex-shrink:0}
+.tr-donut-svg svg{width:100%;height:100%}
+.tr-donut-svg > div{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:800;text-align:center;padding:0 22px}
+.tr-legs{flex:1;min-width:170px}
+.tr-leg{display:flex;align-items:center;gap:8px;padding:5px 0;font-size:13px;font-weight:700}
+.tr-leg i{width:10px;height:10px;border-radius:50%;flex-shrink:0}
+.tr-leg span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tr-leg b{white-space:nowrap}
+.tr-leg small{font-weight:600;color:var(--hv-ink2)}
+.tr-bil{display:flex;align-items:center;gap:12px;padding:10px 0;box-shadow:inset 0 1px 0 var(--hv-line)}
+.tr-bil:first-child{box-shadow:none}
+.tr-bil-t{flex:1;min-width:0}
+.tr-bil-t > div:first-child{display:flex;justify-content:space-between;gap:8px;font-size:14.5px;font-weight:700}
+.tr-bil-t > div:first-child span{font-weight:800}
+.tr-bil-t small,.tr-bud small{display:block;font-size:12px;font-weight:600;color:var(--hv-ink2);margin-top:4px}
+.tr-bil-bar{height:7px;border-radius:4px;background:var(--hv-chip);overflow:hidden;margin-top:6px}
+.tr-bil-bar i{display:block;height:100%;border-radius:4px;transition:width .4s}
+.tr-bil-bar i.pos{background:#22c55e}
+.tr-bil-bar i.neg{background:var(--hv-coral)}
+.tr-set{display:flex;align-items:center;gap:8px;padding:12px 14px;box-shadow:inset 0 1px 0 var(--hv-line);font-size:14px}
+.tr-set:first-child{box-shadow:none}
+.tr-set-n{font-weight:700;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tr-set-arrow{color:var(--hv-ink2);font-weight:800}
+.tr-set b{margin-left:auto;font-size:15px;font-weight:800;color:var(--hv-accent);white-space:nowrap}
+.tr-ok{padding:16px;font-size:14px;font-weight:700;color:#16a34a}
+.tr-bud{padding:11px 0;box-shadow:inset 0 1px 0 var(--hv-line)}
+.tr-bud:first-child{box-shadow:none}
+.tr-bud-h{display:flex;align-items:center;gap:10px}
+.tr-bud-h b{flex:1;font-size:14.5px;font-weight:700;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tr-bud-h span{font-size:13px;font-weight:800;color:var(--hv-ink2);white-space:nowrap}
+.tr-bud-total .tr-bud-h b{font-size:17px;font-weight:800}
+.tr-empty{margin-top:16px}
+
+/* Fenêtres Dépense / Virement : mêmes champs, habillage v2 (tokens locaux remappés
+   pour que les styles en ligne de l'éditeur de répartition suivent) */
+.mbox.tri-modal{--c:var(--hv-sheet);--c2:var(--hv-chip);--c3:var(--hv-line);--ink:var(--hv-ink);--ink3:var(--hv-ink2);--ink4:var(--hv-ink2)}
+.mbox.tri-modal h3{font-family:var(--fn);font-size:22px;font-weight:800;letter-spacing:-.3px;margin:0 0 14px;padding:calc(var(--hv-safe-t,0px) + 16px) 52px 0 0}
+.mbox.tri-modal:not(.mbox-fullscreen-mobile) h3{padding-top:18px}
+.mbox.tri-modal .mc{top:12px;right:14px;width:40px;height:40px;border-radius:50%;background:var(--hv-sheet);color:var(--hv-ink);font-size:15px;box-shadow:0 1px 3px rgba(15,34,51,.1)}
+.mbox.tri-modal .fg{margin-bottom:14px}
+.mbox.tri-modal .fg > label,.mbox.tri-modal .fg > div > label:first-child{font-size:12px!important;font-weight:800!important;color:var(--hv-ink2)!important;letter-spacing:.5px;margin:0 4px 6px}
+.mbox.tri-modal .fg input:not([type=checkbox]),.mbox.tri-modal .fg select,.mbox.tri-modal .fg textarea{background:var(--hv-sheet);border:none;border-radius:14px;padding:13px 14px;font-size:15px;font-weight:600;color:var(--hv-ink);box-shadow:inset 0 0 0 1px var(--hv-line)}
+.mbox.tri-modal .fg input:focus,.mbox.tri-modal .fg select:focus,.mbox.tri-modal .fg textarea:focus{box-shadow:inset 0 0 0 2px var(--hv-accent)}
+.mbox.tri-modal #ex-amount,.mbox.tri-modal #tr-amount{font-size:24px;font-weight:800;letter-spacing:-.5px}
+.mbox.tri-modal #ex-currency{width:120px!important;border:none!important;border-radius:14px!important;padding:14px 10px!important;font-weight:700!important}
+.mbox.tri-modal .fg label[style*="cursor:pointer"]:has(input[type=checkbox]){border-radius:12px!important;padding:8px 10px!important}
+.mbox.tri-modal .tri-part-amount,.mbox.tri-modal .tri-payer-amount{padding:6px 8px!important;font-size:13px!important;border-radius:9px!important;width:84px!important}
+.mbox.tri-modal p{color:var(--hv-ink2)!important;font-size:13px!important;font-weight:600}
+.mbox.tri-modal .ma{flex-wrap:wrap;gap:8px;margin-top:20px}
+.mbox.tri-modal .ma .bs{order:-1;flex:1 1 100%;padding:15px;border-radius:16px;background:var(--hv-dark);color:var(--hv-sheet);font-size:15px;font-weight:800;box-shadow:none}
+.mbox.tri-modal .ma .bc{flex:1;padding:12px;border-radius:14px;background:var(--hv-sheet);color:var(--hv-ink);font-weight:700;font-size:14px}
+.tr-donut-svg{width:104px;height:104px}
+.tr-legs{min-width:150px}
+.tr-leg{align-items:flex-start}
+.tr-leg i{margin-top:5px}
+.tr-leg b{text-align:right}
+.tr-leg b small{display:block;font-size:11px}

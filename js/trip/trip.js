@@ -100,14 +100,7 @@ async function _openSubview(view, tab) {
   if (!trip) return;
   _view = view;
   _v2Mod?.hideTripV2();
-  // Sous-vues déjà refaites au style v2 (fond gris, en-tête sans bordure)
-  const v2Sub = view === 'packing';
-  document.getElementById('screen-app')?.classList.toggle('tv2-sub-v2', v2Sub);
-  if (v2Sub) {
-    const bg = document.documentElement.dataset.theme === 'dark' ? '#1c2128' : '#f3f5f7';
-    document.documentElement.style.setProperty('background', bg, 'important');
-    document.body.style.setProperty('background', bg, 'important');
-  }
+  _markV2Sub(view === 'packing' || (view === 'money' && tab === 'tricount'));
   const titles = { mapcal: 'Planning détaillé', packing: 'Bagages', budget: 'Budget', tricount: 'Dépenses partagées' };
   const panelTab = view === 'events' ? 'mapcal' : view === 'packing' ? 'packing' : (tab || 'budget');
   const topbar = document.getElementById('topbar');
@@ -143,10 +136,24 @@ async function _openSubview(view, tab) {
       nav.querySelectorAll('[data-sub]').forEach(x => x.classList.toggle('active', x === b));
       const t = document.getElementById('tv2-sub-title');
       if (t) t.textContent = titles[b.dataset.sub];
+      _markV2Sub(b.dataset.sub === 'tricount');
       switchTab(b.dataset.sub);
     });
   }
   await switchTab(panelTab);
+}
+
+/**
+ * Sous-vues déjà refaites au style v2 (Bagages, Dépenses partagées) : page grise
+ * sans bordure d'en-tête, et html/body de la même couleur (bande iOS en bas).
+ */
+function _markV2Sub(on) {
+  document.getElementById('screen-app')?.classList.toggle('tv2-sub-v2', on);
+  const bg = !on ? '' : document.documentElement.dataset.theme === 'dark' ? '#1c2128' : '#f3f5f7';
+  for (const el of [document.documentElement, document.body]) {
+    if (bg) el.style.setProperty('background', bg, 'important');
+    else el.style.removeProperty('background');
+  }
 }
 
 /** Données modifiées (réseau, autre appareil) : rafraîchit la vue affichée sans la quitter. */
