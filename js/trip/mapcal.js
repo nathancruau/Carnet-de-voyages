@@ -79,6 +79,31 @@ async function _fetchDayWeather(lat, lng, date) {
 // Geocoding cache for day regions (key: region string → {lat, lng} | null)
 const _geoCache = {};
 
+// Hébergement : on saisit Arrivée / Départ, mais on stocke toujours première et
+// dernière NUIT (dateFrom / dateTo incluses, format inchangé — compatible prod).
+// Du 29 au 30 = 1 nuit (le 29) ; du 29 au 31 = 2 nuits (le 29 et le 30).
+function _isoShift(iso, n) {
+  if (!iso) return '';
+  const d = isoToDate(iso);
+  d.setDate(d.getDate() + n);
+  return dateToIso(d);
+}
+function _nightsLabel(from, out) {
+  if (!from || !out || out <= from) return '';
+  const n = Math.round((isoToDate(out) - isoToDate(from)) / 86400000);
+  return `🌙 ${n} nuit${n > 1 ? 's' : ''}`;
+}
+
+// Compteur « N nuits » en direct sous Arrivée / Départ (fenêtres d'ajout et de modification)
+document.addEventListener('input', e => {
+  const m = /^(ae|ee|edp)-sleep-(from|out)$/.exec(e.target?.id || '');
+  if (!m) return;
+  const from = document.getElementById(`${m[1]}-sleep-from`), out = document.getElementById(`${m[1]}-sleep-out`);
+  if (m[2] === 'from' && from?.value && out && (!out.value || out.value <= from.value)) out.value = _isoShift(from.value, 1);
+  const lbl = document.getElementById(`${m[1]}-sleep-n`);
+  if (lbl) lbl.textContent = _nightsLabel(from?.value, out?.value) || 'Le départ doit être après l’arrivée';
+});
+
 async function _geocodeRegion(text) {
   if (!text) return null;
   const key = text.toLowerCase().trim();
@@ -704,7 +729,7 @@ function _openGpxImportModal(tripId, track, stats) {
         ${evtTypes.map(et => {
           const active = et.key === selType;
           return `<button class="tp${active ? ' sel' : ''}" data-gi-type="${_esc(et.key)}"
-            style="${active ? `background:${et.color};border-color:${et.color};color:#fff` : ''}">${et.emoji} ${et.label}</button>`;
+            style="${active ? `background:${et.color};border-color:${et.color};color:#fff` : ''}"><b>${et.emoji}</b><span>${_esc(et.label)}</span></button>`;
         }).join('')}
       </div>
     </div>
@@ -1744,7 +1769,7 @@ function _openEditEventModal(dayId, evtIdx, tripId) {
     return evtTypes.map(et => {
       const active = et.key === selType;
       return `<button class="tp${active ? ' sel' : ''}" data-ee-type="${_esc(et.key)}"
-        style="${active ? `background:${et.color};border-color:${et.color};color:#fff` : ''}">${et.emoji} ${et.label}</button>`;
+        style="${active ? `background:${et.color};border-color:${et.color};color:#fff` : ''}"><b>${et.emoji}</b><span>${_esc(et.label)}</span></button>`;
     }).join('');
   }
 
@@ -1752,7 +1777,7 @@ function _openEditEventModal(dayId, evtIdx, tripId) {
     return ['car','train','bus','plane','ferry','foot','bike'].map(m => {
       const active = m === selTransport;
       return `<button class="tp${active ? ' sel' : ''}" data-ee-mode="${m}"
-        style="${active ? `background:${trCol(m)};border-color:${trCol(m)};color:#fff` : ''}">${trIc(m)} ${trNm(m)}</button>`;
+        style="${active ? `background:${trCol(m)};border-color:${trCol(m)};color:#fff` : ''}"><b>${trIc(m)}</b><span>${trNm(m)}</span></button>`;
     }).join('');
   }
 
@@ -1774,17 +1799,18 @@ function _openEditEventModal(dayId, evtIdx, tripId) {
     </div>` : ''}
     <div class="fg">
       <label>Type</label>
-      <div style="display:flex;gap:6px;flex-wrap:wrap" id="ee-types">${_typeBtnsHtml()}</div>
+      <div class="ev-tiles" style="display:flex;gap:6px;flex-wrap:wrap" id="ee-types">${_typeBtnsHtml()}</div>
     </div>
     <div id="ee-transport-row" style="display:${selType === 'drive' ? '' : 'none'}" class="fg">
       <label>Mode de transport</label>
-      <div style="display:flex;gap:6px;flex-wrap:wrap" id="ee-modes">${_modeBtnsHtml()}</div>
+      <div class="ev-tiles" style="display:flex;gap:6px;flex-wrap:wrap" id="ee-modes">${_modeBtnsHtml()}</div>
     </div>
     <div id="ee-sleep-dates" style="display:${selType === 'sleep' ? '' : 'none'}" class="fg">
-      <label>Première nuit</label>
+      <label>Arrivée</label>
       <input type="date" id="ee-sleep-from" value="${_esc(item.dateFrom || day.date || '')}" min="${tripStart}" max="${tripEnd}">
-      <label style="display:block;margin-top:8px">Dernière nuit</label>
-      <input type="date" id="ee-sleep-to" value="${_esc(item.dateTo || tripEnd || '')}" min="${tripStart}" max="${tripEnd}">
+      <label style="display:block;margin-top:8px">Départ</label>
+      <input type="date" id="ee-sleep-out" value="${_esc(_isoShift(item.dateTo || item.dateFrom || day.date, 1))}" min="${_isoShift(tripStart, 1)}" max="${_isoShift(tripEnd, 1)}">
+      <div class="sleep-nights" id="ee-sleep-n">${_nightsLabel(item.dateFrom || day.date, _isoShift(item.dateTo || item.dateFrom || day.date, 1))}</div>
     </div>
     <div class="fg">
       <label>Description</label>
@@ -1847,7 +1873,6 @@ function _openEditEventModal(dayId, evtIdx, tripId) {
   const locWidgetEl = document.getElementById('ee-loc-widget');
   if (locWidgetEl) {
     _buildLocationSearch(locWidgetEl, ({ lat, lng, label }) => setLoc({ lat, lng, label: (label || '').split(',')[0] }), null);
-    locWidgetEl.querySelector('#loc-map-click')?.parentElement?.remove();
     locWidgetEl.querySelector('#loc-selected')?.remove();
   }
   document.getElementById('ee-loc-here')?.addEventListener('click', () => {
@@ -1904,10 +1929,10 @@ function _openEditEventModal(dayId, evtIdx, tripId) {
     const notes = document.getElementById('ee-notes')?.value  || '';
 
     const sleepFrom = selType === 'sleep' ? (document.getElementById('ee-sleep-from')?.value || null) : null;
-    const sleepTo   = selType === 'sleep' ? (document.getElementById('ee-sleep-to')?.value   || null) : null;
+    const sleepTo   = selType === 'sleep' ? (_isoShift(document.getElementById('ee-sleep-out')?.value, -1) || null) : null;
     if (selType === 'sleep') {
-      if (!sleepFrom || !sleepTo) { notify('Les dates de début et de fin sont requises', '⚠️'); return; }
-      if (sleepFrom > sleepTo)    { notify('La date de fin doit être après la date de début', '⚠️'); return; }
+      if (!sleepFrom || !sleepTo) { notify("Les dates d'arrivée et de départ sont requises", '⚠️'); return; }
+      if (sleepFrom > sleepTo)    { notify("Le départ doit être au moins le lendemain de l'arrivée", '⚠️'); return; }
       if (tripStart && sleepFrom < tripStart) { notify('La date de début est avant le voyage', '⚠️'); return; }
       if (tripEnd   && sleepTo   > tripEnd)   { notify('La date de fin est après le voyage',   '⚠️'); return; }
     }
@@ -2107,7 +2132,7 @@ function _openEDP(dayId, evtIdx, tripId) {
     return evtTypesEdp.map(et => {
       const active = et.key === edpType;
       return `<button type="button" class="tp${active ? ' sel' : ''}" data-edp-type="${_esc(et.key)}"
-        style="font-size:11px;padding:3px 8px;${active ? `background:${et.color};border-color:${et.color};color:#fff` : ''}">${et.emoji} ${et.label}</button>`;
+        style="font-size:11px;padding:3px 8px;${active ? `background:${et.color};border-color:${et.color};color:#fff` : ''}"><b>${et.emoji}</b><span>${_esc(et.label)}</span></button>`;
     }).join('');
   }
 
@@ -2115,7 +2140,7 @@ function _openEDP(dayId, evtIdx, tripId) {
     return ['car','train','bus','plane','ferry','foot','bike'].map(m => {
       const active = m === edpTransport;
       return `<button type="button" class="tp${active ? ' sel' : ''}" data-edp-mode="${m}"
-        style="font-size:11px;padding:3px 8px;${active ? `background:${trCol(m)};border-color:${trCol(m)};color:#fff` : ''}">${trIc(m)} ${trNm(m)}</button>`;
+        style="font-size:11px;padding:3px 8px;${active ? `background:${trCol(m)};border-color:${trCol(m)};color:#fff` : ''}"><b>${trIc(m)}</b><span>${trNm(m)}</span></button>`;
     }).join('');
   }
 
@@ -2144,12 +2169,12 @@ function _openEDP(dayId, evtIdx, tripId) {
         <div class="edp-sect-lbl">Nuits passées ici</div>
         <div style="display:flex;gap:10px">
           <div style="flex:1">
-            <div style="font-size:11px;color:var(--ink3);margin-bottom:3px">Première nuit</div>
+            <div style="font-size:11px;color:var(--ink3);margin-bottom:3px">Arrivée</div>
             <input type="date" id="edp-sleep-from" value="${_esc(item.dateFrom || day.date || '')}" min="${_edpStart}" max="${_edpEnd}" style="${inputStyle}">
           </div>
           <div style="flex:1">
-            <div style="font-size:11px;color:var(--ink3);margin-bottom:3px">Dernière nuit</div>
-            <input type="date" id="edp-sleep-to" value="${_esc(item.dateTo || _edpEnd || '')}" min="${_edpStart}" max="${_edpEnd}" style="${inputStyle}">
+            <div style="font-size:11px;color:var(--ink3);margin-bottom:3px">Départ</div>
+            <input type="date" id="edp-sleep-out" value="${_esc(_isoShift(item.dateTo || item.dateFrom || day.date, 1))}" min="${_isoShift(_edpStart, 1)}" max="${_isoShift(_edpEnd, 1)}" style="${inputStyle}">
           </div>
         </div>
       </div>
@@ -2398,10 +2423,10 @@ function _openEDP(dayId, evtIdx, tripId) {
     const newEt    = getEventTypes().find(et => et.key === edpType);
 
     const sleepFrom = edpType === 'sleep' ? (document.getElementById('edp-sleep-from')?.value || null) : null;
-    const sleepTo   = edpType === 'sleep' ? (document.getElementById('edp-sleep-to')?.value   || null) : null;
+    const sleepTo   = edpType === 'sleep' ? (_isoShift(document.getElementById('edp-sleep-out')?.value, -1) || null) : null;
     if (edpType === 'sleep') {
-      if (!sleepFrom || !sleepTo) { notify('Les dates de début et de fin sont requises', '⚠️'); return; }
-      if (sleepFrom > sleepTo) { notify('La date de fin doit être après la date de début', '⚠️'); return; }
+      if (!sleepFrom || !sleepTo) { notify("Les dates d'arrivée et de départ sont requises", '⚠️'); return; }
+      if (sleepFrom > sleepTo) { notify("Le départ doit être au moins le lendemain de l'arrivée", '⚠️'); return; }
       if (_edpStart && sleepFrom < _edpStart) { notify('La date de début est avant le voyage', '⚠️'); return; }
       if (_edpEnd   && sleepTo   > _edpEnd)   { notify('La date de fin est après le voyage',   '⚠️'); return; }
     }
@@ -3101,6 +3126,9 @@ function _buildLocationSearch(container, onSelect, onMapClick) {
   mapClickBtn.addEventListener('click', () => {
     if (onMapClick) onMapClick();
   });
+  // Pas de carte Leaflet ouverte (fenêtre ouverte depuis l'écran voyage v2) : « cliquer sur
+  // la carte » ne mènerait nulle part — seule la recherche de lieu reste proposée.
+  if (!onMapClick || !_map) mapClickBtn.parentElement?.remove();
 
   // Expose a method to set the selected display (e.g. after map click)
   return {
@@ -3351,7 +3379,7 @@ function _openAddEventModal(dayId, tripId, prefill = null) {
     return evtTypes.map(et => {
       const active = et.key === selType;
       return `<button class="tp${active ? ' sel' : ''}" data-ae-type="${_esc(et.key)}"
-        style="${active ? `background:${et.color};border-color:${et.color};color:#fff` : ''}">${et.emoji} ${et.label}</button>`;
+        style="${active ? `background:${et.color};border-color:${et.color};color:#fff` : ''}"><b>${et.emoji}</b><span>${_esc(et.label)}</span></button>`;
     }).join('');
   }
 
@@ -3360,14 +3388,14 @@ function _openAddEventModal(dayId, tripId, prefill = null) {
 
     <div class="fg">
       <label>Type</label>
-      <div style="display:flex;gap:6px;flex-wrap:wrap" id="ae-types">
+      <div class="ev-tiles" style="display:flex;gap:6px;flex-wrap:wrap" id="ae-types">
         ${_aeTypeBtnsHtml()}
       </div>
     </div>
 
     <div id="ae-transport-row" style="display:${selType === 'drive' ? '' : 'none'}" class="fg">
       <label>Mode de transport</label>
-      <div style="display:flex;gap:6px;flex-wrap:wrap" id="ae-modes">
+      <div class="ev-tiles" style="display:flex;gap:6px;flex-wrap:wrap" id="ae-modes">
         <button class="tp sel" data-ae-mode="car"   style="background:${trCol('car')};border-color:${trCol('car')};color:#fff">🚗 Voiture</button>
         <button class="tp" data-ae-mode="train"  >🚆 Train</button>
         <button class="tp" data-ae-mode="ferry"  >⛴ Ferry</button>
@@ -3398,12 +3426,13 @@ function _openAddEventModal(dayId, tripId, prefill = null) {
     </div>
 
     <div id="ae-sleep-dates" style="display:${selType === 'sleep' ? '' : 'none'}" class="fg">
-      <label>Première nuit</label>
+      <label>Arrivée</label>
       <input type="date" id="ae-sleep-from" value="${_aeDate}" min="${_aeStart}" max="${_aeEnd}"
         style="width:100%;padding:5px 8px;border:1.5px solid var(--c3);border-radius:6px;font-size:14px;background:var(--c);color:var(--ink)">
-      <label style="display:block;margin-top:8px">Dernière nuit</label>
-      <input type="date" id="ae-sleep-to" value="${_aeEnd}" min="${_aeStart}" max="${_aeEnd}"
+      <label style="display:block;margin-top:8px">Départ</label>
+      <input type="date" id="ae-sleep-out" value="${_isoShift(_aeDate, 1)}" min="${_isoShift(_aeStart, 1)}" max="${_isoShift(_aeEnd, 1)}"
         style="width:100%;padding:5px 8px;border:1.5px solid var(--c3);border-radius:6px;font-size:14px;background:var(--c);color:var(--ink)">
+      <div class="sleep-nights" id="ae-sleep-n">${_nightsLabel(_aeDate, _isoShift(_aeDate, 1))}</div>
     </div>
 
     <div class="fg">
@@ -3549,7 +3578,8 @@ function _openAddEventModal(dayId, tripId, prefill = null) {
       } : {}),
       ...(selType === 'sleep' ? {
         dateFrom: document.getElementById('ae-sleep-from')?.value || null,
-        dateTo:   document.getElementById('ae-sleep-to')?.value   || null,
+        // Départ → dernière nuit = la veille du départ
+        dateTo:   _isoShift(document.getElementById('ae-sleep-out')?.value, -1) || null,
       } : {}),
     };
 
@@ -3593,8 +3623,8 @@ function _openAddEventModal(dayId, tripId, prefill = null) {
     // Date validation for sleep events
     if (selType === 'sleep') {
       const df = event.dateFrom, dt = event.dateTo;
-      if (!df || !dt) { notify('Les dates de début et de fin sont requises', '⚠️'); return; }
-      if (df > dt) { notify('La date de fin doit être après la date de début', '⚠️'); return; }
+      if (!df || !dt) { notify("Les dates d'arrivée et de départ sont requises", '⚠️'); return; }
+      if (df > dt) { notify("Le départ doit être au moins le lendemain de l'arrivée", '⚠️'); return; }
       if (_aeStart && df < _aeStart) { notify('La date de début est avant le voyage', '⚠️'); return; }
       if (_aeEnd   && dt > _aeEnd)   { notify('La date de fin est après le voyage',   '⚠️'); return; }
     }

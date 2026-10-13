@@ -45,7 +45,6 @@ const ICON = {
   back:  '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>',
   down:  '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>',
   gear:  '<svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>',
-  cal:   '<svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4.5" width="18" height="16.5" rx="2.5"/><path d="M16 2.5v4M8 2.5v4M3 10h18"/></svg>',
   bag:   '<svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="7" width="16" height="13" rx="2.5"/><path d="M9 7V5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2M4 12h16"/></svg>',
   money: '<svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="6" width="19" height="13" rx="2.5"/><circle cx="12" cy="12.5" r="2.6"/><path d="M6 9.5h.01M18 15.5h.01"/></svg>',
   menu:  '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg>',
@@ -131,7 +130,7 @@ function _tripPins(trip, observer) {
 
 /**
  * Affiche la vue d'ensemble du voyage dans #screen-app.
- * opts = { onOpenView(view) } — view : 'events' | 'packing' | 'money'
+ * opts = { onOpenView(view) } — view : 'packing' | 'money'
  */
 export async function renderTripV2(tripId, { observer = false, onOpenView } = {}) {
   _tripId = tripId; _observer = observer; _opts = { onOpenView };
@@ -218,7 +217,6 @@ function _renderOwner(host, trip) {
     `<span style="background:${_esc(c.color || '#64748b')}">${_esc((c.name || '?').trim().slice(0, 1).toUpperCase())}</span>`).join('');
   const actions = small => `
     <button class="hv2-round${small ? ' hv2-round-light tv2-sm' : ''}" data-tv="settings" title="Réglages du voyage">${ICON.gear}</button>
-    <button class="hv2-round${small ? ' hv2-round-light tv2-sm' : ''}" data-tv="events" title="Planning détaillé">${ICON.cal}</button>
     <button class="hv2-round${small ? ' hv2-round-light tv2-sm' : ''}" data-tv="packing" title="Bagages">${ICON.bag}</button>
     <button class="hv2-round${small ? ' hv2-round-light tv2-sm' : ''}" data-tv="money" title="Budget & dépenses">${ICON.money}</button>`;
 
@@ -425,6 +423,10 @@ function _openLegModes(legIdx) {
   });
 }
 
+function _nightCount(item) {
+  return Math.max(1, Math.round((new Date(item.dateTo + 'T12:00:00') - new Date(item.dateFrom + 'T12:00:00')) / 86400000) + 1);
+}
+
 function _planHtml(trip) {
   const ets = Object.fromEntries(getEventTypes().map(et => [et.key, et]));
   const days = trip.days || [];
@@ -433,6 +435,8 @@ function _planHtml(trip) {
       <button class="tv2-btn" data-tv="add-day">＋ Ajouter un jour</button></div>`;
   }
   const { byItem, departs, returns } = _collectLegs(trip);
+  const sleeps = [];
+  days.forEach(d => (d.items || []).forEach((it, idx) => { if (it.type === 'sleep' && it.dateFrom && it.dateTo) sleeps.push({ day: d, idx, item: it }); }));
   let num = 0;
   const start = days[0]?.date || trip.startDate;
   const end = days[days.length - 1]?.date || trip.endDate;
@@ -462,8 +466,9 @@ function _planHtml(trip) {
       const thumb = (jd.photos || [])[0] || item.photo;
       const sub = [];
       if (item.type === 'sleep' && item.dateFrom && item.dateTo) {
-        const n = Math.max(1, Math.round((new Date(item.dateTo + 'T12:00:00') - new Date(item.dateFrom + 'T12:00:00')) / 86400000));
-        sub.push(`${n} nuit${n > 1 ? 's' : ''}`);
+        // dateTo = dernière nuit incluse (cf. mapcal.js _isoShift)
+        const n = _nightCount(item);
+        sub.push(n > 1 ? `Nuit 1/${n}` : '1 nuit');
       } else if (et.label) sub.push(_esc(et.label));
       if (item.time) sub.push(_esc(item.time));
       if (jd.validated) sub.push('<em>✓ publié</em>');
@@ -477,6 +482,19 @@ function _planHtml(trip) {
           <span class="tv2-step-go">›</span>
         </button>`;
     });
+    // Hébergement sur plusieurs nuits : il réapparaît sur chaque soir couvert
+    // (affichage seulement — une seule donnée, ancrée au jour d'arrivée).
+    for (const sl of sleeps) {
+      if (sl.day.id === day.id || !day.date || !(sl.item.dateFrom <= day.date && day.date <= sl.item.dateTo)) continue;
+      const et = ets.sleep || {};
+      const k = Math.round((new Date(day.date + 'T12:00:00') - new Date(sl.item.dateFrom + 'T12:00:00')) / 86400000) + 1;
+      html += `
+        <button class="tv2-step tv2-step-cont" data-tv="edit-evt" data-day-id="${_esc(sl.day.id)}" data-idx="${sl.idx}">
+          <span class="tv2-step-thumb" style="--sc:${_esc(et.color || '#7c3aed')}"><i>${et.emoji || '🌙'}</i></span>
+          <span class="tv2-step-txt"><b>${_esc(sl.item.text || 'Nuit')}</b><small>Nuit ${k}/${_nightCount(sl.item)}${sl.item.time ? ' · ' + _esc(sl.item.time) : ''}</small></span>
+          <span class="tv2-step-go">›</span>
+        </button>`;
+    }
     const ret = returns.get(day.id);
     if (ret) html += _legHtml(ret, `🌙 ${ret.to.label || 'Nuit'}`);
     html += `</div>`;
@@ -559,7 +577,6 @@ function _onOwnerClick(e) {
     case 'back':     window.goHome?.(); break;
     case 'collapse': _sheet?.setSnap('mid'); break;
     case 'settings': window._openTripMenu?.(tripId, b); break;
-    case 'events':
     case 'packing':
     case 'money':    _opts.onOpenView?.(b.dataset.tv); break;
     case 'mode':     if (b.dataset.mode !== _st(tripId).mode) _setMode(b.dataset.mode); break;
@@ -589,16 +606,33 @@ function _onPinTap(pin) {
 
 // ── Observateur ───────────────────────────────────────────────────────────────
 
-// Sélecteur de jours de la vue observateur : une pastille par jour publié, qu'on fait
-// glisser à gauche/droite (le jour centré devient le jour affiché) ou qu'on touche.
-function _daysStripHtml() {
-  if (!_posts.length) return `<div class="tv2-days"><span class="tv2-dchip on">À venir</span></div>`;
-  const seen = new Map();
-  _posts.forEach((p, i) => { if (!seen.has(p.day.id)) seen.set(p.day.id, { num: p.day.num, date: p.day.date, first: i }); });
-  return `<div class="tv2-days" id="tv2-days">${[...seen.values()].map((d, k) => `
-    <button class="tv2-dchip${k === 0 ? ' on' : ''}" data-first="${d.first}" data-day-num="${d.num}">
-      <b>Jour ${d.num}</b>${d.date ? `<small>${_esc(new Date(d.date + 'T12:00:00').toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' }))}</small>` : ''}
-    </button>`).join('')}</div>`;
+// Curseur de jours de la vue observateur (v241) : une poignée « Jour 1 » qu'on fait
+// glisser vers la droite → « Jour 2 », « Jour 3 »… (du 1er jour au dernier jour publié).
+// Chaque jour mène à sa 1ʳᵉ publication (ou la suivante s'il n'y en a pas ce jour-là).
+let _obsDays = [];
+let _bindDaySlider = null;   // posé par _renderObserver (rebranche le curseur après un rafraîchissement)
+function _daysSliderHtml(trip) {
+  _obsDays = [];
+  if (!_posts.length) return `<div class="tv2-dsl tv2-dsl-empty"><div class="tv2-dsl-knob"><b>À venir</b></div></div>`;
+  const days = trip.days || [];
+  const lastIdx = Math.max(...(_posts.map(p => days.findIndex(d => d.id === p.day.id))));
+  for (let i = 0; i <= lastIdx; i++) {
+    const d = days[i];
+    let post = _posts.findIndex(p => days.findIndex(x => x.id === p.day.id) >= i);
+    if (post < 0) post = _posts.length - 1;
+    _obsDays.push({ num: d.num, date: d.date, post, has: _posts.some(p => p.day.id === d.id) });
+  }
+  const n = _obsDays.length;
+  return `
+    <div class="tv2-dsl${n < 2 ? ' tv2-dsl-one' : ''}" id="tv2-dsl">
+      <div class="tv2-dsl-track">${_obsDays.map((d, i) => `<i class="tv2-dsl-tick${d.has ? ' has' : ''}" style="left:${n > 1 ? (i / (n - 1)) * 100 : 50}%"></i>`).join('')}</div>
+      <div class="tv2-dsl-knob" id="tv2-dsl-knob"><b>Jour ${_obsDays[0].num}</b><small>${_dslDate(_obsDays[0])}</small></div>
+    </div>`;
+}
+function _dslDate(d) {
+  if (!d?.date) return d && !d.has ? 'rien de publié' : '';
+  const s = new Date(d.date + 'T12:00:00').toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });
+  return d.has ? s : `${s} · rien de publié`;
 }
 
 function _renderObserver(host, trip, isRefresh = false) {
@@ -629,8 +663,8 @@ function _renderObserver(host, trip, isRefresh = false) {
   if (isRefresh && host.querySelector('#tv2')) {
     const car = host.querySelector('.tv2-carousel');
     if (car) car.innerHTML = startCard + (cards || `<div class="tv2-ocard tv2-ocard-start"><i>📡</i><b>En attente de publications…</b><small>Les voyageurs publieront leurs étapes au fil du voyage</small></div>`);
-    const strip = host.querySelector('.tv2-days');
-    if (strip) strip.outerHTML = _daysStripHtml();
+    const sl = host.querySelector('.tv2-dsl');
+    if (sl) { sl.outerHTML = _daysSliderHtml(trip); _bindDaySlider?.(); }
     _pins = _tripPins(trip, true); setHomeMapPins(_pins); setHomeMapRoute(_routeLines(trip, true));
     return;
   }
@@ -647,7 +681,7 @@ function _renderObserver(host, trip, isRefresh = false) {
         <div class="tv2-actions"><button class="hv2-round" data-tv="obs-menu" title="Options">${ICON.menu}</button></div>
       </div>
       <div class="tv2-obs-bottom">
-        ${_daysStripHtml()}
+        ${_daysSliderHtml(trip)}
         <div class="tv2-carousel">${startCard}${cards || `<div class="tv2-ocard tv2-ocard-start"><i>📡</i><b>En attente de publications…</b><small>Les voyageurs publieront leurs étapes au fil du voyage</small></div>`}</div>
       </div>
     </div>`;
@@ -659,16 +693,9 @@ function _renderObserver(host, trip, isRefresh = false) {
     else if (b.dataset.tv === 'story') _openStory(+b.dataset.post);
     else if (b.dataset.tv === 'obs-menu') _openObserverMenu();
   });
-  // Défiler le carrousel recentre la carte sur l'étape affichée et le sélecteur de jours
+  // Défiler le carrousel recentre la carte sur l'étape affichée et le curseur de jours
   const car = root.querySelector('.tv2-carousel');
-  let t = 0, tStrip = 0, progStrip = 0, progCar = 0;
-  const centerChip = (chip, smooth = true) => {
-    const strip = root.querySelector('.tv2-days');
-    if (!strip || !chip) return;
-    strip.querySelectorAll('.tv2-dchip').forEach(c => c.classList.toggle('on', c === chip));
-    progStrip = Date.now();
-    strip.scrollTo({ left: chip.offsetLeft + chip.offsetWidth / 2 - strip.clientWidth / 2, behavior: smooth ? 'smooth' : 'auto' });
-  };
+  let t = 0, progCar = 0, curDay = 0;
   const goToPost = idx => {
     const el = car.querySelector(`.tv2-ocard[data-post="${idx}"]`);
     if (!el) return;
@@ -678,6 +705,63 @@ function _renderObserver(host, trip, isRefresh = false) {
     const pin = post && _pins.find(p => p.id === post.item.id);
     if (pin) flyToPin(pin);
   };
+  // Curseur : la poignée suit le doigt, le jour change dès qu'on passe un cran
+  const placeKnob = (frac, animate) => {
+    const sl = root.querySelector('#tv2-dsl'), knob = root.querySelector('#tv2-dsl-knob');
+    if (!sl || !knob) return;
+    const w = sl.clientWidth - knob.offsetWidth;
+    knob.style.transition = animate ? 'transform .28s cubic-bezier(.22,.7,.25,1)' : 'none';
+    knob.style.transform = `translate3d(${Math.max(0, Math.min(1, frac)) * w}px,0,0)`;
+  };
+  const setDay = (i, { go = false, animate = true, place = true } = {}) => {
+    const n = _obsDays.length;
+    if (!n) return;
+    i = Math.max(0, Math.min(n - 1, i));
+    const knob = root.querySelector('#tv2-dsl-knob');
+    if (knob && i !== curDay) {
+      knob.innerHTML = `<b>Jour ${_obsDays[i].num}</b><small>${_dslDate(_obsDays[i])}</small>`;
+      knob.classList.remove('tv2-dsl-bump'); void knob.offsetWidth; knob.classList.add('tv2-dsl-bump');
+    }
+    const changed = i !== curDay;
+    curDay = i;
+    if (place) placeKnob(n > 1 ? i / (n - 1) : 0.5, animate);
+    if (go && changed) goToPost(_obsDays[i].post);
+  };
+  _bindDaySlider = () => {
+    const sl = root.querySelector('#tv2-dsl');
+    curDay = 0;
+    if (!sl || _obsDays.length < 2) { placeKnob(0.5, false); return; }
+    placeKnob(0, false);
+    let drag = null;
+    const fracAt = x => {
+      const knob = root.querySelector('#tv2-dsl-knob');
+      const r = sl.getBoundingClientRect(), kw = knob.offsetWidth;
+      return (x - r.left - kw / 2) / Math.max(1, r.width - kw);
+    };
+    sl.addEventListener('pointerdown', e => {
+      drag = { id: e.pointerId };
+      sl.setPointerCapture(e.pointerId);
+      sl.classList.add('drag');
+      const f = fracAt(e.clientX);
+      placeKnob(f, false);
+      setDay(Math.round(f * (_obsDays.length - 1)), { go: true, place: false });
+    });
+    sl.addEventListener('pointermove', e => {
+      if (!drag || e.pointerId !== drag.id) return;
+      const f = fracAt(e.clientX);
+      placeKnob(f, false);
+      setDay(Math.round(f * (_obsDays.length - 1)), { go: true, place: false });
+    });
+    const end = e => {
+      if (!drag || e.pointerId !== drag.id) return;
+      drag = null;
+      sl.classList.remove('drag');
+      setDay(curDay, { animate: true });   // la poignée se cale sur le jour choisi
+    };
+    sl.addEventListener('pointerup', end);
+    sl.addEventListener('pointercancel', end);
+  };
+  _bindDaySlider();
   car.addEventListener('scroll', () => {
     clearTimeout(t);
     t = setTimeout(() => {
@@ -687,34 +771,13 @@ function _renderObserver(host, trip, isRefresh = false) {
       cardsEls.forEach(el => { const d = Math.abs(el.offsetLeft + el.offsetWidth / 2 - mid); if (d < bd) { bd = d; best = el; } });
       if (!best) return;
       const post = _posts[+best.dataset.post];
-      const chip = [...root.querySelectorAll('.tv2-dchip[data-day-num]')].find(c => c.dataset.dayNum === best.dataset.dayNum);
-      if (chip && !chip.classList.contains('on')) centerChip(chip);
-      if (Date.now() - progCar < 700) return;   // déjà centrée par goToPost
+      if (Date.now() - progCar < 700) return;   // défilement provoqué par le curseur
+      const di = _obsDays.findIndex(d => d.num === post?.day.num);
+      if (di >= 0 && di !== curDay) setDay(di);
       const pin = post && _pins.find(p => p.id === post.item.id);
       if (pin) flyToPin(pin);
     }, 160);
   }, { passive: true });
-  // Sélecteur de jours : glisser = changer de jour (celui au centre), toucher = y aller
-  root.addEventListener('click', e => {
-    const chip = e.target.closest('.tv2-dchip[data-first]');
-    if (!chip) return;
-    centerChip(chip);
-    goToPost(+chip.dataset.first);
-  });
-  root.addEventListener('scroll', e => {
-    const strip = e.target;
-    if (!strip.classList?.contains('tv2-days')) return;
-    clearTimeout(tStrip);
-    tStrip = setTimeout(() => {
-      if (Date.now() - progStrip < 700) return;   // défilement provoqué par le code
-      const mid = strip.scrollLeft + strip.clientWidth / 2;
-      let best = null, bd = Infinity;
-      strip.querySelectorAll('.tv2-dchip[data-first]').forEach(el => { const d = Math.abs(el.offsetLeft + el.offsetWidth / 2 - mid); if (d < bd) { bd = d; best = el; } });
-      if (!best || best.classList.contains('on')) return;
-      centerChip(best);
-      goToPost(+best.dataset.first);
-    }, 180);
-  }, { capture: true, passive: true });
 
   _pins = _tripPins(trip, true);
   attachHomeMap(root.querySelector('#tv2-map-slot'), {

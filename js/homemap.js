@@ -194,6 +194,17 @@ function _countryCollections() {
   return _countryKeys.map(k => ({ type: 'FeatureCollection', features: byCountry.get(k) }));
 }
 
+/** Retire toutes les sources de PINs (le rayon de regroupement ne se change qu'à la création). */
+function _dropSources() {
+  if (!_map) return;
+  _clearMarkers();
+  for (let i = 0; i < _srcCount; i++) {
+    if (_map.getLayer(`pins-anchor-${i}`)) _map.removeLayer(`pins-anchor-${i}`);
+    if (_map.getSource(`pins-${i}`))      _map.removeSource(`pins-${i}`);
+  }
+  _srcCount = 0;
+}
+
 /** Aligne les sources « pins-i » (+ leur couche d'ancrage invisible) sur _pins. */
 function _syncSources() {
   if (!_map || !_styleReady) return;
@@ -203,7 +214,8 @@ function _syncSources() {
     const id = `pins-${i}`;
     const src = _map.getSource(id);
     if (src) { src.setData(data); return; }
-    _map.addSource(id, { type: 'geojson', data, cluster: true, clusterRadius: 46, clusterMaxZoom: 16 });
+    // Voyage : PINs photo plus gros (44 px) → rayon de regroupement plus large
+    _map.addSource(id, { type: 'geojson', data, cluster: true, clusterRadius: _context === 'trip' ? 70 : 46, clusterMaxZoom: 16 });
     // Couche invisible : force le chargement de la source (les marqueurs sont en HTML)
     _map.addLayer({ id: `pins-anchor-${i}`, type: 'circle', source: id, paint: { 'circle-radius': 0, 'circle-opacity': 0 } });
   });
@@ -356,6 +368,7 @@ export async function attachHomeMap(slot, opts) {
   _opts = opts;
   const ctx = opts.context || 'home';
   if (_map && ctx !== _context) {
+    try { if (_styleReady) _dropSources(); } catch (_) {}
     // Accueil → voyage : on mémorise la vue de l'accueil ; voyage → accueil : on la restaure
     if (ctx === 'trip') {
       const c = _map.getCenter();

@@ -20,7 +20,7 @@ import { showModal } from '../utils.js';
 let _tripId     = null;
 let _isObserver = false;
 let _prevTabId  = null;
-let _view       = 'overview';   // 'overview' (écran voyage v2) | 'events' | 'packing' | 'money'
+let _view       = 'overview';   // 'overview' (écran voyage v2) | 'packing' | 'money'
 let _v2Mod      = null;
 
 // Caches the resolved module for each tab that has actually been opened this
@@ -92,7 +92,8 @@ async function _showOverview() {
 
 /**
  * Sous-vue classique (anciens onglets) avec un en-tête au style v2 :
- * 'events' = Carte & Planning complet, 'packing' = bagages,
+ * 'packing' = bagages (l'ancienne page « Planning détaillé » / Carte & Planning a été
+ * retirée en v241 : tout se fait depuis la vue d'ensemble),
  * 'money' = Budget ↔ Dépenses partagées (bascule en bas de l'écran).
  */
 async function _openSubview(view, tab) {
@@ -100,9 +101,15 @@ async function _openSubview(view, tab) {
   if (!trip) return;
   _view = view;
   _v2Mod?.hideTripV2();
-  _markV2Sub(view === 'packing' || (view === 'money' && tab === 'tricount'));
-  const titles = { mapcal: 'Planning détaillé', packing: 'Bagages', budget: 'Budget', tricount: 'Dépenses partagées' };
-  const panelTab = view === 'events' ? 'mapcal' : view === 'packing' ? 'packing' : (tab || 'budget');
+  const titles = { packing: 'Bagages', budget: 'Budget', tricount: 'Dépenses partagées' };
+  // Budget/Dépenses : voyage en cours ou passé → Dépenses partagées d'abord ;
+  // voyage à venir (ou sans dates) → Budget prévisionnel d'abord.
+  if (view === 'money' && !tab) {
+    const today = new Date().toISOString().slice(0, 10);
+    tab = trip.startDate && trip.startDate <= today ? 'tricount' : 'budget';
+  }
+  const panelTab = view === 'packing' ? 'packing' : (tab || 'budget');
+  _markV2Sub(view === 'packing' || panelTab === 'tricount');
   const topbar = document.getElementById('topbar');
   if (topbar) {
     topbar.innerHTML = `

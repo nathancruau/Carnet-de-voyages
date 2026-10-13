@@ -88,7 +88,12 @@ export function createSheet(cfg) {
     }
     if (head)     { head.style.transition = trO; head.style.opacity = p; head.style.pointerEvents = p > 0.9 ? 'auto' : 'none'; }
     if (cfg.grab) { cfg.grab.style.transition = trO; cfg.grab.style.opacity = 1 - p; }
-    if (cfg.top)  { cfg.top.style.transition  = trO; cfg.top.style.opacity  = 1 - p; cfg.top.style.pointerEvents = p > 0.92 ? 'none' : ''; }
+    if (cfg.top)  {
+      cfg.top.style.transition = trO; cfg.top.style.opacity = 1 - p;
+      // Classe et pas seulement pointer-events sur le parent : ses boutons ont pointer-events:auto
+      // et restaient cliquables, invisibles, par-dessus ceux de l'en-tête de la feuille (plein écran).
+      cfg.top.classList.toggle('tv2-top-off', p > 0.92);
+    }
     if (cfg.dim)  { cfg.dim.style.transition  = trO; cfg.dim.style.opacity  = (p * 0.8).toFixed(3); }
     clearTimeout(animT);
     if (animate) {
@@ -110,6 +115,7 @@ export function createSheet(cfg) {
       sheet.style.transform = ''; scroll.style.transform = '';
       if (cfg.slot) cfg.slot.style.transform = '';
       for (const el of [cfg.top, cfg.dim, headEl(), cfg.grab]) if (el) el.style.opacity = '';
+      cfg.top?.classList.remove('tv2-top-off');
     } else {
       apply(cfg.snaps()[s], animate);
     }

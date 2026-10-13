@@ -3045,16 +3045,21 @@ button.tv2-leg:active span{background:var(--hv-chip)}
 .tv2-modes{grid-template-columns:repeat(4,minmax(0,1fr))}
 .tv2-modes .hv2-tile b{font-size:22px}
 
-/* v240 — vue observateur : sélecteur de jours glissable (remplace la puce « Jour N ») */
-.tv2-days{display:flex;gap:8px;overflow-x:auto;scroll-snap-type:x mandatory;padding:2px calc(50% - 52px) 10px;scrollbar-width:none;-webkit-overflow-scrolling:touch;
-  -webkit-mask-image:linear-gradient(90deg,transparent,#000 18%,#000 82%,transparent);mask-image:linear-gradient(90deg,transparent,#000 18%,#000 82%,transparent)}
-.tv2-days::-webkit-scrollbar{display:none}
-.tv2-dchip{flex:0 0 auto;min-width:104px;scroll-snap-align:center;display:flex;flex-direction:column;align-items:center;gap:1px;border:none;cursor:pointer;
-  padding:7px 14px;border-radius:999px;background:rgba(15,23,42,.62);color:rgba(255,255,255,.75);font-family:var(--fn);
-  box-shadow:0 4px 14px rgba(0,0,0,.25);transition:background .2s,color .2s,transform .2s;-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px)}
-.tv2-dchip b{font-size:13.5px;font-weight:800}
-.tv2-dchip small{font-size:10.5px;font-weight:700;opacity:.8}
-.tv2-dchip.on{background:rgba(13,148,136,.96);color:#fff;transform:scale(1.06)}
+/* v241 — vue observateur : curseur de jours (poignée « Jour N » glissée vers la droite) */
+.tv2-dsl{position:relative;height:50px;margin:0 16px 12px;touch-action:none;cursor:grab;-webkit-user-select:none;user-select:none}
+.tv2-dsl.drag{cursor:grabbing}
+.tv2-dsl-track{position:absolute;left:54px;right:54px;top:50%;height:6px;margin-top:-3px;border-radius:3px;background:rgba(15,23,42,.55);box-shadow:0 2px 10px rgba(0,0,0,.25)}
+.tv2-dsl-tick{position:absolute;top:50%;width:6px;height:6px;margin:-3px 0 0 -3px;border-radius:50%;background:rgba(255,255,255,.35)}
+.tv2-dsl-tick.has{background:#fff}
+.tv2-dsl-knob{position:absolute;left:0;top:0;width:108px;height:50px;border-radius:25px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;
+  background:rgba(13,148,136,.97);color:#fff;font-family:var(--fn);box-shadow:0 6px 18px rgba(0,0,0,.35);will-change:transform}
+.tv2-dsl-knob b{font-size:15px;font-weight:800;line-height:1.1}
+.tv2-dsl-knob small{font-size:10.5px;font-weight:700;opacity:.85;white-space:nowrap}
+.tv2-dsl.drag .tv2-dsl-knob{box-shadow:0 10px 26px rgba(0,0,0,.45)}
+.tv2-dsl-bump b{animation:tv2dslBump .22s ease}
+@keyframes tv2dslBump{0%{transform:scale(.8);opacity:.4}100%{transform:none;opacity:1}}
+.tv2-dsl-empty,.tv2-dsl-one{cursor:default}
+.tv2-dsl-empty .tv2-dsl-knob{left:50%;margin-left:-54px}
 
 /* v240 — Dépenses : filtre par type de dépense */
 .tr-filters{display:flex;gap:6px;overflow-x:auto;margin:14px -16px 0;padding:0 16px 2px;scrollbar-width:none}
@@ -3086,3 +3091,18 @@ button.tv2-leg:active span{background:var(--hv-chip)}
 .v2-skin h3{font-family:var(--fn)!important;font-size:22px!important;font-weight:800!important}
 .mbox.v2-skin > h3:first-child{padding-top:calc(var(--hv-safe-t,0px) + 18px)!important}
 .mbox.v2-skin:not(.mbox-fullscreen-mobile) > h3:first-child{padding-top:18px!important}
+
+/* v241 — types d'événement et modes de transport en grille de tuiles (comme les filtres de la carte) */
+.tp > b{font-weight:400;margin-right:4px}
+.ev-tiles{display:grid!important;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px!important}
+.ev-tiles .tp{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;min-height:56px;padding:6px 3px!important;
+  border:none!important;border-radius:12px!important;background:var(--hv-sheet,#fff);color:var(--hv-ink,var(--ink));font-family:var(--fn);cursor:pointer;
+  box-shadow:inset 0 0 0 1px var(--hv-line,var(--c3))}
+.ev-tiles .tp > b{font-size:19px;line-height:1;margin:0}
+.ev-tiles .tp > span{font-size:10.5px;font-weight:700;line-height:1.12;text-align:center;overflow-wrap:anywhere}
+.ev-tiles .tp.sel{box-shadow:none}
+@media (max-width:340px){.ev-tiles{grid-template-columns:repeat(3,minmax(0,1fr))}}
+.sleep-nights{margin:8px 4px 0;font-size:13px;font-weight:800;color:var(--hv-accent,var(--teal))}
+.tv2-step-cont{opacity:.82}
+.tv2-step-cont .tv2-step-thumb{transform:scale(.86)}
+.tv2-top.tv2-top-off,.tv2-top.tv2-top-off *{pointer-events:none!important}
