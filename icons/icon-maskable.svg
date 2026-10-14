@@ -1,12 +1,44 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <!-- Full bleed background for maskable icon (safe zone = center 80%) -->
-  <rect width="512" height="512" fill="#0d9488"/>
-  <radialGradient id="g" cx="40%" cy="35%" r="60%">
-    <stop offset="0%" stop-color="#14b8a6" stop-opacity=".6"/>
-    <stop offset="100%" stop-color="#0d9488" stop-opacity="0"/>
-  </radialGradient>
-  <rect width="512" height="512" fill="url(#g)"/>
-  <g fill="#fff" opacity=".97">
-    <path d="M256 148 C268 148 308 188 316 232 L376 264 C376 264 376 278 365 278 L316 267 L312 304 L334 319 C334 319 334 330 327 330 L278 311 L259 378 C259 378 248 382 244 378 L225 311 L176 330 C169 330 169 319 169 319 L191 304 L187 267 L138 278 C127 278 127 264 127 264 L187 232 C195 188 244 148 256 148Z"/>
+  <defs>
+    <linearGradient id="bgH" x1="0" y1="0" x2="0.35" y2="1"><stop offset="0" stop-color="#1f4b7a"/><stop offset="1" stop-color="#0b1f33"/></linearGradient>
+    <clipPath id="clH"><rect width="512" height="512" rx="0"/></clipPath>
+    <radialGradient id="glH" cx="0.3" cy="0" r="0.9"><stop offset="0" stop-color="#fff" stop-opacity=".22"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></radialGradient>
+  </defs>
+  <g clip-path="url(#clH)">
+    <rect width="512" height="512" fill="url(#bgH)"/><g transform="translate(256 256) scale(.8) translate(-256 -256)">
+    
+    <g transform="translate(256 268) scale(1.1) rotate(-7) translate(-256 -268)">
+      <rect x="92" y="86" width="328" height="368" rx="22" fill="#000" opacity=".25" transform="translate(6 10)"/>
+      <rect x="92" y="86" width="328" height="368" rx="22" fill="#f7efdc"/>
+      <rect x="92" y="86" width="328" height="368" rx="22" fill="none" stroke="#e3d5b5" stroke-width="3"/>
+      <path d="M118 160h276M118 210h276M118 260h276M118 310h276M118 360h276M118 410h276" stroke="#eadfc4" stroke-width="2"/>
+      <!-- tampon rond rouge -->
+      <g transform="rotate(-14 196 190)" opacity=".92">
+        <circle cx="196" cy="190" r="70" fill="none" stroke="#d63b3b" stroke-width="9"/>
+        <circle cx="196" cy="190" r="54" fill="none" stroke="#d63b3b" stroke-width="3"/>
+        <text x="196" y="203" text-anchor="middle" font-family="Nunito,Arial,sans-serif" font-weight="900" font-size="38" fill="#d63b3b" letter-spacing="2">ATLAS</text>
+        <path d="M196 140l5 11 12 1-9 8 3 12-11-6-11 6 3-12-9-8 12-1z" fill="#d63b3b"/>
+        <path d="M166 226h60" stroke="#d63b3b" stroke-width="4"/>
+      </g>
+      <!-- tampon rectangulaire bleu-vert avec avion -->
+      <g transform="rotate(9 318 300)" opacity=".9">
+        <rect x="246" y="250" width="146" height="100" rx="12" fill="none" stroke="#11807a" stroke-width="8"/>
+        <rect x="258" y="262" width="122" height="76" rx="6" fill="none" stroke="#11807a" stroke-width="2.5"/>
+        <path d="M292 304l58-18c6-2 11 3 7 8l-16 10 8 22-7 3-15-17-18 8 1 9-6 2-6-14-14-4 2-6z" fill="#11807a"/>
+        <text x="319" y="333" text-anchor="middle" font-family="Nunito,Arial,sans-serif" font-weight="800" font-size="15" fill="#11807a" letter-spacing="1.5">DÉPART</text>
+      </g>
+      <!-- tampon ovale violet -->
+      <g transform="rotate(-6 198 372)" opacity=".85">
+        <ellipse cx="198" cy="372" rx="76" ry="42" fill="none" stroke="#6b46c1" stroke-width="6"/>
+        <ellipse cx="198" cy="372" rx="64" ry="31" fill="none" stroke="#6b46c1" stroke-width="2" stroke-dasharray="5 5"/>
+        <text x="198" y="381" text-anchor="middle" font-family="Nunito,Arial,sans-serif" font-weight="900" font-size="24" fill="#6b46c1" letter-spacing="1">ARRIVÉE</text>
+      </g>
+      <!-- petit tampon triangle orange -->
+      <g transform="rotate(12 352 148)" opacity=".85">
+        <path d="M352 104l46 80h-92z" fill="none" stroke="#e07a1f" stroke-width="7" stroke-linejoin="round"/>
+        <circle cx="352" cy="158" r="12" fill="#e07a1f"/>
+      </g>
+    </g>
+    </g><rect width="512" height="512" fill="url(#glH)"/>
   </g>
 </svg>

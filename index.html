@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
-  <title>Carnet de Voyages</title>
+  <title>Atlas</title>
 
   <!-- PWA manifest -->
   <link rel="manifest" href="/manifest.json" />
@@ -14,7 +14,7 @@
   <!-- iOS / Safari PWA -->
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <meta name="apple-mobile-web-app-title" content="Carnet" />
+  <meta name="apple-mobile-web-app-title" content="Atlas" />
   <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
 
   <!-- Favicon -->
@@ -23,7 +23,7 @@
 
   <!-- SEO / sharing -->
   <meta name="description" content="Planifiez, organisez et vivez vos aventures de voyage." />
-  <meta name="application-name" content="Carnet de Voyages" />
+  <meta name="application-name" content="Atlas" />
 
   <!-- Modulepreload: fetch the always-loaded JS graph in parallel instead of the
        nested-import waterfall (parser must fetch+parse a module before it can
@@ -35,9 +35,10 @@
        (openShareModal, isCurrentUserObserver, …), so every session fetches it
        anyway; preloading it here fetches it in parallel with home.js instead of
        only being discovered once home.js itself finishes parsing. -->
-  <link rel="modulepreload" href="js/app.js?v=247" />
+  <link rel="modulepreload" href="js/app.js?v=248" />
   <link rel="modulepreload" href="js/store.js" />
   <link rel="modulepreload" href="js/utils.js" />
+  <link rel="modulepreload" href="js/logos.js" />
   <link rel="modulepreload" href="js/auth.js" />
   <link rel="modulepreload" href="js/firebase-config.js" />
   <link rel="modulepreload" href="js/photostore.js" />
@@ -48,7 +49,7 @@
 
   <!-- Leaflet (CSS + JS) n'est plus chargé au démarrage : home.js le charge à la
        1ʳᵉ ouverture de la fenêtre d'une sortie (_ensureLeaflet), CSS inséré avant style.css. -->
-  <link rel="stylesheet" href="style.css?v=247" />
+  <link rel="stylesheet" href="style.css?v=248" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <script>
@@ -198,10 +199,14 @@
   <!-- Login Screen -->
   <div id="screen-login" class="screen active">
     <div id="login-wrap">
-      <div class="login-loading">
-        <div class="login-spinner"></div>
-        <span>Chargement…</span>
+      <!-- Écran de démarrage (v248) : logo choisi dans les Paramètres (SVG mis en cache
+           par logos.js), sinon l'icône passeport -->
+      <div class="splash" id="splash">
+        <div class="splash-logo" id="splash-logo"><img src="/icons/icon.svg" alt=""></div>
+        <div class="splash-name">Atlas</div>
+        <div class="splash-dots"><i></i><i></i><i></i></div>
       </div>
+      <script>try{var _ls=localStorage.getItem('atlas_logo_svg');if(_ls&&_ls.indexOf('<svg')===0)document.getElementById('splash-logo').innerHTML=_ls;}catch(e){}</script>
     </div>
   </div>
 
@@ -257,7 +262,7 @@
     box-shadow:0 -2px 20px rgba(0,0,0,.18);font-family:var(--fn)">
     <img src="/icons/icon-192.png" style="width:40px;height:40px;border-radius:10px;flex-shrink:0" alt="">
     <div style="flex:1;min-width:0">
-      <div style="font-size:13px;font-weight:700">Installer Carnet de Voyages</div>
+      <div style="font-size:13px;font-weight:700">Installer Atlas</div>
       <div style="font-size:11px;opacity:.85">Accès rapide depuis votre écran d'accueil</div>
     </div>
     <button id="pwa-install-btn"
@@ -302,6 +307,6 @@
       if (bar) bar.style.display = 'none';
     }
   </script>
-<script type="module" src="js/app.js?v=247"></script>
+<script type="module" src="js/app.js?v=248"></script>
 </body>
 </html>

@@ -603,7 +603,7 @@ function _showPublishNotification(pub, members) {
   notify(msg, '📡');
   const s = getSettings();
   if (s?.notifications?.enabled && s.notifications.observerPublish !== false && Notification?.permission === 'granted') {
-    try { new Notification('Carnet de Voyages', { body: msg, icon: '/icons/icon-192.png' }); } catch (_) {}
+    try { new Notification('Atlas', { body: msg, icon: '/icons/icon-192.png' }); } catch (_) {}
   }
 }
 
@@ -718,7 +718,7 @@ export async function openShareModal(tripId) {
       });
     });
 
-    const _send = url => navigator.share?.({ title: trip.name || 'Voyage', text: `Suis « ${trip.name || 'mon voyage'} » sur Carnet de voyages`, url }).catch(() => {});
+    const _send = url => navigator.share?.({ title: trip.name || 'Voyage', text: `Suis « ${trip.name || 'mon voyage'} » sur Atlas`, url }).catch(() => {});
     document.getElementById('share-send-collab')?.addEventListener('click', () => _send(collabUrl));
     document.getElementById('share-send-obs')?.addEventListener('click', () => _send(obsUrl));
 

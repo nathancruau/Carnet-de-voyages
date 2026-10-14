@@ -8,6 +8,7 @@ import { openTrip, refreshTrip, destroyTripMap } from './trip/trip.js';
 import { closeModal, showModal, esc, notify } from './utils.js';
 import { initAuth, loginWithGoogle, syncToFirestore, isFirebaseConfigured, listenUserDoc, setSyncErrorCallback } from './auth.js';
 import { checkDepartureNotifications } from './notifications.js';
+import { appLogoHtml } from './logos.js';
 
 // share.js is only ever needed once a user reaches a shared/invite flow, so it is
 // loaded on demand instead of being in the initial boot bundle.
@@ -96,7 +97,7 @@ function _renderLogin() {
           <circle class="lg-pin" cx="52" cy="118" r="5"/><circle class="lg-pin" cx="128" cy="92" r="5"/><circle class="lg-pin lg-pin-b" cx="160" cy="84" r="6.5"/></svg>
       </div>
       <div class="lg-card">
-        <div class="lg-logo">Carnet de voyages</div>
+        <div class="lg-brand">${appLogoHtml('lg-app-logo')}<div class="lg-logo">Atlas</div></div>
         <div class="lg-sub">Planifiez vos voyages, racontez-les jour après jour et partagez-les avec ceux qui vous suivent.</div>
         <div class="lg-feats"><span>🗺 Planifier</span><span>📸 Raconter</span><span>👀 Partager</span></div>
         <button class="google-btn lg-google" id="login-google-btn">${_googleBtnInner()}</button>

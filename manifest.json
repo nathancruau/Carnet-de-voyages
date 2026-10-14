@@ -1,14 +1,14 @@
 {
-  "name": "Carnet de Voyages",
-  "short_name": "Carnet",
+  "name": "Atlas",
+  "short_name": "Atlas",
   "description": "Planifiez, organisez et vivez vos aventures de voyage.",
   "lang": "fr",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
   "orientation": "any",
-  "background_color": "#0d9488",
-  "theme_color": "#0d9488",
+  "background_color": "#0b1f33",
+  "theme_color": "#0b1f33",
   "categories": ["travel", "lifestyle", "productivity"],
   "icons": [
     {

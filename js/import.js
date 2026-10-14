@@ -577,5 +577,5 @@ export async function importAnyZip(zipFile, onProgress) {
     return { trips, format: 'carnet-planning' };
   }
 
-  throw new Error('Format ZIP non reconnu. Attendu : export Polarsteps ou export Carnet de Voyages.');
+  throw new Error('Format ZIP non reconnu. Attendu : export Polarsteps ou export Atlas / Carnet de Voyages.');
 }

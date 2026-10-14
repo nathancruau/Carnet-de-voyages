@@ -72,7 +72,7 @@ if (typeof window !== 'undefined') {
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flushPersist(); });
 }
 
-export const APP_VERSION = '247';
+export const APP_VERSION = '248';
 
 export const COMP_COLORS = [
   '#0d9488','#7c3aed','#e85d3e','#d97706',

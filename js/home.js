@@ -22,6 +22,7 @@ import {
 // so none of them should be in the boot bundle.
 import { getCurrentUser, logout, syncToFirestore, cleanupDuplicatePhotos } from './auth.js';
 import { requestNotificationPermission, notificationPermissionGranted } from './notifications.js';
+import { appLogoHtml, availableLogos, currentLogoId, setAppLogo, logoSvg, syncLogoCache } from './logos.js';
 import { collectMapPins, attachHomeMap, setHomeMapPadding, flyToPin } from './homemap.js';
 import { openShareModal, leaveSharedTrip, deleteOwnerSharedTrip, removeSharedTripMember, isCurrentUserObserver, getSharedDocData, addObserverReaction, addObserverComment, deleteObserverComment, handlePendingInvite } from './share.js';
 
@@ -1967,7 +1968,7 @@ function _hv2OpenMoreMenu() {
       ${isStandalone ? '' : '<button class="hv2-row hv2-row-btn" data-do="install"><span>📲 Installer l\'application</span><i>›</i></button>'}
       ${getCurrentUser() ? '<button class="hv2-row hv2-row-btn hv2-row-danger" data-do="logout"><span>Déconnexion</span><i>›</i></button>' : ''}
     </div>
-    <div class="hv2-version">Carnet de Voyages v${APP_VERSION}</div>`, { boxClass: 'hv2-modal' });
+    <div class="hv2-version">Atlas v${APP_VERSION}</div>`, { boxClass: 'hv2-modal' });
   document.querySelector('.hv2-more-list')?.addEventListener('click', e => {
     const b = e.target.closest('button[data-do]');
     if (!b) return;
@@ -2044,7 +2045,7 @@ function _renderHomeV2(wrap, { myTrips, observingTrips, filter }) {
       <div class="hv2-dim"></div>
       <div class="hv2-top" id="hv2-top">
         <button class="hv2-round hv2-menu${filtersOn ? ' hv2-has-filter' : ''}" data-action="hv2-destinations" title="Destinations & filtres">${_HV2_ICONS.menu}</button>
-        <div class="hv2-brand"><span class="hv2-logo">✈</span>carnet</div>
+        <div class="hv2-brand">${appLogoHtml('hv2-logo')}Atlas</div>
         <button class="hv2-round" data-action="open-settings" title="Paramètres">${_HV2_ICONS.gear}</button>
       </div>
       <div class="hv2-pin-pop" id="hv2-pin-pop" hidden></div>
@@ -2201,6 +2202,7 @@ document.addEventListener('focusout', e => {
 
 export function renderHome(filter = _currentFilter) {
   _homeDirty = false;
+  syncLogoCache(getSettings().appLogo);   // logo choisi sur un autre appareil
   _currentFilter = filter;
   _currentTab    = 'trips';
 
@@ -2226,7 +2228,7 @@ export function renderHome(filter = _currentFilter) {
     wrap.innerHTML = `
       <div class="gp">
         <header class="gp-top">
-          <div><small>Bonjour 👋</small><b>Les voyages que vous suivez</b></div>
+          ${appLogoHtml('gp-logo')}<div><small>Bonjour 👋</small><b>Les voyages que vous suivez</b></div>
           <button class="hv2-round hv2-round-light" data-action="open-settings" title="Paramètres">⚙️</button>
         </header>
         <div class="live-feed-wrap gp-feed">${_buildLiveFeedHtml(observingTrips)}</div>
@@ -2368,6 +2370,14 @@ function _openSettingsModal() {
         ${sw('gp-mode', 'Mode Grands-parents', settings.grandParentsMode, 'Affichage simplifié : titre, ⚙️ et fil En direct')}
       </div>
 
+      <div class="hv2-fsec">Logo de l'appli</div>
+      <div class="hv2-card-group hv2-logo-group">
+        <div class="hv2-logo-grid" id="hv2-logo-grid">${availableLogos(getTrips()).map(l => `
+          <button type="button" class="hv2-logo-opt${l.id === currentLogoId() ? ' sel' : ''}" data-logo="${_esc(l.id)}" title="${_esc(l.name)}">
+            <span class="app-logo" aria-hidden="true">${logoSvg(l.id)}</span><small>${_esc(l.name)}</small></button>`).join('')}</div>
+        <div class="hv2-logo-hint">🛂 Un tampon se débloque pour chaque pays visité (pays détecté sur vos PINs).</div>
+      </div>
+
       <div class="hv2-fsec">Notifications</div>
       <div class="hv2-card-group">
         ${sw('notif-enabled', 'Activer les notifications', curNotif.enabled, 'Requiert l\'autorisation du navigateur')}
@@ -2387,7 +2397,7 @@ function _openSettingsModal() {
         ${btnRow('settings-clear-data', '🗑 Effacer toutes les données', 'hv2-row-danger')}
       </div>
 
-      <div class="hv2-version">Carnet de Voyages v${APP_VERSION}</div>
+      <div class="hv2-version">Atlas v${APP_VERSION}</div>
       <div class="hv2-version" style="margin-top:4px;opacity:.7">${(() => {
         // Mesure fraîche à l'ouverture (pas celle du lancement)
         const d = window._measureIosGap?.() || window._iosGapDiag || {};
@@ -2451,6 +2461,15 @@ function _openSettingsModal() {
     }
   };
   _box?.addEventListener('change', _box._settingsChange);
+
+  // Choix du logo (écran de démarrage, en-tête de l'accueil, connexion)
+  document.getElementById('hv2-logo-grid')?.addEventListener('click', e => {
+    const b = e.target.closest('[data-logo]');
+    if (!b) return;
+    setAppLogo(b.dataset.logo);
+    updateSettings({ appLogo: b.dataset.logo });
+    b.parentElement.querySelectorAll('.hv2-logo-opt').forEach(x => x.classList.toggle('sel', x === b));
+  });
 
   // La modale est hors de #home-wrap : le listener délégué de l'accueil ne la voit pas
   document.querySelector('.mbox [data-action="export-all"]')?.addEventListener('click', () => _openExportModal());

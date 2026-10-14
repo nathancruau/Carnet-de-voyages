@@ -1,8 +1,8 @@
-# Carnet de Voyages — Guide Claude
+# Atlas (ex-Carnet de Voyages) — Guide Claude
 
 ## Présentation
 
-PWA de carnet de voyage (planification, journal, budget, carte). Stack : JS vanilla ES modules, Firebase Auth + Firestore (sync cloud), localStorage (cache local), Leaflet (cartes), service worker.
+PWA « Atlas » (nom affiché depuis v248 ; dépôt, clés localStorage et Firebase gardent l'ancien nom « carnet ») de carnet de voyage (planification, journal, budget, carte). Stack : JS vanilla ES modules, Firebase Auth + Firestore (sync cloud), localStorage (cache local), Leaflet (cartes), service worker.
 
 Pas de build tool. Les fichiers sont servis directement par le navigateur.
 
@@ -18,7 +18,7 @@ Quatre endroits à synchroniser, toujours le même numéro N :
 | `sw.js` | `const SHELL_CACHE = 'cv-shell-N'` |
 | `store.js` | `export const APP_VERSION = 'N'` |
 
-Version actuelle : **247**
+Version actuelle : **248**
 
 ---
 
@@ -59,6 +59,7 @@ js/
   gpx.js                Parse GPX, statistiques/graphique de trace, stockage local GPX
   routing.js            Itinéraires routiers OSRM (voiture/bus, marche, vélo) + cache localStorage (v244)
   calckeypad.js          Clavier calculatrice pour les champs montant (Tricount)
+  logos.js              Logos de l'appli (SVG) : passeport, globe, sextant, étoile polaire, avion, rose des vents + tampon par pays visité (v248)
   notifications.js      Notifications départ (localStorage, DST-safe)
   share.js              Partage de voyage (liens d'invitation, observateurs)
 
@@ -157,6 +158,15 @@ js/
   - Divers : `refreshHome` (mises à jour réseau sans quitter les Statistiques ni effacer la recherche) ; menu ⋯ qui se refermait aussitôt ; double enregistrement d'une sortie pendant la recherche du pays ; rechargement de mise à jour qui ignorait les fenêtres ouvertes (`_isModalOpen` testait une classe inexistante) ; glissé de fermeture bloqué si une zone interne défile ; échappement HTML de contenus venant de voyages partagés (drapeau, couleurs, icône de catégorie, reçu) ; nom saisi gardé dans la fenêtre catégorie du budget ; feuille masquée sans recalcul à chaque image.
   - Finitions : notification en pastille sombre en haut de l'écran, images en fondu, retour visuel au toucher des cartes.
 - **Pas corrigé (volontairement)** : synchros qui se chevauchent / lecture de tous les `shared_trips` à chaque synchro (auth.js — refonte risquée), invitations re-créées à chaque ouverture de « Partager » (share.js).
+
+---
+
+## v248 — Atlas : nouveau nom, icône passeport, logo au choix
+
+- Nom affiché **Atlas** (title, `apple-mobile-web-app-title`, manifest `name`/`short_name`, connexion, accueil, version dans Paramètres, notification, texte de partage). Les clés internes (`carnet_voyages_v1`, `carnet_*`, `cv-shell-*`) ne changent pas.
+- **Icône d'écran d'accueil** = page de passeport tamponnée (`homeIconSvg()` de logos.js) : `icons/icon.svg` (arrondie), `icon-maskable.svg` (contenu réduit à 80 %), PNG `icon-192/512`, `apple-touch-icon` (180, carré plein — iOS arrondit), `favicon-32` ; générés en rendant le SVG dans Chromium. L'icône iOS est fixe : il faut ré-ajouter l'appli à l'écran d'accueil pour voir le nouveau nom/icône.
+- **Logo de l'appli au choix** (Paramètres → « Logo de l'appli ») : `availableLogos(trips)` = 6 logos pour tous + un **tampon par pays visité** (codes `countryCode` des PINs, nom du pays via `Intl.DisplayNames`). `setAppLogo(id)` mémorise `atlas_logo_id` + le SVG dans `atlas_logo_svg` et re-remplit tous les `[data-app-logo]` ; le choix est aussi enregistré dans `settings.appLogo` (nouveau champ) et adopté sur les autres appareils par `syncLogoCache(settings.appLogo)` au début de `renderHome`.
+- Le logo apparaît : **écran de démarrage** (`.splash` dans index.html, SVG lu dans localStorage par un script inline, repli `/icons/icon.svg`), en-tête de l'accueil (`.hv2-brand`, à la place de l'avion), carte de connexion (`.lg-brand`), mode grands-parents (`.gp-logo`). `appLogoHtml(cls)` pour l'insérer ailleurs.
 
 ---
 
