@@ -47,11 +47,10 @@ export function showScreen(id) {
   if (el) el.classList.add('active');
   // Sync html/body background with the screen's visual content so any viewport gap
   // (iOS safe area / Android nav bar) blends in rather than showing white
-  const _screenBg = id === 'login' ? '#065f55' // bottom of login gradient
+  // Accueil et connexion : couleur de la feuille / carte du bas — si iOS laisse une bande
+  // sous les éléments fixes (barre Safari, zone du home indicator), elle s'y fond
+  const _screenBg = (id === 'home' || id === 'login') ? (document.documentElement.dataset.theme === 'dark' ? '#14181d' : '#ffffff')
     : id === 'app' ? '#aad3df'
-    // Accueil : couleur de la feuille profil (en bas) — si iOS laisse une bande sous
-    // les éléments fixes (barre Safari, zone du home indicator), elle se fond dans la feuille
-    : id === 'home' ? (document.documentElement.dataset.theme === 'dark' ? '#14181d' : '#ffffff')
     : getComputedStyle(document.documentElement).getPropertyValue('--c').trim() || '#faf7f2';
   document.documentElement.style.setProperty('background', _screenBg, 'important');
   document.body.style.setProperty('background', _screenBg, 'important');
@@ -86,13 +85,23 @@ function _googleBtnInner() {
 function _renderLogin() {
   const wrap = document.getElementById('login-wrap');
   if (!wrap) return;
+  // v244 : écran de connexion au style v2 (fond nuit + globe, carte du bas)
+  const meridians = [-60, -30, 0, 30, 60].map(a => `<ellipse cx="100" cy="100" rx="${Math.abs(Math.cos(a * Math.PI / 180) * 90).toFixed(1)}" ry="90"/>`).join('');
+  const parallels = [-50, -25, 0, 25, 50].map(a => { const y = 100 - Math.sin(a * Math.PI / 180) * 90, r = Math.cos(a * Math.PI / 180) * 90; return `<ellipse cx="100" cy="${y.toFixed(1)}" rx="${r.toFixed(1)}" ry="${(r * 0.18).toFixed(1)}"/>`; }).join('');
   wrap.innerHTML = `
-    <div class="login-card">
-      <div class="login-icon">✈️</div>
-      <div class="login-logo">Carnet de Voyages</div>
-      <div class="login-sub">Connectez-vous pour retrouver vos voyages sur tous vos appareils.</div>
-      <button class="google-btn" id="login-google-btn">${_googleBtnInner()}</button>
-      <div class="login-err" id="login-err"></div>
+    <div class="lg">
+      <div class="lg-art" aria-hidden="true">
+        <svg class="lg-globe" viewBox="0 0 200 200"><circle cx="100" cy="100" r="90" class="lg-sphere"/><g class="lg-grid">${meridians}${parallels}</g>
+          <path class="lg-route" d="M52 118 C 70 70, 112 64, 128 92 S 150 130, 160 84"/>
+          <circle class="lg-pin" cx="52" cy="118" r="5"/><circle class="lg-pin" cx="128" cy="92" r="5"/><circle class="lg-pin lg-pin-b" cx="160" cy="84" r="6.5"/></svg>
+      </div>
+      <div class="lg-card">
+        <div class="lg-logo">Carnet de voyages</div>
+        <div class="lg-sub">Planifiez vos voyages, racontez-les jour après jour et partagez-les avec ceux qui vous suivent.</div>
+        <div class="lg-feats"><span>🗺 Planifier</span><span>📸 Raconter</span><span>👀 Partager</span></div>
+        <button class="google-btn lg-google" id="login-google-btn">${_googleBtnInner()}</button>
+        <div class="login-err" id="login-err"></div>
+      </div>
     </div>
   `;
 
@@ -366,15 +375,11 @@ window._rerenderCurrentView = (updatedTripId) => {
   }
 };
 
-// Called by share.js when only reactions/comments change — re-renders journal panel
-// in-place without switching the active tab.
+// Called by share.js when only reactions/comments change — rafraîchit l'écran voyage
+// (compteurs ❤ / 💬 des publications) sans changer de vue.
 window._refreshJournalInteractions = (updatedTripId) => {
   if (currentScreen !== 'app' || currentTripId !== updatedTripId) return;
-  const journalPanel = document.getElementById('panel-journal');
-  if (!journalPanel?.classList.contains('active')) return;
-  import('./trip/journal.js').then(({ rerenderJournal }) => {
-    rerenderJournal(updatedTripId);
-  }).catch(() => {});
+  refreshTrip(currentTripId);
 };
 
 // ── Bootstrap ──────────────────────────────────────────────────────────────────

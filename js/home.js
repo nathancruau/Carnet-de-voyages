@@ -12,18 +12,18 @@ import {
 import {
   notify, showModal, closeModal,
   fmtDate, fmtDateShort,
-  dpInit, dpGetDates, renderDp,
-  generateDays, customDayTitle,
+  dpInit, dpGetDates,
+  generateDays,
   reverseGeocodeCountry, fmtFlag,
 } from './utils.js';
 // navigateToTrip accessed via window global (set by app.js) to avoid circular import
 // import.js / export.js / gpx.js are dynamically imported at their few call sites below —
 // most sessions never touch import/export or upload a GPX track from a sortie,
 // so none of them should be in the boot bundle.
-import { getCurrentUser, logout, syncToFirestore, isFirebaseConfigured, cleanupDuplicatePhotos } from './auth.js';
+import { getCurrentUser, logout, syncToFirestore, cleanupDuplicatePhotos } from './auth.js';
 import { requestNotificationPermission, notificationPermissionGranted } from './notifications.js';
-import { collectMapPins, attachHomeMap, setHomeMapPins, setHomeMapPadding, flyToPin } from './homemap.js';
-import { openShareModal, leaveSharedTrip, deleteOwnerSharedTrip, removeSharedTripMember, isCurrentUserObserver, getSharedDocData, addObserverReaction, deleteObserverReaction, addObserverComment, deleteObserverComment, handlePendingInvite } from './share.js';
+import { collectMapPins, attachHomeMap, setHomeMapPadding, flyToPin } from './homemap.js';
+import { openShareModal, leaveSharedTrip, deleteOwnerSharedTrip, removeSharedTripMember, isCurrentUserObserver, getSharedDocData, addObserverReaction, addObserverComment, deleteObserverComment, handlePendingInvite } from './share.js';
 
 // ── Module state ───────────────────────────────────────────────────────────────
 
@@ -280,10 +280,6 @@ function _getVisitedMap(trips) {
     }
   }
   return counts;
-}
-
-function _getVisitedCodes(trips) {
-  return [..._getVisitedMap(trips).keys()];
 }
 
 // ISO-2 → flag emoji
@@ -1045,26 +1041,6 @@ function _hsCols(items, max) {
   }).join('')}</div>`;
 }
 
-function _initHomeCarousels(el) {
-  el.querySelectorAll('[data-car-track]').forEach(track => {
-    const carEl = track.closest('[data-car-id]');
-    const dots  = carEl?.querySelectorAll('.tl-dot');
-    const updateDots = () => {
-      if (!dots || dots.length < 2) return;
-      const idx = Math.round(track.scrollLeft / track.clientWidth);
-      dots.forEach((d, i) => d.classList.toggle('active', i === idx));
-    };
-    track.addEventListener('scroll', updateDots, { passive: true });
-    carEl?.querySelectorAll('[data-car-nav]').forEach(btn => {
-      btn.addEventListener('click', e => {
-        e.stopPropagation();
-        const dir = btn.dataset.carNav === 'prev' ? -1 : 1;
-        const idx = Math.round(track.scrollLeft / track.clientWidth);
-        track.scrollTo({ left: (idx + dir) * track.clientWidth, behavior: 'smooth' });
-      });
-    });
-  });
-}
 
 // ── Live feed (En direct) ──────────────────────────────────────────────────────
 
@@ -1482,9 +1458,19 @@ function _hv2CardHtml(trip) {
       <div class="hv2-card-bottom">
         <h3 class="hv2-card-title">${_esc(trip.name || (isSortie ? 'Sortie' : 'Sans titre'))}</h3>
         ${trip.destination && isSortie ? `<div class="hv2-card-sub">📍 ${_esc(trip.destination)}</div>` : ''}
+        ${_hv2ObserversLine(trip)}
         <div class="hv2-card-stats">${stats.join('')}${_hv2CompsHtml(trip.companions)}</div>
       </div>
     </article>`;
+}
+
+// v244 : qui suit ce voyage (observateurs du voyage partagé)
+function _hv2ObserversLine(trip) {
+  if (!isTripShared(trip.id)) return '';
+  const obs = Object.values(getSharedDocData(trip.id)?.members || {}).filter(m => m.role === 'observer')
+    .map(m => { const n = (m.companionName || '').trim(); return n && n !== 'Observateur' ? n.split(/\s+/)[0] : 'Sans nom'; });
+  if (!obs.length) return '';
+  return `<div class="hv2-card-sub hv2-card-obs">👁 ${_esc(obs.length > 3 ? obs.slice(0, 3).join(', ') + ` +${obs.length - 3}` : obs.join(', '))}</div>`;
 }
 
 function _hv2ObservedCardHtml(trip) {
@@ -2098,7 +2084,6 @@ function _renderHomeV2(wrap, { myTrips, observingTrips, filter }) {
     onResize: () => { if (document.getElementById('hv2')) _hv2SetSnap(_hv2Snap, false); },
     onError: () => notify('Carte indisponible (hors-ligne ?)', '🗺'),
   });
-  _initHomeCarousels(wrap);
 }
 
 // ── Panneau « Destinations & filtres » (bouton ☰) ──────────────────────────────
@@ -2206,19 +2191,18 @@ export function renderHome(filter = _currentFilter) {
 
   // ── Grands-parents mode: ultra-simplified view ───────────────────────────────
   if (settings.grandParentsMode) {
+    // v244 : même fil « En direct » que l'accueil v2, en grand, sans carte ni onglets
+    const dark = document.documentElement.dataset.theme === 'dark';
+    for (const el of [document.documentElement, document.body]) el.style.setProperty('background', dark ? '#14181d' : '#ffffff', 'important');
     wrap.innerHTML = `
-      <div class="hero gp-hero">
-        <div style="display:flex;align-items:center;justify-content:space-between;width:100%">
-          <div class="hero-logo">Carnet de Voyages</div>
-          <button class="btn-new" data-action="open-settings" title="Paramètres" style="padding:8px 12px;font-size:20px;line-height:1">⚙️</button>
-        </div>
-      </div>
-      <div class="home-sec" style="padding-top:12px">
-        <h2 style="font-family:var(--sf);font-size:18px;font-weight:700;margin-bottom:14px">📡 En direct</h2>
-        <div class="live-feed-wrap">${_buildLiveFeedHtml(observingTrips)}</div>
+      <div class="gp">
+        <header class="gp-top">
+          <div><small>Bonjour 👋</small><b>Les voyages que vous suivez</b></div>
+          <button class="hv2-round hv2-round-light" data-action="open-settings" title="Paramètres">⚙️</button>
+        </header>
+        <div class="live-feed-wrap gp-feed">${_buildLiveFeedHtml(observingTrips)}</div>
       </div>`;
     if (!_listenerAttached) { _attachListeners(wrap); _listenerAttached = true; }
-    _initHomeCarousels(wrap);
     return;
   }
 
@@ -2230,7 +2214,6 @@ export function renderHome(filter = _currentFilter) {
     _listenerAttached = true;
   }
 }
-
 
 function _renderStats() {
   _currentTab = 'stats';
@@ -2306,18 +2289,6 @@ function _buildCsv(rows) {
   return [_CSV_HEADERS, ...rows]
     .map(row => row.map(v => `"${String(v).replace(/"/g, '""')}"`).join(','))
     .join('\r\n');
-}
-
-function _downloadCsv(csvContent, filename) {
-  const blob = new Blob(['﻿' + csvContent], { type: 'text/csv;charset=utf-8' });
-  const url  = URL.createObjectURL(blob);
-  const a    = document.createElement('a');
-  a.href     = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
 }
 
 // ── Settings Modal ─────────────────────────────────────────────────────────────
@@ -2597,16 +2568,8 @@ function _attachListeners(wrap) {
         break;
       }
 
-      case 'open-import':
-        _openImportModal();
-        break;
-
       case 'export-all':
         _openExportModal();
-        break;
-
-      case 'new-trip':
-        openEditTripModal(null, target.dataset.type || null);
         break;
 
       case 'share-trip':
@@ -2713,15 +2676,6 @@ function _attachListeners(wrap) {
         const tripId = target.dataset.tripId;
         const itemId = target.dataset.itemId;
         if (tripId && itemId) addObserverReaction(tripId, itemId).catch(() => {});
-        break;
-      }
-
-      case 'lv-remove-reaction': {
-        e.stopPropagation();
-        const tripId    = target.dataset.tripId;
-        const itemId    = target.dataset.itemId;
-        const targetUid = target.dataset.targetUid;
-        if (tripId && itemId && targetUid) deleteObserverReaction(tripId, itemId, targetUid).catch(() => {});
         break;
       }
 

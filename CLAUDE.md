@@ -18,7 +18,7 @@ Quatre endroits à synchroniser, toujours le même numéro N :
 | `sw.js` | `const SHELL_CACHE = 'cv-shell-N'` |
 | `store.js` | `export const APP_VERSION = 'N'` |
 
-Version actuelle : **243**
+Version actuelle : **244**
 
 ---
 
@@ -56,7 +56,8 @@ js/
   utils.js              notify(), showModal(), closeModal(), date helpers, date picker
   home.js               Écran d'accueil (globe + feuille profil, liste voyages)
   homemap.js            Carte de l'accueil (MapLibre GL : globe/plate, fonds Standard/Relief/Satellite, PINs regroupés colorés par pays)
-  gpx.js                Parse/génère GPX, stockage local GPX
+  gpx.js                Parse GPX, statistiques/graphique de trace, stockage local GPX
+  routing.js            Itinéraires routiers OSRM (voiture/bus, marche, vélo) + cache localStorage (v244)
   calckeypad.js          Clavier calculatrice pour les champs montant (Tricount)
   notifications.js      Notifications départ (localStorage, DST-safe)
   share.js              Partage de voyage (liens d'invitation, observateurs)
@@ -66,12 +67,12 @@ js/
   trip/
     trip.js             Écran voyage : vue d'ensemble v2 + sous-vues (anciens onglets)
     tripv2.js           Vue d'ensemble v2 (carte + feuille Planifier/Suivre, observateur, visionneuse)
-    mapcal.js           Onglet Carte & Planning
-    journal.js          Onglet Carnet
-    budget.js           Onglet Budget
-    tricount.js         Onglet Dépenses partagées
-    packing.js          Onglet Bagages
-    sortie.js           Onglet Sorties
+    mapcal.js           Fenêtres du planning (événement, jour) + itinéraire (collectTripWaypoints, setWaypointMode)
+    journal.js          Fenêtres du carnet (publier, commentaires, partage externe)
+    budget.js           Sous-vue Budget prévisionnel (style v2)
+    tricount.js         Sous-vue Dépenses partagées
+    packing.js          Sous-vue Bagages
+    sortie.js           Écran d'une sortie (carte + feuille, style v2)
     tripstats.js        Modale Statistiques (menu ⋯ d'un voyage, accueil)
 ```
 
@@ -94,20 +95,20 @@ js/
 - Types de lieux (`eventTypes`) : **fixes**, plus modifiables dans les Paramètres (v231) ; `settings.eventTypes` déjà enregistrés sont conservés tels quels (pas réécrits).
 - **Page Statistiques (v234)** : `_renderStats()` (home.js) dans le style v2 — `.hs` (tokens `--hv-*`), bouton retour (`go-home`), filtre par type en contrôle segmenté (`data-stats-type`), chiffres clés `.hs-kpis`/`.hs-minis`, cartes `.hs-card` (globe + drapeaux, années, saisons, destinations, distances, dépenses par mois/catégorie, compagnons) ; graphiques via `_hsBar()` / `_hsCols()`. Mêmes calculs qu'avant (`_calcStats`, `_getVisitedMap`…), ids du globe inchangés (`globe-canvas`, `wm-expand-btn`, `world-map-wrap` + `stat-fs`). L'ancien bandeau `_heroHtml`/`_filterTabsHtml` et ses classes `.hs-card/.hs-v/.hs-l` (collision de noms) ont été supprimés. Page qui défile avec le body ; fond = blanc/#14181d comme html sur l'accueil (pas de bande iOS).
 - **En direct (v243)** : `_buildLiveFeedHtml` (home.js) refait façon réseau social — rangée des personnes suivies (`.lv-people`), publications `.lv-post` : en-tête personne (`data-action="lv-profile"`) + « Voyage · Jour N » (`open-trip` → voyage observé), photos/vidéos (`journalData.videos`) entières sur fond flou (`.lv-slide`, défilement horizontal + points), ❤ / 💬 (mêmes actions `lv-toggle-reaction` / `lv-open-comments`), « Voir le voyage ». Personne = propriétaire du voyage partagé (`_lvOwner` : `doc.ownerId` + `members[ownerId].companionName`, couleur par hachage). **Profil** (`_openLiveProfile`, fenêtre v2 plein écran) : avatar, nb voyages / publications / pays, ses voyages (tap → voyage observé) et ses dernières photos — **limité aux voyages qu'on suit** (les règles Firestore ne donnent pas accès aux autres). `_lvTrips` garde la dernière liste rendue pour le profil. Anciennes fonctions `_liveGpxSlide`/`_liveCarouselHtml` supprimées (la trace GPX devient une ligne « 🥾 km · +D »).
-- Mode grands-parents garde l'ancien rendu pour l'instant.
+- **Mode grands-parents (v244)** : `.gp` — en-tête « Bonjour 👋 / Les voyages que vous suivez » + ⚙️, puis le même fil « En direct » v2 (`_buildLiveFeedHtml`) en plus grand ; pas de carte ni d'onglets.
 
 ---
 
 ## Écran voyage v2 (v237, bêta)
 
-- `openTrip` (trip.js) : les **sorties gardent l'écran classique** ; voyages/week-ends → `_showOverview()` → `renderTripV2(tripId, { observer, onOpenView })` (**js/trip/tripv2.js**). `#trip-v2` est préfixé dans `#screen-app` (classe `tv2-on` masque `#topbar`/`#panels`). Fond html/body = couleur de la feuille (`#05080f` pour un observateur).
+- `openTrip` (trip.js) : sorties → `renderSortie` (sortie.js, même mécanique, voir v244) ; voyages/week-ends → `_showOverview()` → `renderTripV2(tripId, { observer, onOpenView })` (**js/trip/tripv2.js**). `#trip-v2` est préfixé dans `#screen-app` (classe `tv2-on` masque `#topbar`/`#panels`). Fond html/body = couleur de la feuille (`#05080f` pour un observateur).
 - **Feuille** : `createSheet(cfg)` (**js/sheet.js**) = même mécanique que la feuille de l'accueil (3 crans, transform/opacity seulement, vitesse au relâcher, carte décalée de `(t − mid)/2`, `.tv2-anim` coupe les flous, glissé horizontal = Planifier ↔ Suivre). Grand écran (≥ 901 px) : panneau fixe à gauche (400 px).
 - **Carte** : même instance MapLibre que l'accueil (`attachHomeMap(slot, { context:'trip', pins, route, … })`). Passage accueil → voyage : la caméra de l'accueil est mémorisée puis restaurée au retour et le tracé effacé. `collectTripPins(trip, eventTypes)` = tous les items géolocalisés numérotés (vignette photo `.hm-pin-photo` + badge `.hm-pin-num`) ; tracé `setHomeMapRoute(lines)` (couches `route-casing`/`route-line`, sous les PINs, à partir de `collectTripWaypoints` = `_collectAllWaypoints` de mapcal.js) ; `fitHomeMap(padding)` cadre PINs + tracé une fois par voyage.
 - **Propriétaire/membre** : barre du haut (retour, nom + initiales, 4 boutons ronds : réglages → `window._openTripMenu` (menu ⋯ de l'accueil), planning détaillé, bagages, budget). En-tête : statut, drapeaux, dates, stats (jours / activités / publiées / km), compagnons, bouton 🕘 Historique si partagé (`openActivityModal`). Bascule en bas `.tv2-seg` **Planifier** (frise des jours, étapes numérotées comme les PINs, trajets entre étapes avec mode + km, ＋ activité / ＋ jour → modales de mapcal.js exportées `openAddEventModal`/`openEditEventModal`/`openAddDayModal`) / **Suivre** (publications = items `journalData.validated`, ❤/💬/📷 depuis le doc partagé ; « À documenter » → `openValidateModal` de journal.js).
 - **Visionneuse plein écran** (`_openStory`, rattachée à `<html>`) : barres de progression, tap gauche/droite, glisser vers le bas pour fermer ; ❤ (`addObserverReaction`), 💬 (`openCommentsModal`), partager (`shareJournalItem`), modifier (propriétaire).
 - **Observateur** : uniquement le carnet — carte plein écran (PINs/tracé limités aux étapes publiées), puce « Jour N » + carrousel horizontal de publications en bas (le défilement fait voler la carte vers le PIN), ☰ → Quitter ce voyage.
 - **Sous-vues** (`_openSubview`, trip.js) : anciens onglets avec un en-tête `.tv2-subbar` (retour → vue d'ensemble) : `events` = Carte & Planning, `packing` = Bagages, `money` = Budget ↔ Dépenses partagées avec bascule `#tv2-subnav` en bas (le bouton ＋ du panneau remonte au-dessus). **Bagages refait en v238** (packing.js, classes `.pk-*`, page grise `--hv-bg2` via la classe `tv2-sub-v2` sur `#screen-app` posée par `_openSubview`) : anneau de progression + rappel des indispensables restants, filtre Tout / À emballer / Emballés (`_filter`, affichage seulement), une carte par catégorie (⋯ = modifier/supprimer), tap sur une ligne = cocher, › = modifier ; modales au style v2 (`boxClass:'hv2-modal pk-modal'`, suppression dans la modale). Format des données inchangé. **Dépenses partagées refait en v239** (tricount.js, classes `.tr-*`, tokens partagés avec `.pk`) : carte résumé (total, €/jour, % du budget, solde de chacun en pastilles défilantes), boutons ＋ Dépense / 💸 Virement (le menu ＋ flottant est supprimé), onglets segmentés Dépenses (groupées par date avec total du jour, tap = modifier) / Bilans (barres de solde + remboursements suggérés) / Budget (barres prévu vs dépensé) ; anneau par catégorie. Fenêtres Dépense/Virement en `boxClass:'hv2-modal v2-skin'` (voir « Habillage v2 générique » ci-dessous). **Filtre par type de dépense (v240)** : pastilles `.tr-fchip` (Toutes / catégories utilisées / Sans catégorie / Virements), état `_catFilter` remis à 'all' en changeant de voyage, l'anneau n'est affiché que sans filtre ; « 🗑 Supprimer » ajouté dans la fenêtre d'une dépense (l'ancien tableau desktop avait ce bouton). `_markV2Sub()` (trip.js) pose `tv2-sub-v2` + fond html/body gris pour Bagages et l'onglet Dépenses ; **Budget** et le planning détaillé gardent l'ancien style. Piège : `.panel` est en `display:flex` → les conteneurs `.pk`/`.tr` ont besoin de `min-width:0;width:100%` sinon une rangée défilante (soldes) élargit toute la page.
-- **v241** : bouton calendrier et sous-vue « Planning détaillé » (`events` → ancien onglet Carte & Planning) **retirés** — mapcal.js reste chargé pour ses fenêtres (ajout/modification d'événement, jour, `collectTripWaypoints`, `setWaypointMode`) ; sa carte Leaflet n'est plus jamais ouverte depuis l'écran voyage, d'où le bouton « Cliquer sur la carte » masqué quand `_map` est nul. Bouton 💵 : voyage commencé ou passé (`startDate <= aujourd'hui`) → onglet Dépenses partagées d'abord, sinon Budget (`_openSubview`). Feuille en plein écran : la barre du haut invisible reçoit `.tv2-top-off` (ses boutons ont `pointer-events:auto` et volaient les taps de l'en-tête — le bouton budget ouvrait les réglages). PINs d'un voyage : **jamais regroupés** (v242, demande explicite — source GeoJSON sans `cluster`) ; l'accueil garde le regroupement par pays. Les sources sont recréées au changement de contexte (`_dropSources`, homemap.js), le regroupement ne se réglant qu'à la création d'une source. Types d'événement et modes de transport des fenêtres d'événement en grille de tuiles (`.ev-tiles`, comme les filtres de la carte).
+- **v241** : bouton calendrier et sous-vue « Planning détaillé » (`events` → ancien onglet Carte & Planning) **retirés** — mapcal.js ne garde que ses fenêtres (ajout/modification d'événement, jour, `collectTripWaypoints`, `setWaypointMode`) ; tout le code de l'ancienne page (carte Leaflet, liste des jours, panneau EDP, « cliquer sur la carte ») a été **supprimé en v244**. Bouton 💵 : voyage commencé ou passé (`startDate <= aujourd'hui`) → onglet Dépenses partagées d'abord, sinon Budget (`_openSubview`). Feuille en plein écran : la barre du haut invisible reçoit `.tv2-top-off` (ses boutons ont `pointer-events:auto` et volaient les taps de l'en-tête — le bouton budget ouvrait les réglages). PINs d'un voyage : **jamais regroupés** (v242, demande explicite — source GeoJSON sans `cluster`) ; l'accueil garde le regroupement par pays. Les sources sont recréées au changement de contexte (`_dropSources`, homemap.js), le regroupement ne se réglant qu'à la création d'une source. Types d'événement et modes de transport des fenêtres d'événement en grille de tuiles (`.ev-tiles`, comme les filtres de la carte).
 - **Hébergement (v241)** : saisie **Arrivée / Départ** (fenêtres d'ajout, de modification et panneau EDP), stockage inchangé (`dateFrom` = 1ʳᵉ nuit, `dateTo` = dernière nuit incluse = départ − 1 jour, `_isoShift`) : du 29 au 30 = 1 nuit, du 29 au 31 = 2 nuits ; compteur « 🌙 N nuits » en direct. Dans Planifier, un hébergement de plusieurs nuits réapparaît sur chaque soir couvert (« Nuit 2/3 », `.tv2-step-cont`, affichage seulement — une seule donnée ancrée au jour d'arrivée).
 - **v242** : dans Planifier, les cartes d'hébergement (et leurs nuits suivantes) sont rendues en **fin de journée, après le tronçon de retour à la nuit** (`nightCards`) — le km s'affiche entre l'étape et la nuit. Un hébergement publié compte publié pour **toutes ses nuits** (« ✓ publié » sur chaque soir, crans pleins du curseur observateur via `covers()`). Curseur observateur : piste masquée hors glissé (`.tv2-dsl.drag`) ; poignée réduite à 84×38 px en v243. Visionneuse : photo entière (`object-fit:contain`) sur un fond flou de la même photo (`.tv2-story-bg`) — le paysage n'est plus recadré en portrait ; fenêtres et notifications passent devant la visionneuse (`html:has(.tv2-story)` → z-index 20100/20200 ; les commentaires s'ouvraient derrière). Fenêtre d'événement plein écran : **glisser vers le bas = fermer en enregistrant** (`_bindSheetSwipeClose`, clic sur Enregistrer/Ajouter ; ajout sans description = simple fermeture ; enregistrement refusé → la fenêtre remonte ; `dataset.closing` posé par `_closeMobileEventSheet`).
 - **Photos et vidéos des publications (v242)** : fenêtre « Valider l'activité » (journal.js) — photos lues en 2000 px puis envoyées vers Storage quand on est connecté (`uploadPhoto`, seule l'URL est gardée), sinon repli base64 1280 px (avant : 800 px, qualité visiblement dégradée). **Vidéos** : `accept="image/*,video/*"`, envoi direct vers Storage (`uploadVideo`, photostore.js, dossier `users/{uid}/videos/` — hors du nettoyage des photos orphelines, 200 Mo max, connexion obligatoire), URLs dans le **nouveau champ** `journalData.videos` (ajout rétro-compatible ; la prod l'ignore). Bouton Enregistrer bloqué tant qu'un envoi est en cours (`state.pending`). tripv2 : `post.media` = photos puis vidéos (vignette = 1ʳᵉ image de la vidéo + ▶, lecture dans la visionneuse : autoplay muet, contrôles, zones de navigation réduites).
@@ -116,6 +117,19 @@ js/
 - **Emplacement d'un événement (v240)** : la fenêtre de modification (`_openEditEventModal`, mapcal.js) a un bloc « Emplacement » (recherche de lieu `_buildLocationSearch` sans le bouton carte, 🎯 Ma position, Retirer) ; à l'enregistrement `lat/lng/placeName` sont mis à jour et le pays du PIN est re-détecté en arrière-plan (`reverseGeocodeCountry`). Sur ordinateur, le panneau EDP a un bouton « 📍 Modifier l'emplacement » qui ouvre cette fenêtre. La fenêtre plein écran `#_evt-sheet` est désormais rattachée à `<html>` (règle iOS) et habillée `.v2-skin`.
 - **Habillage v2 générique (v240)** : `showModal()` sans `boxClass` ajoute `hv2-modal v2-skin` → toutes les anciennes fenêtres (création/modification de voyage, sortie, statistiques du voyage, ajout d'événement, publication du carnet, budget, partage…) prennent le style v2 **en CSS seul** (`.v2-skin` en fin de style.css : titre, `.mc`, `.fg`, `.ma`, `.tp`, `.stat-card`… ; tokens `--c/--c2/--c3/--ink*` remappés vers `--hv-*` pour que les styles en ligne suivent). `showModal` remet aussi `scrollTop` à 0 (la boîte est réutilisée). Menu ⋯ d'un voyage (`.tc-dropdown`) restylé. Pour une fenêtre qui doit garder l'ancien rendu, passer un `boxClass` explicite.
 - Rafraîchissement : `updateTrip` (store.js) émet `trip-updated` → tripv2 re-rend la feuille, les PINs et le tracé ; `refreshTrip(id)` (trip.js, appelé par `_rerenderCurrentView`) re-rend la vue courante. État par voyage (mode, cran, défilement par mode) gardé en mémoire (`_tripState`).
+
+---
+
+## v244 — nettoyage + refontes restantes
+
+- **Tracé routier** (`routing.js`) : sur la carte d'un voyage (et d'un observateur), chaque tronçon suit les routes selon son mode — voiture/bus → `router.project-osrm.org` (driving), marche → `routing.openstreetmap.de/routed-foot`, vélo → `routed-bike` ; train = ligne droite pleine, avion/bateau = pointillé. `_legGeom` (tripv2.js) prend le tracé en cache (synchrone, `cachedRoute`), sinon ligne droite pointillée en attendant `fetchRoutes` (2 requêtes à la fois, timeout 12 s) qui redessine. Cache `carnet_route_cache_v1` (≤ 400 tronçons, géométrie ≤ 300 points, 5 décimales ; « pas d'itinéraire » mémorisé aussi). Le SW met déjà en cache les réponses `osrm`/`openstreetmap`. `setHomeMapRoute(lines)` accepte maintenant des objets `{ coords, color, dash }` (couches `route-casing` / `route-line` pleine / `route-dash`), les tableaux simples restent en pointillé blanc. Les km (tronçons, total du voyage) sont ceux de la route quand elle est connue (« par la route » / « à vol d'oiseau » dans la fenêtre du mode).
+- **Réordonner les étapes** (Planifier) : poignée `.tv2-drag` à droite de chaque étape (hors hébergements, qui restent en fin de journée) ; Pointer Events + capture, fantôme `.tv2-drag-ghost` rattaché à `<html>`, ligne d'insertion `.tv2-drop-ind`, défilement auto près des bords, déplacement possible vers un autre jour (`_moveStep`). Les `touch*` partant de la poignée sont arrêtés au niveau du volet pour que la feuille ne bouge pas.
+- **Trace GPX d'un événement** : bloc « Trace GPX » dans la fenêtre de modification (importer / remplacer / retirer) → `gpxTrackId`, `gpxStats`, `gpxPoints` (mêmes champs que l'ancien import) ; sans emplacement, le départ de la trace devient le PIN. La trace est dessinée en orange sur la carte du voyage et « 🥾 N km » s'affiche sur l'étape.
+- **Fermer une fenêtre en la glissant vers le bas** (mobile) : `_bindModalSwipe` (utils.js) sur toutes les fenêtres `showModal` — seulement quand le contenu est tout en haut, pas depuis un champ, une carte, un carrousel horizontal ou `[data-noswipe]` ; fermée au-delà de 30 % de sa hauteur (≤ 160 px) ou d'un geste rapide. Poignée visuelle `.mbox::before`. (La fenêtre d'événement plein écran garde son propre glissé qui enregistre.)
+- **Observateurs** : héros de l'écran voyage → « 👁 N observateurs » + noms (`_observerNames`) ; cartes « Mes voyages » → ligne `👁 Prénom, Prénom +n` (`_hv2ObserversLine`). Rejoindre en observateur via le sélecteur enregistre maintenant le vrai nom (`displayName`) au lieu du libellé « Observateur » (même champ `companionName`).
+- **Couverture** : la photo du voyage (`trip.photo`) est en tête du héros (`.tv2-cover`) et sert de 1ʳᵉ carte du carrousel observateur (`.tv2-ocard-cover`).
+- **Refontes v2** : Budget (`.bdg` + briques `.tr-*` : budget prévu, dépensé/%, répartition, catégories prévu vs dépensé avec ✎, filtres, lignes, coûts des activités — attention `.bd` est déjà la classe du bouton « supprimer ») ; écran Sortie (sortie.js réécrit : carte MapLibre de l'accueil + `createSheet`, PIN + trace GPX, fiche `.so-*`) ; fenêtre Partager (`.sh-*` : liens avec Copier/Envoyer, QR, voyageurs et observateurs séparés) ; écran de connexion (`.lg` : fond nuit + globe SVG animé, carte blanche en bas, html/body blanc) ; mode grands-parents. `switchTab` pose toujours le fond gris v2 (html/body) sur les sous-vues.
+- **Code supprimé** (analyse d'atteignabilité sur l'AST) : page Carte & Planning de mapcal.js (3 776 → ~1 090 lignes), onglet Carnet de journal.js (2 297 → ~570), carrousels/actions orphelins de home.js, `updateTopStats`, branches mapcal/journal de trip.js, `PRECACHE_TILES` du SW, exports jamais importés (`generateGpx`, `downloadFile`, `estimateTileCount`, `typeBadge`, `tIc`, `getPinTypes`, `homeMapResize`, `submitComment`, `deleteDayComment`, `deleteObserverReaction`), ~670 règles CSS dont les classes n'apparaissent plus nulle part (style.css 3 320 → ~2 250 lignes). Leaflet reste chargé : seule la fenêtre de création d'une sortie l'utilise encore (choix du lieu).
 
 ---
 
@@ -131,26 +145,8 @@ En mode appli (ajoutée à l'écran d'accueil, `black-translucent`), iOS 26 racc
 - **Desktop** : écrans `position:fixed; inset:0`, scroll interne dans des conteneurs.
 - **Mobile (≤ 768px)** : écrans `position:relative; height:auto; min-height:100dvh`, le scroll est celui du body. Les barres Safari se cachent automatiquement.
 
-### Classes CSS dynamiques sur `#screen-app`
-| Classe | Quand | Effet |
-|--------|-------|-------|
-| `tab-map-active` | Desktop uniquement, onglet mapcal | Conserve le layout fixe pour Leaflet |
-| `tab-fixed-active` | (même chose, même condition) | Idem |
-| `mc-carte-mode` | Mobile, mapcal en mode Carte | Map en `position:absolute;inset:0` avec hauteur explicite |
-
-### Sélecteur pour les overrides body-scroll (mobile)
-```css
-#screen-app.active:not(.tab-map-active):not(.tab-fixed-active) { ... }
-```
-
-### Cartes dans le body-scroll
-Les maps Leaflet ont besoin d'un conteneur à hauteur définie. Pattern :
-```css
-/* conteneur */
-.map-col { position: relative; height: <valeur explicite>; overflow: hidden; }
-/* map */
-#map { position: absolute !important; inset: 0 !important; height: 100% !important; }
-```
+### Cartes
+Toutes les cartes de l'app (accueil, voyage, sortie) sont la même instance MapLibre (homemap.js), en `position:fixed` dans un écran sans défilement de page. Leaflet ne sert plus qu'à la petite carte de la fenêtre de création d'une sortie.
 
 ### Modales et scroll iOS
 `showModal()` dans `utils.js` verrouille le body avec `position:fixed; top:-Ypx` sur mobile pour empêcher le scroll de la page derrière la modale. `closeModal()` restaure la position. `.mbox` a aussi `overscroll-behavior:contain`.
@@ -188,8 +184,7 @@ fmtDate(iso)                   // '15 Jan 2025'
 fmtDateShort(iso)              // '15 Jan'
 generateDays(trip)             // génère les jours entre startDate et endDate
 dpInit / dpClick / dpNav …     // widget date picker
-tCol / tIc / trIc / trNm …    // couleurs et icônes types d'événement
-typeBadge(type)                // badge HTML voyage/weekend/sortie
+tCol / trIc / trNm / trCol     // couleurs et icônes types d'événement
 colorOptsHtml(sel, fn)         // palette de couleurs cliquables
 reverseGeocodeCountry(lat,lng) // → { code, flag } via Nominatim, ou null (timeout 6s inclus)
 ```
@@ -258,16 +253,6 @@ uid()          // ID court aléatoire
 
 ---
 
-## Onglet Carnet (journal.js) — notes spécifiques
-
-- **Owner/membre desktop** : Carte et Timeline sont fusionnées en une seule vue (`.obs-tl-layout` > `.obs-tl-col` = timeline à gauche, `.map-col` = carte à droite), toujours visibles ensemble — plus de bouton de bascule.
-- **Owner/membre mobile** : 2 onglets plein écran, `carte` ou `timeline` (`_journalMobTab`), rendus dans `#jn-mob-body`. Body-scroll : `#jn-mob-body`, `.tl-wrap`, `.tl-scroll` ont tous `height:auto; overflow:visible` via les overrides CSS du bloc body-scroll ; `#journal-map` garde une hauteur explicite (`calc(100dvh - 180px)`).
-- **Observateur desktop** : même layout que owner/membre desktop (`_renderTimelineView`, carte + timeline côte à côte).
-- **Observateur mobile** : mêmes 2 onglets plein écran que owner/membre mobile (`carte` / `timeline`, `_journalMobTab`, `#jn-mob-body`) — avant, un layout fixe côte-à-côte écrasait la carte à 260px de haut sur petit écran. `_renderObserverView` (ancien "feed" alternatif, jamais réellement atteignable depuis l'UI) a été supprimé.
-- `_openJournalItemPanel()` nécessite `.map-col` dans le DOM (présent en permanence sur desktop ; sur mobile uniquement dans l'onglet Carte). En timeline, utiliser `_openValidateModal()` directement.
-
----
-
 ## Photos & sync cloud (photostore.js)
 
 - Localement, les photos restent en base64 dans `localStorage` (`trip.photo`, `trip.photos[]`, `day.items[].photo/photos`, `journalData.photos[]`, `journalEntries[].photos[]`) — inchangé, pleine résolution.
@@ -286,7 +271,6 @@ uid()          // ID court aléatoire
 - `cv-shell-N` : cache des fichiers app — **réseau d'abord** (timeout 6 s), cache seulement hors-ligne. L'ancien stale-while-revalidate servait après une mise à jour un mélange vieux JS / nouveau CSS (chaque fichier revalidé indépendamment)
 - `cv-tiles-1` : cache des tuiles OSM (cache-first, permanent)
 - SHELL_URLS liste tous les JS/CSS/icons à précacher
-- Message `PRECACHE_TILES` → précache les tuiles d'une bbox
 
 ---
 

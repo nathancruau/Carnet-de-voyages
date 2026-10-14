@@ -2,9 +2,8 @@
    CARNET DE VOYAGES — Budget (Prévisionnel) Module
    ============================================================ */
 
-import { getTrip, updateTrip, uid } from '../store.js';
+import { getTrip, updateTrip, uid, getEventTypes } from '../store.js';
 import { notify, showModal, closeModal, fmtDateShort, customDayTitle } from '../utils.js';
-import { updateTopStats } from './trip.js';
 
 // ── Module state ──────────────────────────────────────────────────────────────
 
@@ -54,302 +53,153 @@ export function renderBudget(tripId) {
     panel.removeEventListener('click', _handlers.get(panel));
     _handlers.delete(panel);
   }
-
-  const cats  = trip.budgetCats  || [];
-  const lines = trip.budgetLines || [];
-
   // Reset category selection if the stored id doesn't belong to this trip
-  // (happens when navigating from one trip's budget to another's)
-  if (_selectedCatId && !cats.some(c => c.id === _selectedCatId)) {
-    _selectedCatId = null;
-  }
+  if (_selectedCatId && !(trip.budgetCats || []).some(c => c.id === _selectedCatId)) _selectedCatId = null;
 
-  panel.innerHTML = `
-    <div class="bud-layout">
-      <div class="bud-side">
-        <div class="bud-side-sc" id="bud-side-content">
-          ${_renderSide(cats, lines)}
-        </div>
-      </div>
-      <div class="bud-main" id="bud-main-content">
-        <div class="bud-mob-tabs">
-          <button class="bm-tab active" data-action="bud-tab" data-tab="budget">💰 Budget</button>
-          <button class="bm-tab" data-action="bud-tab" data-tab="stats">📊 Statistiques</button>
-        </div>
-        <div id="bud-main-body">
-          ${_renderMain(trip, cats, lines)}
-        </div>
-      </div>
-    </div>
-    <button class="panel-fab" data-action="add-line" title="Ajouter une ligne budgétaire">＋</button>`;
-
-  // On mobile, default to Budget tab (hide stats section)
-  if (window.innerWidth <= 768) {
-    const stats = panel.querySelector('#bud-sect-stats');
-    if (stats) stats.style.display = 'none';
-  }
+  panel.innerHTML = `<div class="tr bdg" id="bd-root">${_budgetHtml(trip)}</div>`;
 
   const handler = e => _handleClick(e, tripId);
   _handlers.set(panel, handler);
   panel.addEventListener('click', handler);
 }
 
-// ── Side panel ────────────────────────────────────────────────────────────────
+// ── Rendu v2 (v244 — même style que Dépenses partagées : .tr-*) ───────────────
 
-function _renderSide(cats, lines) {
-  const totalLines   = _totalLines(lines);
-  const globalActive = _selectedCatId === null;
-
-  let html = `
-    <div class="glob-btn${globalActive ? ' active' : ''}" data-action="select-cat" data-cat-id="">
-      <span style="font-size:15px">💰</span>
-      <div style="flex:1;min-width:0">
-        <div style="font-size:11px;font-weight:700;color:var(--ink)">Vue globale</div>
-        <div class="ci-cnt">${_fmtEur(totalLines)} planifié</div>
-      </div>
-    </div>
-    <div class="bs-lbl" style="padding:8px 2px 4px">Catégories</div>`;
-
-  for (const cat of cats) {
-    const catTotal = _catLinesTotal(lines, cat.id);
-    const linesCnt = lines.filter(l => l.catId === cat.id).length;
-    const isActive = _selectedCatId === cat.id;
-
-    html += `
-      <div class="cat-item${isActive ? ' active' : ''}" data-action="select-cat" data-cat-id="${_esc(cat.id)}">
-        <div class="ci-ic">${_esc(cat.icon || '📦')}</div>
-        <div class="ci-info">
-          <div class="ci-nm">${_esc(cat.name)}</div>
-          <div class="ci-cnt">${linesCnt} ligne${linesCnt !== 1 ? 's' : ''}</div>
-        </div>
-        <div style="font-size:12px;font-weight:700;color:var(--ink);white-space:nowrap;flex-shrink:0">${_fmtEur(catTotal)}</div>
-        <button class="tc-edit-btn cat-del-btn" data-action="delete-cat" data-cat-id="${_esc(cat.id)}"
-          title="Supprimer la catégorie">✕</button>
-      </div>`;
+// Dépensé réel (Dépenses partagées), en euros, virements exclus
+function _spentByCat(trip) {
+  const by = new Map();
+  let total = 0;
+  for (const e of trip.realExpenses || []) {
+    if (e.type === 'transfer') continue;
+    const v = Number(e.amountEur ?? e.amount) || 0;
+    total += v;
+    by.set(e.catId || '', (by.get(e.catId || '') || 0) + v);
   }
-
-  html += `
-    <div class="add-cat-row">
-      <button class="btn-new" style="width:100%;justify-content:center;font-size:11px" data-action="add-cat">＋ Nouvelle catégorie</button>
-    </div>`;
-
-  return html;
+  return { by, total };
 }
 
-// ── Main panel ────────────────────────────────────────────────────────────────
+// Coûts saisis sur les activités du planning
+function _plannedEvents(trip) {
+  const out = [];
+  for (const day of trip.days || []) for (const ev of day.items || []) if (Number(ev.cost) > 0) out.push({ day, ev });
+  return out;
+}
 
-function _renderMain(trip, cats, lines) {
-  const selCat        = _selectedCatId ? cats.find(c => c.id === _selectedCatId) : null;
-  const filteredLines = _selectedCatId
-    ? lines.filter(l => l.catId === _selectedCatId)
-    : lines;
+function _catChip(cat) {
+  return cat ? `<span class="tr-ic tr-ic-s" style="--cc:${_esc(cat.color || '#0d9488')}">${_esc(cat.icon || '📦')}</span>`
+             : `<span class="tr-ic tr-ic-s" style="--cc:#94a3b8">📋</span>`;
+}
 
-  const totalPlannedCosts = filteredLines.reduce((s, l) => s + (Number(l.amount) || 0), 0);
+function _budgetHtml(trip) {
+  const cats  = trip.budgetCats  || [];
+  const lines = trip.budgetLines || [];
+  const evts  = _plannedEvents(trip);
+  const spent = _spentByCat(trip);
+  const planned = _totalLines(lines);
+  const evTotal = evts.reduce((n, o) => n + (Number(o.ev.cost) || 0), 0);
+  const pct = planned > 0 ? Math.round(spent.total / planned * 100) : null;
 
-  let statsHtml = `
-    <div class="bud-summary-cards">
-      <div class="bud-sm-card">
-        <div class="bud-sm-v" style="color:var(--teal)">${_fmtEur(totalPlannedCosts)}</div>
-        <div class="bud-sm-l">Dépenses planifiées</div>
-      </div>
+  const hero = `
+    <div class="tr-hero">
+      <span class="tr-hero-l">Budget prévu</span>
+      <b class="tr-hero-v">${_fmtEur(planned)}</b>
+      <span class="tr-hero-s">${spent.total > 0 ? `Dépensé : <b class="${pct != null && pct > 100 ? 'neg' : ''}">${_fmtEur(spent.total)}</b>${pct != null ? ` · ${pct} %` : ''}` : 'Rien de dépensé pour l’instant'}</span>
+      ${planned > 0 ? `<div class="tr-bil-bar bd-bar"><i class="${pct > 100 ? 'neg' : 'pos'}" style="width:${Math.min(100, pct || 0)}%"></i></div>` : ''}
+      ${evTotal > 0 ? `<span class="tr-hero-s">＋ ${_fmtEur(evTotal)} de coûts d’activités dans le planning</span>` : ''}
+    </div>
+    <div class="tr-actions">
+      <button class="pk-btn pk-btn-dark" data-action="add-line">＋ Ligne</button>
+      <button class="pk-btn" data-action="add-cat">＋ Catégorie</button>
     </div>`;
 
-  if (!selCat && cats.length > 0 && lines.length > 0) {
-    statsHtml += _renderBudgetDonut(cats, lines);
-  }
+  // Par catégorie : prévu vs dépensé ; tap = filtrer les lignes, ✎ = modifier
+  const catRows = cats.map(cat => {
+    const pl = _catLinesTotal(lines, cat.id);
+    const sp = spent.by.get(cat.id) || 0;
+    const n  = lines.filter(l => l.catId === cat.id).length;
+    const w  = pl > 0 ? Math.min(100, sp / pl * 100) : (sp > 0 ? 100 : 0);
+    const on = _selectedCatId === cat.id;
+    return `
+      <div class="tr-row bd-cat${on ? ' on' : ''}" data-action="select-cat" data-cat-id="${_esc(cat.id)}">
+        <span class="tr-ic" style="--cc:${_esc(cat.color || '#0d9488')}">${_esc(cat.icon || '📦')}</span>
+        <div class="tr-txt"><b>${_esc(cat.name)}</b>
+          <small>${n} ligne${n > 1 ? 's' : ''}${sp > 0 ? ` · ${_fmtEur(sp)} dépensés` : ''}</small>
+          <div class="tr-bil-bar"><i class="${pl > 0 && sp > pl ? 'neg' : 'pos'}" style="width:${w}%;${pl > 0 && sp > pl ? '' : `background:${_esc(cat.color || '#22c55e')}`}"></i></div>
+        </div>
+        <div class="tr-amt">${_fmtEur(pl)}<small>prévu</small></div>
+        <button class="bd-edit" data-action="edit-cat" data-cat-id="${_esc(cat.id)}" title="Modifier la catégorie">✎</button>
+      </div>`;
+  }).join('');
 
-  const daysCostHtml = _renderDaysCosts(trip, cats, selCat);
-  if (daysCostHtml) statsHtml += daysCostHtml;
+  const selCat = _selectedCatId ? cats.find(c => c.id === _selectedCatId) : null;
+  const shown = selCat ? lines.filter(l => l.catId === selCat.id) : lines;
+  const days = trip.days || [];
+  const lineRows = shown.map(line => {
+    const cat = cats.find(c => c.id === line.catId);
+    const day = days.find(d => d.id === line.dayId);
+    const sub = [cat?.name, day ? `Jour ${day.num}` : '', line.note].filter(Boolean).map(_esc).join(' · ');
+    return `
+      <button class="tr-row" data-action="edit-line" data-line-id="${_esc(line.id)}">
+        ${_catChip(cat)}
+        <span class="tr-txt"><b>${_esc(line.desc || '—')}</b>${sub ? `<small>${sub}</small>` : ''}</span>
+        <span class="tr-amt">${_fmtEur(line.amount)}</span>
+      </button>`;
+  }).join('');
 
-  const linesHtml =
-    `<h4 style="margin:20px 0 6px;font-size:13px;font-weight:700;color:var(--ink)">📋 Lignes budgétaires manuelles</h4>` +
-    _renderLinesTable(trip, cats, filteredLines);
+  const evShown = selCat ? evts.filter(o => o.ev.catId === selCat.id) : evts;
+  const ets = Object.fromEntries(getEventTypes().map(et => [et.key, et]));
+  const evRows = evShown.map(({ day, ev }) => {
+    const et = ets[ev.type] || {};
+    return `
+      <div class="tr-row bd-ro">
+        <span class="tr-ic tr-ic-s" style="--cc:${_esc(et.color || '#0d9488')}">${et.emoji || '📍'}</span>
+        <span class="tr-txt"><b>${_esc(ev.text || '—')}</b><small>Jour ${day.num}${et.label ? ' · ' + _esc(et.label) : ''}</small></span>
+        <span class="tr-amt tr-amt-muted">${_fmtEur(ev.cost)}</span>
+      </div>`;
+  }).join('');
+
+  const filters = cats.length ? `
+    <div class="tr-filters">
+      <button class="tr-fchip${!selCat ? ' on' : ''}" data-action="select-cat" data-cat-id="">Toutes</button>
+      ${cats.map(c => `<button class="tr-fchip${selCat?.id === c.id ? ' on' : ''}" data-action="select-cat" data-cat-id="${_esc(c.id)}"><i>${_esc(c.icon || '📦')}</i>${_esc(c.name)}</button>`).join('')}
+    </div>` : '';
 
   return `
-    <div class="bud-section-hd">
-      <h3>${selCat ? _esc(selCat.icon + ' ' + selCat.name) : '💰 Budget prévisionnel'}</h3>
-      <button class="btn-new bud-add-btn-desktop" data-action="add-line">＋ Ajouter une ligne</button>
-    </div>
-    <div id="bud-sect-stats">${statsHtml}</div>
-    <div id="bud-sect-lines">${linesHtml}</div>`;
+    ${hero}
+    ${!selCat && cats.length && planned > 0 ? `<div class="tr-sec">Répartition</div><div class="tr-card">${_renderBudgetDonut(cats, lines, planned)}</div>` : ''}
+    <div class="tr-sec">Catégories</div>
+    ${cats.length ? `<div class="tr-card">${catRows}</div>`
+      : `<div class="tr-card tr-pad bd-empty">Aucune catégorie — ajoutez-en une (Hébergement, Transport…) pour répartir le budget.</div>`}
+    ${filters}
+    <div class="tr-sec">Lignes du budget${selCat ? ` · ${_esc(selCat.name)}` : ''}</div>
+    ${lineRows ? `<div class="tr-card">${lineRows}</div>`
+      : `<div class="tr-card tr-pad bd-empty">Aucune ligne${selCat ? ' dans cette catégorie' : ''}. « ＋ Ligne » pour prévoir une dépense.</div>`}
+    ${evRows ? `<div class="tr-sec">Coûts des activités (planning)</div><div class="tr-card">${evRows}</div>` : ''}`;
 }
 
 // ── Budget donut chart by category ───────────────────────────────────────────
 
-function _renderBudgetDonut(cats, lines) {
-  const total = _totalLines(lines);
-  if (total === 0) return '';
-
+function _renderBudgetDonut(cats, lines, total) {
   const segments = cats
-    .map(cat => ({
-      label: cat.name,
-      icon:  cat.icon  || '📦',
-      color: cat.color || '#888',
-      value: _catLinesTotal(lines, cat.id),
-    }))
+    .map(cat => ({ label: cat.name, icon: cat.icon || '📦', color: cat.color || '#888', value: _catLinesTotal(lines, cat.id) }))
     .filter(s => s.value > 0);
-
-  if (segments.length === 0) return '';
-
-  const R = 40, cx = 50, cy = 50;
-  const circ = 2 * Math.PI * R;
-  let offset = 0;
-  let arcs = '';
+  if (!segments.length || !total) return '';
+  const R = 40, cx = 50, cy = 50, circ = 2 * Math.PI * R;
+  let offset = 0, arcs = '';
   for (const seg of segments) {
     const dash = (seg.value / total) * circ;
-    arcs += `<circle cx="${cx}" cy="${cy}" r="${R}" fill="none"
-      stroke="${_esc(seg.color)}" stroke-width="16"
-      stroke-dasharray="${dash.toFixed(2)} ${(circ - dash).toFixed(2)}"
-      stroke-dashoffset="${(-offset).toFixed(2)}"
-      transform="rotate(-90 ${cx} ${cy})"/>`;
+    arcs += `<circle cx="${cx}" cy="${cy}" r="${R}" fill="none" stroke="${_esc(seg.color)}" stroke-width="14"
+      stroke-dasharray="${dash.toFixed(2)} ${(circ - dash).toFixed(2)}" stroke-dashoffset="${(-offset).toFixed(2)}" transform="rotate(-90 ${cx} ${cy})"/>`;
     offset += dash;
   }
-
-  const legend = segments.map(s => `
-    <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
-      <div style="width:10px;height:10px;border-radius:50%;background:${_esc(s.color)};flex-shrink:0"></div>
-      <div style="font-size:11px;color:var(--ink2);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_esc(s.icon)} ${_esc(s.label)}</div>
-      <div style="font-size:11px;font-weight:700;color:var(--ink)">${_fmtEur(s.value)}</div>
-    </div>`).join('');
-
+  const legend = segments.map(sg => `
+    <div class="tr-leg"><i style="background:${_esc(sg.color)}"></i><span>${_esc(sg.icon)} ${_esc(sg.label)}</span>
+      <b>${_fmtEur(sg.value)} <small>${Math.round(sg.value / total * 100)} %</small></b></div>`).join('');
   return `
-    <div style="background:var(--c);border:1.5px solid var(--c3);border-radius:10px;padding:14px 16px;margin-bottom:16px">
-      <div style="font-size:12px;font-weight:700;color:var(--ink2);margin-bottom:12px">Répartition par catégorie</div>
-      <div style="display:flex;align-items:center;gap:20px;flex-wrap:wrap">
-        <svg width="100" height="100" viewBox="0 0 100 100" style="flex-shrink:0">
-          <circle cx="${cx}" cy="${cy}" r="${R}" fill="none" stroke="var(--c3)" stroke-width="16"/>
-          ${arcs}
-        </svg>
-        <div style="flex:1;min-width:140px">${legend}</div>
-      </div>
-    </div>`;
-}
-
-// ── Days costs (read-only, from planning) ─────────────────────────────────────
-
-function _renderDaysCosts(trip, cats, selCat) {
-  const days = trip.days || [];
-
-  // Collect all events across all days that have a cost > 0
-  const costItems = [];
-  for (const day of days) {
-    for (const ev of (day.items || [])) {
-      if (Number(ev.cost) > 0) {
-        costItems.push({ day, ev });
-      }
-    }
-  }
-
-  if (costItems.length === 0) return '';
-
-  // If in category view, filter by catId if event has one; show all costs in global view
-  const filtered = selCat
-    ? costItems.filter(({ ev }) => ev.catId === selCat.id)
-    : costItems;
-
-  if (filtered.length === 0) return '';
-
-  // Group by day
-  const byDay = new Map();
-  for (const { day, ev } of filtered) {
-    if (!byDay.has(day.id)) byDay.set(day.id, { day, events: [] });
-    byDay.get(day.id).events.push(ev);
-  }
-
-  const totalCost = filtered.reduce((s, { ev }) => s + (Number(ev.cost) || 0), 0);
-
-  let rows = '';
-  for (const { day, events } of byDay.values()) {
-    for (const ev of events) {
-      const cat = cats.find(c => c.id === ev.catId);
-      const catHtml = cat
-        ? `<span style="white-space:nowrap;font-size:9px;font-weight:800;padding:2px 7px;border-radius:999px;background:${_esc(cat.color || '#0d9488')}22;color:${_esc(cat.color || '#0d9488')};border:1px solid ${_esc(cat.color || '#0d9488')}44">${_esc(cat.icon || '')} ${_esc(cat.name)}</span>`
-        : '';
-      rows += `
-        <tr>
-          <td>
-            <div style="font-size:12px;font-weight:600;color:var(--ink)">${_esc(ev.title || ev.name || '—')}</div>
-            ${ev.note ? `<div style="font-size:10px;color:var(--ink4);margin-top:2px">${_esc(ev.note)}</div>` : ''}
-          </td>
-          <td>${catHtml}</td>
-          <td style="font-weight:700;color:var(--ink)">${_fmtEur(ev.cost)}</td>
-          <td><span style="font-size:10px;color:var(--ink4)">Jour ${day.num}</span></td>
-        </tr>`;
-    }
-  }
-
-  return `
-    <div style="margin-bottom:4px">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
-        <div style="font-size:12px;font-weight:700;color:var(--ink2)">Dépenses planifiées (depuis planning)</div>
-        <div style="font-size:11px;font-weight:700;color:var(--teal)">${_fmtEur(totalCost)}</div>
-      </div>
-      <div class="exp-table-wrap">
-        <table class="exp-table" style="opacity:.9">
-          <thead>
-            <tr>
-              <th>Événement</th>
-              <th>Catégorie</th>
-              <th>Coût estimé</th>
-              <th>Jour</th>
-            </tr>
-          </thead>
-          <tbody>${rows}</tbody>
-        </table>
-      </div>
-    </div>`;
-}
-
-// ── Lines table ───────────────────────────────────────────────────────────────
-
-function _renderLinesTable(trip, cats, filteredLines) {
-  const days = trip.days || [];
-
-  if (filteredLines.length === 0) {
-    return `
-      <div style="text-align:center;padding:40px 20px;color:var(--ink4)">
-        <div style="font-size:32px;margin-bottom:10px">📋</div>
-        <div style="font-size:13px">Aucune ligne budgétaire</div>
-        <div style="font-size:11px;margin-top:4px">Cliquez sur «&nbsp;Ajouter une ligne&nbsp;» pour commencer</div>
-      </div>`;
-  }
-
-  let rows = '';
-  for (const line of filteredLines) {
-    const cat    = cats.find(c => c.id === line.catId);
-    const day    = days.find(d => d.id === line.dayId);
-    const catHtml = cat
-      ? `<span style="white-space:nowrap;font-size:9px;font-weight:800;padding:2px 7px;border-radius:999px;background:${_esc(cat.color || '#0d9488')}22;color:${_esc(cat.color || '#0d9488')};border:1px solid ${_esc(cat.color || '#0d9488')}44">${_esc(cat.icon || '')} ${_esc(cat.name)}</span>`
-      : '—';
-    const dayHtml = day
-      ? `<span style="font-size:10px;color:var(--ink4)">Jour ${day.num}</span>`
-      : '';
-
-    rows += `
-      <tr class="bud-line-row" data-action="edit-line" data-line-id="${_esc(line.id)}">
-        <td>
-          <div style="font-size:12px;font-weight:600;color:var(--ink)">${_esc(line.desc || '—')}</div>
-          ${line.note ? `<div style="font-size:10px;color:var(--ink4);margin-top:2px">${_esc(line.note)}</div>` : ''}
-        </td>
-        <td>${catHtml}</td>
-        <td style="font-weight:700;color:var(--ink)">${_fmtEur(line.amount)}</td>
-        <td>${dayHtml}</td>
-      </tr>`;
-  }
-
-  return `
-    <div class="exp-table-wrap">
-      <table class="exp-table">
-        <thead>
-          <tr>
-            <th>Description</th>
-            <th>Catégorie</th>
-            <th>Montant</th>
-            <th>Jour</th>
-          </tr>
-        </thead>
-        <tbody>${rows}</tbody>
-      </table>
+    <div class="tr-donut">
+      <div class="tr-donut-svg"><svg viewBox="0 0 100 100"><circle cx="${cx}" cy="${cy}" r="${R}" fill="none" stroke="var(--hv-chip)" stroke-width="14"/>${arcs}</svg>
+        <div>${_fmtEur(total)}</div></div>
+      <div class="tr-legs">${legend}</div>
     </div>`;
 }
 
@@ -358,91 +208,29 @@ function _renderLinesTable(trip, cats, filteredLines) {
 function _handleClick(e, tripId) {
   const btn = e.target.closest('[data-action]');
   if (!btn) return;
-
   const action = btn.dataset.action;
-
-  if (action === 'bud-tab') {
-    const tab  = btn.dataset.tab;
-    const pnl  = document.getElementById('panel-budget');
-    if (!pnl) return;
-    pnl.querySelectorAll('.bm-tab').forEach(t => t.classList.remove('active'));
-    btn.classList.add('active');
-    const statsEl = document.getElementById('bud-sect-stats');
-    const linesEl = document.getElementById('bud-sect-lines');
-    if (tab === 'stats') {
-      if (statsEl) statsEl.style.display = '';
-      if (linesEl) linesEl.style.display = 'none';
-    } else {
-      if (statsEl) statsEl.style.display = 'none';
-      if (linesEl) linesEl.style.display = '';
-    }
-
-  } else if (action === 'select-cat') {
+  if (action === 'select-cat') {
     const catId = btn.dataset.catId || null;
-    _selectedCatId = catId || null;
+    _selectedCatId = catId && catId !== _selectedCatId ? catId : (btn.classList.contains('tr-fchip') ? catId : null);
     _refresh(tripId);
-
   } else if (action === 'add-line') {
     _openLineModal(tripId, null);
-
   } else if (action === 'edit-line') {
     _openLineModal(tripId, btn.dataset.lineId);
-
-  } else if (action === 'delete-line') {
-    const lineId = btn.dataset.lineId;
-    if (confirm('Supprimer cette ligne budgétaire ?')) {
-      const trip = getTrip(tripId);
-      updateTrip(tripId, {
-        budgetLines: (trip.budgetLines || []).filter(l => l.id !== lineId)
-      });
-      notify('Ligne supprimée', '🗑');
-      updateTopStats(tripId);
-      _refresh(tripId);
-    }
-
   } else if (action === 'add-cat') {
     _openCatModal(tripId, null);
-
   } else if (action === 'edit-cat') {
+    e.stopPropagation();
     _openCatModal(tripId, btn.dataset.catId);
-
-  } else if (action === 'delete-cat') {
-    const catId = btn.dataset.catId;
-    if (confirm('Supprimer cette catégorie et toutes ses lignes ?')) {
-      const trip = getTrip(tripId);
-      updateTrip(tripId, {
-        budgetCats:  (trip.budgetCats  || []).filter(c => c.id !== catId),
-        budgetLines: (trip.budgetLines || []).filter(l => l.catId !== catId),
-      });
-      if (_selectedCatId === catId) _selectedCatId = null;
-      notify('Catégorie supprimée', '🗑');
-      updateTopStats(tripId);
-      _refresh(tripId);
-    }
   }
 }
 
 function _refresh(tripId) {
   const trip = getTrip(tripId);
-  if (!trip) return;
-
-  const cats  = trip.budgetCats  || [];
-  const lines = trip.budgetLines || [];
-
-  const sideEl = document.getElementById('bud-side-content');
-  const bodyEl = document.getElementById('bud-main-body');
-  if (sideEl) sideEl.innerHTML = _renderSide(cats, lines);
-  if (bodyEl) {
-    bodyEl.innerHTML = _renderMain(trip, cats, lines);
-    if (window.innerWidth <= 768) {
-      const activeTab = document.querySelector('.bm-tab.active');
-      const tab = activeTab?.dataset?.tab || 'budget';
-      const statsEl = document.getElementById('bud-sect-stats');
-      const linesEl = document.getElementById('bud-sect-lines');
-      if (tab === 'stats') { if (linesEl) linesEl.style.display = 'none'; }
-      else { if (statsEl) statsEl.style.display = 'none'; }
-    }
-  }
+  const root = document.getElementById('bd-root');
+  if (!trip || !root) return;
+  if (_selectedCatId && !(trip.budgetCats || []).some(c => c.id === _selectedCatId)) _selectedCatId = null;
+  root.innerHTML = _budgetHtml(trip);
 }
 
 // ── Add/Edit Line Modal ───────────────────────────────────────────────────────
@@ -511,7 +299,6 @@ function _openLineModal(tripId, lineId) {
         updateTrip(tripId, {
           budgetLines: (freshTrip.budgetLines || []).filter(l => l.id !== lineId)
         });
-        updateTopStats(tripId);
         notify('Ligne supprimée', '🗑');
         closeModal();
         _refresh(tripId);
@@ -566,7 +353,6 @@ function _openLineModal(tripId, lineId) {
       }
     }
 
-    updateTopStats(tripId);
     closeModal();
     _refresh(tripId);
   });
@@ -688,7 +474,6 @@ function _openCatModal(tripId, catId) {
         });
         if (_selectedCatId === catId) _selectedCatId = null;
         notify('Catégorie supprimée', '🗑');
-        updateTopStats(tripId);
         closeModal();
         _refresh(tripId);
       }
@@ -714,7 +499,6 @@ function _openCatModal(tripId, catId) {
       }
 
       updateTrip(tripId, { budgetCats: newCats });
-      updateTopStats(tripId);
       closeModal();
       _refresh(tripId);
     });

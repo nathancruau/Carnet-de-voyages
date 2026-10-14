@@ -27,7 +27,7 @@ function _persistState() {
   try { localStorage.setItem(THEME_KEY, state.settings?.theme || ''); } catch (_) {}
 }
 
-export const APP_VERSION = '243';
+export const APP_VERSION = '244';
 
 export const COMP_COLORS = [
   '#0d9488','#7c3aed','#e85d3e','#d97706',
@@ -141,11 +141,6 @@ export function updateSettings(updates) {
   return state.settings;
 }
 
-export function getPinTypes() {
-  // Unified with event types — same type system for planning and journal
-  return getEventTypes().map(({ key, emoji, label }) => ({ key, emoji, label }));
-}
-
 export function getEventTypes() {
   const s = state.settings || {};
   if (!Array.isArray(s.eventTypes) || s.eventTypes.length === 0) return DEFAULT_EVENT_TYPES;
@@ -250,7 +245,6 @@ export function replaceTripFromNetwork(id, tripData) {
   }
   try { _persistState(); } catch (e) {}
 }
-
 
 /**
  * Merge a Firestore snapshot into local state (called on first auth + reconnect).

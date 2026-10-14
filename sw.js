@@ -6,7 +6,7 @@
    - Firebase   : network-only (handles its own offline via IndexedDB)
    ============================================================ */
 
-const SHELL_CACHE = 'cv-shell-243';
+const SHELL_CACHE = 'cv-shell-244';
 const TILE_CACHE  = 'cv-tiles-1';
 
 const SHELL_URLS = [
@@ -26,6 +26,7 @@ const SHELL_URLS = [
   '/js/gpx.js',
   '/js/home.js',
   '/js/homemap.js',
+  '/js/routing.js',
   '/js/sheet.js',
   '/js/notifications.js',
   '/js/photostore.js',
@@ -150,52 +151,4 @@ async function _networkFirst(req, isNavigate) {
 <button onclick="location.reload()">Réessayer</button></div></body></html>`,
     { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8' } }
   );
-}
-
-// ── Pre-cache tiles for a bounding box (sent via postMessage) ─────────────────
-
-self.addEventListener('message', async e => {
-  if (e.data?.type !== 'PRECACHE_TILES') return;
-
-  const { north, south, east, west, minZoom = 5, maxZoom = 13 } = e.data;
-  const cache = await caches.open(TILE_CACHE);
-
-  // Collect all tile coords across zoom levels
-  const tiles = [];
-  for (let z = minZoom; z <= maxZoom; z++) {
-    const [x1, y1] = _toTile(west,  north, z);
-    const [x2, y2] = _toTile(east,  south, z);
-    const xLo = Math.min(x1, x2), xHi = Math.max(x1, x2);
-    const yLo = Math.min(y1, y2), yHi = Math.max(y1, y2);
-    for (let x = xLo; x <= xHi; x++)
-      for (let y = yLo; y <= yHi; y++)
-        tiles.push({ z, x, y });
-  }
-
-  let done = 0;
-  const total = tiles.length;
-
-  for (const { z, x, y } of tiles) {
-    const s   = ['a', 'b', 'c'][(x + y + z) % 3];
-    const url = `https://${s}.tile.openstreetmap.fr/hot/${z}/${x}/${y}.png`;
-    try {
-      if (!await cache.match(url)) {
-        const r = await fetch(url, { mode: 'cors' });
-        if (r.ok) await cache.put(url, r);
-      }
-    } catch (_) { /* tile may be unavailable — skip silently */ }
-    done++;
-    if (done % 20 === 0 || done === total) {
-      e.source?.postMessage({ type: 'PRECACHE_PROGRESS', done, total });
-    }
-  }
-  e.source?.postMessage({ type: 'PRECACHE_DONE', total });
-});
-
-function _toTile(lng, lat, z) {
-  const n   = 2 ** z;
-  const x   = Math.floor((lng + 180) / 360 * n);
-  const rad = lat * Math.PI / 180;
-  const y   = Math.floor((1 - Math.log(Math.tan(rad) + 1 / Math.cos(rad)) / Math.PI) / 2 * n);
-  return [x, y];
 }

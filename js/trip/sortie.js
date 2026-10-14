@@ -1,190 +1,207 @@
 /* ============================================================
-   CARNET DE VOYAGES — Sortie detail view
+   CARNET DE VOYAGES — Écran d'une sortie (v244, style v2)
+   ============================================================
+   Même principe que l'écran voyage v2 (tripv2.js) : carte MapLibre de
+   l'accueil en fond (le PIN de la sortie + sa trace GPX) et une feuille
+   glissante (sheet.js) avec la fiche : photo, type, date, lieu, météo,
+   coût, notes, statistiques et graphique de la trace GPX.
+   Rendu dans #trip-v2 (préfixé dans #screen-app, classe tv2-on).
    ============================================================ */
 
-import { getTrip, getEventTypes } from '../store.js';
+import { getTrip, getEventTypes, getSettings } from '../store.js';
+import { notify } from '../utils.js';
 import { gpxStatsBlockHtml, initGpxChart, resolveGpxPoints } from '../gpx.js';
+import { attachHomeMap, setHomeMapPins, setHomeMapRoute, fitHomeMap, collectTripPins } from '../homemap.js';
+import { createSheet } from '../sheet.js';
 
-let _map    = null;
-let _marker = null;
+const MAP_EXT = 260;
+const WIDE = () => window.innerWidth > 900;
+
 let _tripId = null;
+let _sheet  = null;
+let _snap   = 'mid';
+let _bound  = false;
 
-function _esc(s) {
-  return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+const _esc = s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+const ICON = {
+  back: '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>',
+  down: '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>',
+  edit: '<svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>',
+};
+
+function _type(trip) {
+  const ets = getEventTypes();
+  return ets.find(e => e.key === (trip.pin?.pinType || 'visit')) || ets[0] || { emoji: '📍', label: 'Sortie', color: '#0d9488' };
 }
 
-export function renderSortie(tripId) {
+function _pins(trip) {
+  const pin = trip.pin || {};
+  if (pin.lat == null || pin.lng == null) return [];
+  const fake = { ...trip, days: [{ id: 's', date: pin.date, items: [{
+    id: trip.id, text: trip.name, type: pin.pinType || 'visit', lat: pin.lat, lng: pin.lng,
+    countryCode: pin.countryCode, countryFlag: pin.countryFlag, photo: trip.photo || null }] }] };
+  return collectTripPins(fake, getEventTypes());
+}
+
+function _route(trip) {
+  const pts = (resolveGpxPoints(trip.id, trip.pin || {}) || [])
+    .filter(p => !isNaN(+p.lat) && !isNaN(+p.lng)).map(p => [+p.lng, +p.lat]);
+  return pts.length > 1 ? [{ coords: pts, color: '#f97316' }] : null;
+}
+
+function _mapPadding() {
+  const H = window.innerHeight;
+  if (WIDE()) return { top: 70, bottom: 20, left: 400, right: 0 };
+  return { top: 120 + MAP_EXT, bottom: Math.max(0, H - Math.round(H * 0.5)), left: 0, right: 0 };
+}
+
+export async function renderSortie(tripId) {
   _tripId = tripId;
   const trip = getTrip(tripId);
-  if (!trip) return;
+  const app = document.getElementById('screen-app');
+  if (!trip || !app) return;
 
-  const panels = document.getElementById('panels');
-  if (!panels) return;
+  let host = document.getElementById('trip-v2');
+  if (!host) { host = document.createElement('div'); host.id = 'trip-v2'; app.prepend(host); }
+  app.classList.add('tv2-on');
+  host.hidden = false;
+  const dark = document.documentElement.dataset.theme === 'dark';
+  const bg = dark ? '#14181d' : '#ffffff';
+  document.documentElement.style.setProperty('background', bg, 'important');
+  document.body.style.setProperty('background', bg, 'important');
+  window.scrollTo(0, 0);
 
-  panels.innerHTML = `
-    <div class="panel active" id="panel-sortie">
-      <div class="sortie-layout">
-        <div class="sortie-info-panel" id="sortie-info-panel">
-          ${_sortieInfoHtml(trip)}
-        </div>
-        <div class="sortie-map-wrap">
-          <div id="sortie-map"></div>
-        </div>
+  const et = _type(trip);
+  host.innerHTML = `
+    <div class="tv2 so" id="tv2" data-snap="${_snap}">
+      <div class="tv2-map-slot" id="tv2-map-slot"></div>
+      <div class="tv2-dim"></div>
+      <div class="tv2-top" id="tv2-top">
+        <button class="hv2-round" data-so="back" title="Retour">${ICON.back}</button>
+        <div class="tv2-title"><small>${et.emoji} ${_esc(et.label || 'Sortie')}</small><b>${_esc(trip.name || 'Sortie')}</b></div>
+        <div class="tv2-actions"><button class="hv2-round" data-so="edit" title="Modifier">${ICON.edit}</button></div>
       </div>
-    </div>
-  `;
+      <section class="tv2-sheet" id="tv2-sheet">
+        <div class="tv2-grab"><span></span></div>
+        <div class="tv2-scroll" id="tv2-scroll">
+          <div class="tv2-sheet-head">
+            <div class="tv2-head-l">
+              <button class="hv2-round hv2-round-light tv2-sm" data-so="back" title="Retour">${ICON.back}</button>
+              <button class="hv2-round hv2-round-light tv2-sm" data-so="collapse" title="Revenir à la carte">${ICON.down}</button>
+            </div>
+            <div class="tv2-head-r"><button class="hv2-round hv2-round-light tv2-sm" data-so="edit" title="Modifier">${ICON.edit}</button></div>
+          </div>
+          <div class="tv2-pane" id="tv2-pane">${_infoHtml(trip)}</div>
+        </div>
+      </section>
+    </div>`;
 
-  _initMap(trip);
-  _attachListeners();
-  const gpxPoints = trip.pin ? resolveGpxPoints(tripId, trip.pin) : null;
-  if (gpxPoints?.length >= 2) initGpxChart('si', gpxPoints);
-}
+  const root = host.querySelector('#tv2');
+  _sheet?.destroy();
+  _sheet = createSheet({
+    root, sheet: root.querySelector('#tv2-sheet'), scroll: root.querySelector('#tv2-scroll'),
+    grab: root.querySelector('.tv2-grab'), top: root.querySelector('#tv2-top'),
+    dim: root.querySelector('.tv2-dim'), slot: root.querySelector('#tv2-map-slot'),
+    mapExt: MAP_EXT, wide: WIDE, initial: _snap,
+    snaps: () => {
+      const H = window.innerHeight;
+      return { full: 0, mid: Math.round(H * 0.5), peek: Math.max(0, H - 120) };
+    },
+    onSnap: s => { _snap = s; },
+  });
+  _sheet.setSnap(_snap, false);
 
-export function destroySortieMap() {
-  if (_map) {
-    try { _map.remove(); } catch (_) {}
-    _map   = null;
-    _marker = null;
+  root.addEventListener('click', e => {
+    const b = e.target.closest('[data-so]');
+    if (!b) return;
+    if (b.dataset.so === 'back') window.goHome?.();
+    else if (b.dataset.so === 'collapse') _sheet?.setSnap('mid');
+    else if (b.dataset.so === 'edit') window._openEditTripModal?.(_tripId);
+  });
+
+  _initChart(trip);
+
+  attachHomeMap(root.querySelector('#tv2-map-slot'), {
+    context: 'trip', pins: _pins(trip), route: _route(trip),
+    ...((getSettings().homeMap) || {}),
+    padding: _mapPadding(),
+    onPinsTap: () => _sheet?.setSnap('mid'),
+    onResize: () => _sheet?.refresh(),
+    onError: () => notify('Carte indisponible (hors-ligne ?)', '🗺'),
+  }).then(() => { if (_tripId === tripId) fitHomeMap(_mapPadding(), false); });
+
+  if (!_bound) {
+    _bound = true;
+    window.addEventListener('trip-updated', e => {
+      if (!_tripId || e.detail?.id !== _tripId || document.getElementById('trip-v2')?.hidden !== false) return;
+      const t = getTrip(_tripId);
+      if (!t || !document.querySelector('#tv2.so')) return;
+      const pane = document.getElementById('tv2-pane');
+      if (pane) pane.innerHTML = _infoHtml(t);
+      _initChart(t);
+      setHomeMapPins(_pins(t));
+      setHomeMapRoute(_route(t));
+    });
   }
 }
 
-function _sortieInfoHtml(trip) {
-  const pin        = trip.pin || {};
-  const gpxPoints  = resolveGpxPoints(trip.id, pin);
-  const eventTypes = getEventTypes();
-  const et         = eventTypes.find(e => e.key === (pin.pinType || 'visit')) || eventTypes[0];
+function _initChart(trip) {
+  const pts = trip.pin ? resolveGpxPoints(trip.id, trip.pin) : null;
+  if (pts?.length >= 2) initGpxChart('si', pts);
+}
 
+export function destroySortieMap() {
+  _sheet?.destroy(); _sheet = null;
+  if (document.querySelector('#tv2.so')) {
+    const host = document.getElementById('trip-v2');
+    if (host) { host.innerHTML = ''; host.hidden = true; }
+    document.getElementById('screen-app')?.classList.remove('tv2-on');
+  }
+  _tripId = null;
+}
+
+function _infoHtml(trip) {
+  const pin = trip.pin || {};
+  const et  = _type(trip);
+  const gpxPoints = resolveGpxPoints(trip.id, pin);
   const dateStr = pin.date
-    ? new Date(pin.date + 'T12:00:00').toLocaleDateString('fr-FR', {
-        weekday: 'long', day: 'numeric', month: 'long', year: 'numeric'
-      })
+    ? new Date(pin.date + 'T12:00:00').toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
     : 'Date non définie';
 
-  const hasCoords = pin.lat != null && pin.lng != null;
-
-  // All photos: trip.photos[0] is the banner (same photo as trip.photo), the
-  // rest are extra photos added in the edit modal — previously only the
-  // banner ever showed here, so any extra photo was saved but never visible.
-  const allPhotos  = trip.photos?.length ? trip.photos : (trip.photo ? [{ url: trip.photo }] : []);
-  const heroPhoto  = allPhotos[0];
-  const extraPhotos = allPhotos.slice(1);
+  // trip.photos[0] = la couverture (même photo que trip.photo), les suivantes = photos en plus
+  const allPhotos = trip.photos?.length ? trip.photos : (trip.photo ? [{ url: trip.photo }] : []);
   window._siPhotos = allPhotos.map(p => p.url);
+  const cover = allPhotos[0];
+  const extra = allPhotos.slice(1);
 
-  const extraPhotosHtml = extraPhotos.length ? `
-    <div class="si-extra-photos">
-      ${extraPhotos.map((p, i) => `
-        <img src="${_esc(p.url)}" alt="" loading="lazy" decoding="async"
-             onclick="window._openSlides && window._openSlides(window._siPhotos || [], ${i + 1})"
-             onerror="this.style.display='none'">
-      `).join('')}
-    </div>` : '';
+  const gs = pin.gpxStats;
+  const stats = [];
+  if (gs?.distanceM) stats.push([(gs.distanceM / 1000).toFixed(1).replace('.', ','), 'km']);
+  if (gs?.elevGain) stats.push(['+' + Math.round(gs.elevGain), 'm D+']);
+  if (gs?.durationSecs) { const h = Math.floor(gs.durationSecs / 3600), m = Math.round((gs.durationSecs % 3600) / 60); stats.push([h ? `${h}h${String(m).padStart(2, '0')}` : `${m}`, h ? 'durée' : 'min']); }
+  if (pin.cost) stats.push([Number(pin.cost).toLocaleString('fr-FR', { maximumFractionDigits: 2 }), pin.currency && pin.currency !== 'EUR' ? pin.currency : '€']);
+
+  const rows = [
+    ['📅', dateStr + (pin.time ? ` · ${_esc(pin.time)}` : '')],
+    trip.destination ? ['📍', _esc(trip.destination)] : null,
+    pin.weather ? ['🌡', _esc(pin.weather)] : null,
+  ].filter(Boolean);
 
   return `
-    <div class="si-inner">
-      <div class="si-head">
-        <div class="si-type-badge" style="background:${et.color}22;color:${et.color};border:1.5px solid ${et.color}55">
-          ${et.emoji} ${et.label}
-        </div>
-        <button class="si-edit-btn" id="si-edit-btn" title="Modifier cette sortie">✎ Modifier</button>
-      </div>
-
-      <h2 class="si-title">${_esc(trip.name || 'Sortie')}</h2>
-
-      ${heroPhoto ? `<img class="si-photo" src="${_esc(heroPhoto.url)}" alt="" style="cursor:pointer"
-             onclick="window._openSlides && window._openSlides(window._siPhotos || [], 0)"
-             onerror="this.style.display='none'">` : ''}
-      ${extraPhotosHtml}
-
-      <div class="si-meta">
-        <div class="si-meta-row">
-          <span class="si-ic">📅</span>
-          <span class="si-val">${dateStr}${pin.time ? ' · <b>' + _esc(pin.time) + '</b>' : ''}</span>
-        </div>
-        ${trip.destination ? `
-        <div class="si-meta-row">
-          <span class="si-ic">📍</span>
-          <span class="si-val">${_esc(trip.destination)}</span>
-        </div>` : ''}
-        ${pin.weather ? `
-        <div class="si-meta-row">
-          <span class="si-ic">🌡</span>
-          <span class="si-val si-weather">${_esc(pin.weather)}</span>
-        </div>` : ''}
-        ${pin.cost ? `
-        <div class="si-meta-row">
-          <span class="si-ic">💶</span>
-          <span class="si-val"><b>${Number(pin.cost).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</b> ${_esc(pin.currency || 'EUR')}</span>
-        </div>` : ''}
-      </div>
-
-      ${pin.description ? `
-      <div class="si-desc">
-        <div class="si-desc-lbl">Notes</div>
-        <div class="si-desc-text">${_esc(pin.description).replace(/\n/g, '<br>')}</div>
-      </div>` : ''}
-
-      ${pin.gpxTrackId ? gpxStatsBlockHtml('si', pin.gpxStats, gpxPoints) : ''}
-
-      ${!hasCoords ? `<div class="si-no-coords">Aucune position définie — modifiez pour ajouter un lieu sur la carte.</div>` : ''}
+    <div class="tv2-hero so-hero">
+      ${cover ? `<div class="tv2-cover" onclick="window._openSlides && window._openSlides(window._siPhotos || [], 0)"><img src="${_esc(cover.url)}" alt="" decoding="async" onerror="this.parentElement.remove()"></div>` : ''}
+      ${extra.length ? `<div class="so-thumbs">${extra.map((p, i) => `<img src="${_esc(p.url)}" alt="" loading="lazy" decoding="async"
+          onclick="window._openSlides && window._openSlides(window._siPhotos || [], ${i + 1})" onerror="this.remove()">`).join('')}</div>` : ''}
+      <div class="tv2-hero-top"><span class="tv2-chip" style="background:color-mix(in srgb,${_esc(et.color || '#0d9488')} 16%,transparent);color:${_esc(et.color || '#0d9488')}">${et.emoji} ${_esc(et.label || 'Sortie')}</span></div>
+      <h1>${_esc(trip.name || 'Sortie')}</h1>
+      ${stats.length ? `<div class="tv2-hero-stats">${stats.map(([v, l]) => `<div><b>${v}</b><span>${l}</span></div>`).join('')}</div>` : ''}
     </div>
-  `;
-}
-
-function _initMap(trip) {
-  destroySortieMap();
-  const container = document.getElementById('sortie-map');
-  if (!container) return;
-
-  const pin       = trip.pin || {};
-  const gpxPoints = resolveGpxPoints(trip.id, pin);
-  const hasCoords = pin.lat != null && pin.lng != null;
-  const center    = hasCoords ? [pin.lat, pin.lng] : [20, 0];
-  const zoom      = hasCoords ? 13 : 2;
-
-  requestAnimationFrame(() => {
-    // Guard: the user may have navigated away while waiting for the animation frame.
-    // If the container is no longer in the DOM, abort to avoid initialising a
-    // Leaflet map on a detached element (which leaves _map non-null and causes
-    // "Map container not found" on the next render).
-    if (!document.getElementById('sortie-map')) return;
-    try {
-      _map = L.map('sortie-map', { zoomControl: true }).setView(center, zoom);
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '© <a href="https://openstreetmap.org">OpenStreetMap</a>',
-        maxZoom: 19,
-      }).addTo(_map);
-
-      if (hasCoords) {
-        const eventTypes = getEventTypes();
-        const et = eventTypes.find(e => e.key === (pin.pinType || 'visit')) || eventTypes[0];
-        _marker = L.marker([pin.lat, pin.lng], {
-          icon: L.divIcon({
-            className: '',
-            html: `<div class="wp-pin"><div class="pin-c" style="background:${et.color}">${et.emoji}</div><div class="pin-tail" style="background:${et.color}"></div></div>`,
-            iconSize:  [36, 42],
-            iconAnchor:[18, 42],
-          })
-        }).addTo(_map);
-        if (trip.name) {
-          _marker.bindPopup(
-            `<b>${_esc(trip.name)}</b>${trip.destination ? '<br><small>' + _esc(trip.destination) + '</small>' : ''}`
-          ).openPopup();
-        }
-      }
-
-      if (gpxPoints?.length > 1) {
-        L.polyline(gpxPoints.map(p => [p.lat, p.lng]), { color: '#e85d3e', weight: 3.5, opacity: 0.85 }).addTo(_map);
-      }
-    } catch (e) {
-      console.warn('[sortie] map init error', e);
-    }
-  });
-}
-
-function _attachListeners() {
-  document.getElementById('si-edit-btn')?.addEventListener('click', () => {
-    if (typeof window._openEditTripModal === 'function') {
-      window._openEditTripModal(_tripId);
-    }
-  });
+    <div class="so-card">
+      ${rows.map(([ic, v]) => `<div class="so-row"><span>${ic}</span><div>${v}</div></div>`).join('')}
+    </div>
+    ${pin.description ? `<div class="so-sec">Notes</div><div class="so-card so-notes">${_esc(pin.description).replace(/\n/g, '<br>')}</div>` : ''}
+    ${pin.gpxTrackId && gs ? `<div class="so-sec">Trace GPX</div><div class="so-card so-gpx v2-skin">${gpxStatsBlockHtml('si', gs, gpxPoints)}</div>` : ''}
+    ${pin.lat == null ? `<div class="so-card so-empty">Aucune position — « Modifier » pour placer la sortie sur la carte.</div>` : ''}
+    <div style="height:40px"></div>`;
 }

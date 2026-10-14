@@ -4,7 +4,6 @@
 
 import { getTrip, updateTrip, uid } from '../store.js';
 import { notify, showModal, closeModal, fmtDateShort, esc as _esc, customDayTitle } from '../utils.js';
-import { updateTopStats } from './trip.js';
 import { repairDuplicateCatColors } from './budget.js';
 import { attachCalcKeypad } from '../calckeypad.js';
 
@@ -572,7 +571,6 @@ function _handleClick(e, tripId) {
         realExpenses: (trip.realExpenses || []).filter(ex => ex.id !== expId)
       });
       notify('D\xe9pense supprim\xe9e', '🗑');
-      updateTopStats(tripId);
       renderTricount(tripId);
     }
 
@@ -1215,7 +1213,6 @@ function _openExpenseModal(tripId, expId) {
       }
 
       updateTrip(tripId, { realExpenses: newExp });
-      updateTopStats(tripId);
       closeModal();
       renderTricount(tripId);
     });
@@ -1226,7 +1223,6 @@ function _openExpenseModal(tripId, expId) {
       if (!fresh) { closeModal(); return; }
       updateTrip(tripId, { realExpenses: (fresh.realExpenses || []).filter(ex => ex.id !== expId) });
       notify('D\xe9pense supprim\xe9e', '🗑');
-      updateTopStats(tripId);
       closeModal();
       renderTricount(tripId);
     });
@@ -1317,7 +1313,6 @@ function _openTransferModal(tripId, expId = null) {
         updateTrip(tripId, {
           realExpenses: (freshTrip.realExpenses || []).filter(e => e.id !== expId)
         });
-        updateTopStats(tripId);
         notify('Virement supprimé', '🗑');
         closeModal();
         renderTricount(tripId);
@@ -1347,7 +1342,6 @@ function _openTransferModal(tripId, expId = null) {
     }
 
     updateTrip(tripId, { realExpenses: newExps });
-    updateTopStats(tripId);
     notify(isEdit ? 'Virement modifié' : 'Virement enregistré', '💸');
     closeModal();
     renderTricount(tripId);

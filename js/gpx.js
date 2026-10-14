@@ -5,12 +5,9 @@
    Exports:
      parseGpx(xmlStr)               → { tracks, waypoints }
      computeGpxStats(points)        → distance / elevation / speed stats
-     generateGpx(name, wpts, trk)   → GPX XML string
-     downloadFile(name, content)     → trigger browser download
      getLocalGpxTracks(tripId)      → read from localStorage
      saveLocalGpxTrack(tripId, trk) → append to localStorage
      removeLocalGpxTrack(tripId, id)→ delete from localStorage
-     estimateTileCount(bounds, …)   → tile count estimate for offline cache
    ============================================================ */
 
 /**
@@ -358,61 +355,6 @@ export function initGpxChart(prefix, gpxPoints) {
   }
 }
 
-/**
- * Generate a GPX 1.1 XML string.
- * Attribute values and text content are XML-escaped to handle special characters.
- *
- * @param {string} name
- * @param {Array<{lat,lng,name?,desc?}>} waypoints
- * @param {Array<{lat,lng,ele?,time?}>}  trackPoints
- * @returns {string}
- */
-export function generateGpx(name, waypoints = [], trackPoints = []) {
-  // Minimal XML escaping for attribute values and text content
-  const x = s => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-
-  const wptXml = waypoints.map(w =>
-    `  <wpt lat="${w.lat}" lon="${w.lng}">\n    <name>${x(w.name)}</name>${w.desc ? `\n    <desc>${x(w.desc)}</desc>` : ''}\n  </wpt>`
-  ).join('\n');
-
-  const trkXml = trackPoints.length ? `
-  <trk>
-    <name>${x(name)}</name>
-    <trkseg>
-      ${trackPoints.map(p =>
-        `<trkpt lat="${p.lat}" lon="${p.lng}">${p.ele != null ? `<ele>${p.ele}</ele>` : ''}${p.time ? `<time>${p.time}</time>` : ''}</trkpt>`
-      ).join('\n      ')}
-    </trkseg>
-  </trk>` : '';
-
-  return `<?xml version="1.0" encoding="UTF-8"?>
-<gpx version="1.1" creator="Carnet de Voyages"
-     xmlns="http://www.topografix.com/GPX/1/1">
-  <metadata><name>${x(name)}</name></metadata>
-${wptXml}${trkXml}
-</gpx>`;
-}
-
-/**
- * Trigger a browser file download.
- * The object URL is revoked after 10 s — long enough for any browser to start
- * the download, but still freeing memory promptly.
- *
- * @param {string} filename
- * @param {string} content
- * @param {string} [mimeType]
- */
-export function downloadFile(filename, content, mimeType = 'application/gpx+xml') {
-  const url = URL.createObjectURL(new Blob([content], { type: mimeType }));
-  const a   = Object.assign(document.createElement('a'), { href: url, download: filename });
-  // Must be in the DOM for Firefox to fire the download
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  // Revoking immediately would abort the download on some browsers; 10 s is safe
-  setTimeout(() => URL.revokeObjectURL(url), 10_000);
-}
-
 // ── Local GPX track storage ────────────────────────────────────────────────────
 // Stored per-device under localStorage key `cvgpx_<tripId>` as a JSON array.
 // Not synced to Firestore — tracks are often large and device-specific.
@@ -471,27 +413,3 @@ export function removeLocalGpxTrack(tripId, trackId) {
   return tracks;
 }
 
-/**
- * Estimate the number of OSM tiles needed to cover a bounding box across zoom levels.
- * Uses the Web Mercator (EPSG:3857) tile formula — the same projection as Leaflet/OSM.
- *
- * @param {{ north, south, east, west }} bounds - latitude/longitude extent
- * @param {number} minZoom
- * @param {number} maxZoom
- * @returns {number}
- */
-export function estimateTileCount(bounds, minZoom, maxZoom) {
-  let total = 0;
-  for (let z = minZoom; z <= maxZoom; z++) {
-    const n  = 2 ** z;
-    const x1 = Math.floor((bounds.west  + 180) / 360 * n);
-    const x2 = Math.floor((bounds.east  + 180) / 360 * n);
-    // Web Mercator y-tile index from latitude
-    const rad1 = bounds.north * Math.PI / 180;
-    const rad2 = bounds.south * Math.PI / 180;
-    const y1   = Math.floor((1 - Math.log(Math.tan(rad1) + 1 / Math.cos(rad1)) / Math.PI) / 2 * n);
-    const y2   = Math.floor((1 - Math.log(Math.tan(rad2) + 1 / Math.cos(rad2)) / Math.PI) / 2 * n);
-    total += (Math.abs(x2 - x1) + 1) * (Math.abs(y2 - y1) + 1);
-  }
-  return total;
-}

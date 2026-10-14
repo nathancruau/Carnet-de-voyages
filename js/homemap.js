@@ -67,7 +67,7 @@ let _padding    = null;           // dernier padding demandé (réappliqué au c
 let _countryKeys = [];            // index i → clé pays de la source « pins-i »
 let _srcCount    = 0;             // nombre de sources pays actuellement sur la carte
 let _styleReady  = false;
-let _route       = null;          // lignes de l'itinéraire (écran voyage) : [[ [lng,lat], … ], …]
+let _route       = null;          // lignes de l'itinéraire (écran voyage) : [ [[lng,lat]…] | { coords, color?, dash? } ]
 let _context     = 'home';        // 'home' | 'trip' — la vue de l'accueil est restaurée au retour
 let _homeCamera  = null;
 
@@ -477,16 +477,24 @@ export async function attachHomeMap(slot, opts) {
   }
 }
 
-/** Itinéraire de l'écran voyage : lignes pointillées entre les étapes (null = aucune). */
+/**
+ * Itinéraire de l'écran voyage (null = aucun). Chaque ligne est soit un tableau
+ * de [lng,lat] (pointillé blanc), soit { coords, color, dash } — v244 : un tronçon
+ * par moyen de transport, tracé routier en trait plein coloré, avion/bateau/attente
+ * de calcul en pointillé.
+ */
 export function setHomeMapRoute(lines) {
   _route = lines && lines.length ? lines : null;
   _syncRoute();
 }
 
+const _lineCoords = l => Array.isArray(l) ? l : (l?.coords || []);
+
 function _syncRoute() {
   if (!_map || !_styleReady) return;
-  const data = { type: 'FeatureCollection', features: (_route || []).filter(l => l.length > 1).map(l => ({
-    type: 'Feature', geometry: { type: 'LineString', coordinates: l }, properties: {} })) };
+  const data = { type: 'FeatureCollection', features: (_route || []).filter(l => _lineCoords(l).length > 1).map(l => ({
+    type: 'Feature', geometry: { type: 'LineString', coordinates: _lineCoords(l) },
+    properties: Array.isArray(l) ? { color: '#ffffff', dash: 1 } : { color: l.color || '#ffffff', dash: l.dash ? 1 : 0 } })) };
   const src = _map.getSource('route');
   if (src) { src.setData(data); return; }
   if (!_route) return;
@@ -494,10 +502,13 @@ function _syncRoute() {
   const before = (_map.getStyle()?.layers || []).find(l => l.id.startsWith('pins-anchor-'))?.id;
   _map.addLayer({ id: 'route-casing', type: 'line', source: 'route',
     layout: { 'line-cap': 'round', 'line-join': 'round' },
-    paint: { 'line-color': 'rgba(10,20,30,.35)', 'line-width': 5 } }, before);
-  _map.addLayer({ id: 'route-line', type: 'line', source: 'route',
+    paint: { 'line-color': 'rgba(10,20,30,.38)', 'line-width': ['case', ['==', ['get', 'dash'], 1], 5, 7] } }, before);
+  _map.addLayer({ id: 'route-line', type: 'line', source: 'route', filter: ['==', ['get', 'dash'], 0],
     layout: { 'line-cap': 'round', 'line-join': 'round' },
-    paint: { 'line-color': '#ffffff', 'line-width': 2.5, 'line-dasharray': [1.6, 1.6] } }, before);
+    paint: { 'line-color': ['get', 'color'], 'line-width': 3.6 } }, before);
+  _map.addLayer({ id: 'route-dash', type: 'line', source: 'route', filter: ['==', ['get', 'dash'], 1],
+    layout: { 'line-cap': 'round', 'line-join': 'round' },
+    paint: { 'line-color': ['get', 'color'], 'line-width': 2.5, 'line-dasharray': [1.6, 1.6] } }, before);
 }
 
 /** Cadre la carte sur les PINs (et l'itinéraire) actuels. */
@@ -505,7 +516,7 @@ export function fitHomeMap(padding, animate = true) {
   if (!_map) return;
   const go = () => {
     const pts = _pins.map(p => [p.lng, p.lat]);
-    (_route || []).forEach(l => l.forEach(c => pts.push(c)));
+    (_route || []).forEach(l => _lineCoords(l).forEach(c => pts.push(c)));
     if (!pts.length) return;
     if (padding) _padding = padding;
     if (pts.length === 1) {
@@ -542,4 +553,3 @@ export function flyToPin(pin) {
   _map.flyTo({ center: [pin.lng, pin.lat], zoom: Math.max(_map.getZoom(), 12), duration: 1400, essential: true });
 }
 
-export function homeMapResize() { _map?.resize(); }

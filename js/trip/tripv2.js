@@ -17,11 +17,12 @@
    existaient déjà (mapcal.js / journal.js) : rien n'est perdu.
    ============================================================ */
 
-import { getTrip, getEventTypes, getSettings, isTripShared } from '../store.js';
+import { getTrip, updateTrip, getEventTypes, getSettings, isTripShared } from '../store.js';
 import { fmtDate, customDayTitle, trIc, trNm, trCol, notify, showModal, closeModal } from '../utils.js';
 import { attachHomeMap, setHomeMapPins, setHomeMapRoute, setHomeMapPadding, fitHomeMap, flyToPin, collectTripPins } from '../homemap.js';
 import { createSheet } from '../sheet.js';
 import { haversineMeters } from '../gpx.js';
+import { cachedRoute, fetchRoutes, isRoutedMode } from '../routing.js';
 import { getCurrentUser } from '../auth.js';
 
 const MAP_EXT = 260;
@@ -102,6 +103,13 @@ function _sharedDoc() {
   try { return isTripShared(_tripId) ? _share?.getSharedDocData?.(_tripId) : null; } catch (_) { return null; }
 }
 
+// Noms des observateurs du voyage partagé (v244)
+function _observerNames() {
+  const doc = _sharedDoc();
+  return Object.values(doc?.members || {}).filter(m => m.role === 'observer')
+    .map(m => { const n = (m.companionName || '').trim(); return n && n !== 'Observateur' ? n : 'Sans nom'; });
+}
+
 function _postCounts(post, doc) {
   if (!doc) return { likes: 0, comments: 0, mine: false };
   const r = doc.reactions?.[post.item.id] || {};
@@ -111,6 +119,31 @@ function _postCounts(post, doc) {
   return { likes, comments, mine: !!(uid && r[uid] === '❤️') };
 }
 
+// Géométrie d'un tronçon (v244) : tracé routier en cache si le mode suit les routes
+// (voiture, bus, marche, vélo), sinon ligne droite — pointillée pour avion/bateau,
+// pour un tracé pas encore calculé, ou sans itinéraire trouvé.
+function _legGeom(from, to, mode) {
+  const straight = [[Number(from.lng), Number(from.lat)], [Number(to.lng), Number(to.lat)]];
+  const color = trCol(mode);
+  const r = cachedRoute(from, to, mode);
+  if (r) return { coords: r.coords, color, meters: r.meters, road: true };
+  const meters = haversineMeters(from, to);
+  if (r === undefined && isRoutedMode(mode)) return { coords: straight, color, dash: true, meters, pending: true };
+  return { coords: straight, color, dash: mode === 'plane' || mode === 'ferry' || r === null, meters };
+}
+
+function _pairs(wps) {
+  const out = [];
+  for (let i = 1; i < wps.length; i++) {
+    const from = wps[i - 1], to = wps[i];
+    if ([from.lat, from.lng, to.lat, to.lng].some(v => isNaN(parseFloat(v)))) continue;
+    if (haversineMeters(from, to) < 50) continue;
+    out.push({ from, to, mode: to.mode || 'car' });
+  }
+  return out;
+}
+
+let _routeReq = 0;
 function _routeLines(trip, observer) {
   if (!_mapcal) return null;
   let wps = [];
@@ -120,8 +153,30 @@ function _routeLines(trip, observer) {
     const pub = new Set(_collectPosts(trip).map(p => p.item.id));
     wps = wps.filter(w => w.itemId && pub.has(w.itemId));
   }
-  const line = wps.map(w => [Number(w.lng), Number(w.lat)]).filter(c => !isNaN(c[0]) && !isNaN(c[1]));
-  return line.length > 1 ? [line] : null;
+  const lines = [], pending = [];
+  for (const leg of _pairs(wps)) {
+    const g = _legGeom(leg.from, leg.to, leg.mode);
+    lines.push(g);
+    if (g.pending) pending.push(leg);
+  }
+  // Traces GPX importées sur un événement (v244)
+  const pub = observer ? new Set(_collectPosts(trip).map(p => p.item.id)) : null;
+  (trip.days || []).forEach(d => (d.items || []).forEach(it => {
+    if (pub && !pub.has(it.id)) return;
+    const pts = (it.gpxPoints || []).filter(p => !isNaN(+p.lat) && !isNaN(+p.lng)).map(p => [+p.lng, +p.lat]);
+    if (pts.length > 1) lines.push({ coords: pts, color: '#f97316' });
+  }));
+  if (pending.length) {
+    const req = ++_routeReq, tid = trip.id;
+    fetchRoutes(pending).then(changed => {
+      if (!changed || req !== _routeReq || _tripId !== tid) return;
+      const fresh = getTrip(tid);
+      if (!fresh) return;
+      setHomeMapRoute(_routeLines(fresh, _observer));
+      if (!_observer) _renderPane(fresh);
+    });
+  }
+  return lines.length ? lines : null;
 }
 
 function _tripPins(trip, observer) {
@@ -166,7 +221,6 @@ export async function renderTripV2(tripId, { observer = false, onOpenView } = {}
   else _renderOwner(host, trip);
 
   _bindUpdates();
-  if (observer) { try { _journal.ackJournalSeen?.(tripId); } catch (_) {} }
 }
 
 /** Masque la vue d'ensemble (passage à une sous-vue : planning, bagages, budget). */
@@ -323,6 +377,7 @@ function _renderPane(trip, enterDir = 0) {
   const st = _st(_tripId);
   _posts = _collectPosts(trip);
   pane.innerHTML = _heroHtml(trip) + (st.mode === 'follow' ? _followHtml(trip) : _planHtml(trip));
+  _bindStepDrag(pane);
   pane.style.transition = ''; pane.style.transform = '';
   pane.classList.remove('tv2-in-l', 'tv2-in-r');
   if (enterDir) { void pane.offsetWidth; pane.classList.add(enterDir > 0 ? 'tv2-in-r' : 'tv2-in-l'); }
@@ -351,8 +406,10 @@ function _heroHtml(trip) {
   const comps = (trip.companions || []).map(c =>
     `<span class="tv2-av" style="background:${_esc(c.color || '#64748b')}" title="${_esc(c.name)}">${_esc((c.name || '?').trim().split(/\s+/).map(w => w[0]).slice(0, 2).join('').toUpperCase())}</span>`).join('');
   const km = _distanceKm(trip);
+  const obs = _observerNames();
   return `
     <div class="tv2-hero">
+      ${trip.photo ? `<div class="tv2-cover"><img src="${_esc(trip.photo)}" alt="" decoding="async"></div>` : ''}
       <div class="tv2-hero-top">${status}${flags ? `<span class="tv2-flags">${flags}</span>` : ''}</div>
       <h1>${_esc(trip.name || 'Voyage')}</h1>
       ${dates ? `<div class="tv2-hero-dates">${dates}</div>` : ''}
@@ -362,6 +419,7 @@ function _heroHtml(trip) {
         <div><b>${_posts.length}</b><span>publiée${_posts.length > 1 ? 's' : ''}</span></div>
         ${km ? `<div><b>${km.toLocaleString('fr-FR')}</b><span>km</span></div>` : ''}
       </div>
+      ${obs.length ? `<div class="tv2-obsnames" title="Personnes qui suivent ce voyage"><span>👁</span><div><b>${obs.length} observateur${obs.length > 1 ? 's' : ''}</b><small>${_esc(obs.join(', '))}</small></div></div>` : ''}
       ${comps || isTripShared(trip.id) ? `<div class="tv2-hero-comps">${comps}${isTripShared(trip.id) ? '<button class="tv2-btn tv2-btn-sm tv2-hist" data-tv="activity">🕘 Historique</button>' : ''}</div>` : ''}
     </div>`;
 }
@@ -370,8 +428,7 @@ function _distanceKm(trip) {
   if (!_mapcal) return 0;
   try {
     const wps = _mapcal.collectTripWaypoints(trip) || [];
-    let m = 0;
-    for (let i = 1; i < wps.length; i++) m += haversineMeters(wps[i - 1], wps[i]);
+    const m = _pairs(wps).reduce((n, l) => n + _legGeom(l.from, l.to, l.mode).meters, 0);
     return Math.round(m / 1000);
   } catch (_) { return 0; }
 }
@@ -389,9 +446,10 @@ function _collectLegs(trip) {
   try { wps = _mapcal?.collectTripWaypoints(trip) || []; } catch (_) {}
   for (let i = 1; i < wps.length; i++) {
     const from = wps[i - 1], to = wps[i];
-    const km = haversineMeters(from, to) / 1000;
-    if (km < 0.05) continue;
-    const leg = { i: _legs.length, from, to, km, mode: to.mode || 'car' };
+    if (haversineMeters(from, to) < 50) continue;
+    const mode = to.mode || 'car';
+    const g = _legGeom(from, to, mode);
+    const leg = { i: _legs.length, from, to, km: g.meters / 1000, road: !!g.road, mode };
     _legs.push(leg);
     if (to.itemId) byItem.set(to.itemId, leg);
     else if (to.isDepartNight) departs.set(to.dayId, leg);
@@ -415,7 +473,7 @@ function _openLegModes(legIdx) {
   showModal(`
     <div class="hv2-modal-head"><h3>Moyen de transport</h3>
       <button class="hv2-round hv2-round-light" onclick="closeModal()" title="Fermer">✕</button></div>
-    <div class="tv2-legmod-route"><b>${_esc(leg.from.label || 'Départ')}</b><span>→</span><b>${_esc(leg.to.label || 'Arrivée')}</b><small>${km} km à vol d'oiseau</small></div>
+    <div class="tv2-legmod-route"><b>${_esc(leg.from.label || 'Départ')}</b><span>→</span><b>${_esc(leg.to.label || 'Arrivée')}</b><small>${km} km ${leg.road ? 'par la route' : "à vol d'oiseau"}</small></div>
     <div class="hv2-tiles tv2-modes">${modes.map(m => `
       <button class="hv2-tile${m === leg.mode ? ' active' : ''}" data-mode="${m}"><b>${trIc(m)}</b><span>${_esc(trNm(m))}</span></button>`).join('')}
     </div>`, { boxClass: 'hv2-modal' });
@@ -476,17 +534,19 @@ function _planHtml(trip) {
         sub.push(n > 1 ? `Nuit 1/${n}` : '1 nuit');
       } else if (et.label) sub.push(_esc(et.label));
       if (item.time) sub.push(_esc(item.time));
+      if (item.gpxStats?.distanceM) sub.push(`🥾 ${(item.gpxStats.distanceM / 1000).toFixed(1).replace('.', ',')} km`);
       if (jd.validated) sub.push('<em>✓ publié</em>');
       // Hébergement : affiché en fin de journée, APRÈS le trajet qui y mène (retour à la nuit)
       const target = item.type === 'sleep' ? 'night' : 'main';
+      const dr = item.type !== 'sleep';   // les nuits restent en fin de journée : pas de glissé
       const cardHtml = `
-        <button class="tv2-step" data-tv="edit-evt" data-day-id="${_esc(day.id)}" data-idx="${idx}">
+        <button class="tv2-step${dr ? ' tv2-step-dr' : ''}" data-tv="edit-evt" data-day-id="${_esc(day.id)}" data-idx="${idx}">
           <span class="tv2-step-thumb" style="--sc:${_esc(et.color || '#0d9488')}">
             ${thumb ? `<img src="${_esc(thumb)}" alt="" loading="lazy" decoding="async">` : `<i>${et.emoji || '📍'}</i>`}
             ${hasPos ? `<b>${num}</b>` : ''}
           </span>
           <span class="tv2-step-txt"><b>${_esc(item.text || '—')}</b><small>${sub.join(' · ')}</small></span>
-          <span class="tv2-step-go">›</span>
+          ${dr ? '<span class="tv2-drag" data-drag title="Glisser pour déplacer"><i></i><i></i><i></i></span>' : '<span class="tv2-step-go">›</span>'}
         </button>`;
       if (target === 'night') nightCards += cardHtml; else html += cardHtml;
     });
@@ -588,6 +648,7 @@ function _postCardHtml(p, i, doc, ets) {
 // ── Actions ───────────────────────────────────────────────────────────────────
 
 function _onOwnerClick(e) {
+  if (e.target.closest('[data-drag]') || Date.now() - _dragEndAt < 400) return;
   const b = e.target.closest('[data-tv]');
   if (!b) return;
   const tripId = _tripId;
@@ -611,6 +672,135 @@ function _onOwnerClick(e) {
       break;
     }
   }
+}
+
+// ── Réordonner les étapes par glissé (v244) ────────────────────────────────────
+// Poignée ⋮ à droite de chaque étape (hors hébergements) : on la tient et on glisse,
+// dans la même journée ou vers un autre jour. Pointer Events + capture ; la feuille
+// ne reçoit pas le geste (touch* arrêtés sur la poignée).
+let _drag = null, _dragEndAt = 0;
+
+function _bindStepDrag(pane) {
+  if (pane._tv2Drag) return;
+  pane._tv2Drag = true;
+  const stopTouch = e => { if (_drag || e.target.closest?.('[data-drag]')) e.stopPropagation(); };
+  ['touchstart', 'touchmove', 'touchend', 'touchcancel'].forEach(t => pane.addEventListener(t, stopTouch, { passive: true }));
+  pane.addEventListener('pointerdown', e => {
+    const h = e.target.closest('[data-drag]');
+    if (!h || _observer || (e.button != null && e.button > 0)) return;
+    const card = h.closest('.tv2-step');
+    if (!card) return;
+    e.preventDefault(); e.stopPropagation();
+    try { h.setPointerCapture(e.pointerId); } catch (_) {}
+    const r = card.getBoundingClientRect();
+    const ghost = card.cloneNode(true);
+    ghost.classList.add('tv2-drag-ghost');
+    Object.assign(ghost.style, { left: r.left + 'px', top: r.top + 'px', width: r.width + 'px', height: r.height + 'px' });
+    document.documentElement.appendChild(ghost);
+    const ind = document.createElement('div');
+    ind.className = 'tv2-drop-ind';
+    document.documentElement.appendChild(ind);
+    card.classList.add('tv2-dragging');
+    document.getElementById('tv2')?.classList.add('tv2-reorder');
+    _drag = { h, card, ghost, ind, y0: e.clientY, top0: r.top, y: e.clientY, raf: 0, scrollRaf: 0, target: null,
+      fromDay: card.dataset.dayId, fromIdx: +card.dataset.idx };
+    navigator.vibrate?.(8);
+    const move = ev => { if (!_drag) return; _drag.y = ev.clientY; if (!_drag.raf) _drag.raf = requestAnimationFrame(_dragFrame); };
+    const up = () => {
+      h.removeEventListener('pointermove', move); h.removeEventListener('pointerup', up); h.removeEventListener('pointercancel', up);
+      _dragDrop();
+    };
+    h.addEventListener('pointermove', move);
+    h.addEventListener('pointerup', up);
+    h.addEventListener('pointercancel', up);
+    _dragFrame();
+    _dragAutoScroll();
+  });
+}
+
+function _dragFrame() {
+  const d = _drag;
+  if (!d) return;
+  d.raf = 0;
+  d.ghost.style.transform = `translate3d(0,${d.y - d.y0}px,0) scale(1.02)`;
+  // Jour sous le doigt (le plus proche verticalement)
+  const days = [...document.querySelectorAll('#tv2-pane .tv2-day')];
+  let day = null, best = Infinity;
+  for (const el of days) {
+    const r = el.getBoundingClientRect();
+    const dist = d.y < r.top ? r.top - d.y : d.y > r.bottom ? d.y - r.bottom : 0;
+    if (dist < best) { best = dist; day = el; }
+  }
+  if (!day) return;
+  const cards = [...day.querySelectorAll('.tv2-step-dr')].filter(c => c !== d.card);
+  let pos = 0;
+  for (const c of cards) { const r = c.getBoundingClientRect(); if (d.y > r.top + r.height / 2) pos++; }
+  const dayId = day.querySelector('.tv2-day-hd')?.dataset.dayId;
+  // Ligne d'insertion
+  let lineY;
+  if (cards.length === 0) lineY = day.querySelector('.tv2-day-hd').getBoundingClientRect().bottom + 6;
+  else if (pos < cards.length) lineY = cards[pos].getBoundingClientRect().top - 4;
+  else lineY = cards[cards.length - 1].getBoundingClientRect().bottom + 4;
+  const pr = document.getElementById('tv2-pane').getBoundingClientRect();
+  Object.assign(d.ind.style, { top: lineY + 'px', left: (pr.left + 16) + 'px', width: (pr.width - 32) + 'px' });
+  d.target = { dayId, pos };
+}
+
+function _dragAutoScroll() {
+  const d = _drag;
+  if (!d) return;
+  const sc = document.getElementById('tv2-scroll');
+  if (sc && sc.scrollHeight > sc.clientHeight + 2) {
+    const r = sc.getBoundingClientRect();
+    const edge = 70;
+    let v = 0;
+    if (d.y < r.top + edge) v = -Math.ceil((r.top + edge - d.y) / 6);
+    else if (d.y > r.bottom - edge - 80) v = Math.ceil((d.y - (r.bottom - edge - 80)) / 6);
+    if (v) { sc.scrollTop += v; _dragFrame(); }
+  }
+  d.scrollRaf = requestAnimationFrame(_dragAutoScroll);
+}
+
+function _dragDrop() {
+  const d = _drag;
+  if (!d) return;
+  _drag = null;
+  _dragEndAt = Date.now();
+  cancelAnimationFrame(d.raf); cancelAnimationFrame(d.scrollRaf);
+  d.ghost.remove(); d.ind.remove();
+  d.card.classList.remove('tv2-dragging');
+  document.getElementById('tv2')?.classList.remove('tv2-reorder');
+  if (d.target) _moveStep(d.fromDay, d.fromIdx, d.target.dayId, d.target.pos);
+}
+
+// pos = rang parmi les étapes « glissables » (hors nuits) du jour d'arrivée, étape déplacée exclue
+function _moveStep(fromDayId, fromIdx, toDayId, pos) {
+  const trip = getTrip(_tripId);
+  if (!trip) return;
+  const days = trip.days || [];
+  const src = days.find(d => d.id === fromDayId), dst = days.find(d => d.id === toDayId);
+  if (!src || !dst || !src.items?.[fromIdx]) return;
+  const srcItems = [...src.items];
+  const [moved] = srcItems.splice(fromIdx, 1);
+  const dstItems = src === dst ? srcItems : [...(dst.items || [])];
+  const movable = dstItems.map((it, i) => ({ it, i })).filter(o => o.it.type !== 'sleep');
+  let at;
+  if (pos < movable.length) at = movable[pos].i;
+  else at = movable.length ? movable[movable.length - 1].i + 1 : dstItems.filter(it => it.type !== 'sleep').length;
+  if (movable.length === 0) {
+    // jour sans étape glissable : avant le premier hébergement
+    const firstSleep = dstItems.findIndex(it => it.type === 'sleep');
+    at = firstSleep >= 0 ? firstSleep : dstItems.length;
+  }
+  dstItems.splice(at, 0, moved);
+  if (src === dst) {
+    if (dstItems.every((it, i) => it === src.items[i])) return;   // rien n'a bougé
+    src.items = dstItems;
+  } else {
+    src.items = srcItems; dst.items = dstItems;
+  }
+  updateTrip(_tripId, { days });
+  notify(src === dst ? 'Étape déplacée' : `Étape déplacée au jour ${dst.num}`, '↕️');
 }
 
 function _onPinTap(pin) {
@@ -678,9 +868,11 @@ function _renderObserver(host, trip, isRefresh = false) {
         </span>
       </button>`;
   }).join('');
+  // 1ʳᵉ carte = couverture du voyage (sa photo, v244)
   const startCard = `
-    <div class="tv2-ocard tv2-ocard-start">
-      <i>🏠</i><b>Voyage ${trip.startDate && trip.startDate > new Date().toISOString().slice(0, 10) ? 'prévu' : 'entamé'}</b>
+    <div class="tv2-ocard tv2-ocard-start${trip.photo ? ' tv2-ocard-cover' : ''}">
+      ${trip.photo ? `<img class="tv2-ocard-bg" src="${_esc(trip.photo)}" alt="" decoding="async"><span class="tv2-post-shade"></span>` : '<i>🏠</i>'}
+      <b>${trip.photo ? _esc(trip.name || 'Voyage') : `Voyage ${trip.startDate && trip.startDate > new Date().toISOString().slice(0, 10) ? 'prévu' : 'entamé'}`}</b>
       <small>${trip.startDate ? _esc(fmtDate(trip.startDate)) : ''}</small>
     </div>`;
 

@@ -220,28 +220,6 @@ export async function deleteObserverComment(tripId, commentId) {
   } catch (_) {}
 }
 
-/**
- * Remove a specific UID's reaction on an item.
- * Observer can remove their own; owner/member can remove any.
- */
-export async function deleteObserverReaction(tripId, itemId, targetUid) {
-  const user = getCurrentUser();
-  if (!user) return;
-  const sharedDoc = _sharedDocData.get(tripId);
-  if (!sharedDoc) return;
-  const myRole = sharedDoc.members?.[user.uid]?.role;
-  if (user.uid !== targetUid && myRole !== 'owner' && myRole !== 'member') return;
-
-  const reactions = JSON.parse(JSON.stringify(sharedDoc.reactions || {}));
-  if (reactions[itemId]) delete reactions[itemId][targetUid];
-  _sharedDocData.set(tripId, { ...sharedDoc, reactions });
-  _refreshJournalIfVisible(tripId);
-
-  try {
-    await deleteSharedTripField(tripId, `reactions.${itemId}.${targetUid}`);
-  } catch (_) {}
-}
-
 /** Total photo count across every field a trip can hold photos in. */
 function _countTripPhotos(trip) {
   if (!trip) return 0;
@@ -311,56 +289,6 @@ export async function removeSharedTripMember(tripId, companionId) {
   if (!entry) return;
   const [memberUid] = entry;
   await removeMemberFromSharedTrip(tripId, memberUid);
-}
-
-/**
- * Submit a comment on a day — authored as the current user's companion name.
- * Optimistically updates the local cache so the comment appears immediately.
- */
-export async function submitComment(tripId, dayId, text) {
-  const user = getCurrentUser();
-  if (!user || !text?.trim()) return;
-  const sharedDoc = _sharedDocData.get(tripId);
-  const authorName = sharedDoc?.members?.[user.uid]?.companionName || user.displayName || 'Moi';
-
-  // Optimistic local update so the comment appears before Firestore confirms
-  if (sharedDoc) {
-    const comment = {
-      id: Date.now().toString(36),
-      author: authorName,
-      uid: user.uid,
-      text: text.trim(),
-      ts: new Date().toISOString(),
-    };
-    const dayComments = [...(sharedDoc.comments?.[dayId] || []), comment];
-    _sharedDocData.set(tripId, {
-      ...sharedDoc,
-      comments: { ...(sharedDoc.comments || {}), [dayId]: dayComments },
-    });
-    if (typeof window._rerenderCurrentView === 'function') {
-      window._rerenderCurrentView(tripId);
-    }
-  }
-
-  await addComment(tripId, dayId, text.trim(), authorName);
-}
-
-/**
- * Delete a day comment by id. Removes it locally and overwrites the
- * day's comment array in Firestore (no arrayRemove — filter + rewrite).
- */
-export async function deleteDayComment(tripId, dayId, commentId) {
-  const sharedDoc = _sharedDocData.get(tripId);
-  if (!sharedDoc) return;
-  const filtered = (sharedDoc.comments?.[dayId] || []).filter(c => c.id !== commentId);
-  _sharedDocData.set(tripId, {
-    ...sharedDoc,
-    comments: { ...(sharedDoc.comments || {}), [dayId]: filtered },
-  });
-  if (typeof window._rerenderCurrentView === 'function') {
-    window._rerenderCurrentView(tripId);
-  }
-  await updateSharedTripFields(tripId, { [`comments.${dayId}`]: filtered });
 }
 
 // ── Initialisation ──────────────────────────────────────────────────────────────
@@ -729,9 +657,9 @@ export async function openShareModal(tripId) {
 
   // Loading state
   showModal(`
-    <button class="mc" onclick="closeModal()">✕</button>
-    <h3 class="modal-title">Partager — ${_esc(trip.flag)} ${_esc(trip.name)}</h3>
-    <div style="display:flex;justify-content:center;padding:32px">
+    <div class="hv2-modal-head"><h3>Partager</h3>
+      <button class="hv2-round hv2-round-light" onclick="closeModal()" title="Fermer">✕</button></div>
+    <div style="display:flex;justify-content:center;padding:40px">
       <div class="login-spinner"></div>
     </div>
   `);
@@ -790,6 +718,10 @@ export async function openShareModal(tripId) {
       });
     });
 
+    const _send = url => navigator.share?.({ title: trip.name || 'Voyage', text: `Suis « ${trip.name || 'mon voyage'} » sur Carnet de voyages`, url }).catch(() => {});
+    document.getElementById('share-send-collab')?.addEventListener('click', () => _send(collabUrl));
+    document.getElementById('share-send-obs')?.addEventListener('click', () => _send(obsUrl));
+
     document.getElementById('share-presentiel-btn')?.addEventListener('click', () => {
       closeModal();
       _showPresentielOverlay(trip, tripId, obsUrl);
@@ -821,77 +753,51 @@ export async function openShareModal(tripId) {
   }
 }
 
-/** Sorted owner → member → observer, each with a remove button for the owner. */
+/** Participants (v244, style v2) : voyageurs puis observateurs, ✕ pour le propriétaire. */
 function _participantsListHtml(members, isOwner) {
-  const order   = { owner: 0, member: 1, observer: 2 };
-  const entries = Object.entries(members || {})
-    .sort(([, a], [, b]) => (order[a.role] ?? 3) - (order[b.role] ?? 3));
-  if (entries.length === 0) return '';
-
-  const roleLabels = { owner: 'Organisateur', member: 'Voyageur', observer: 'Observateur' };
-  const rows = entries.map(([uid, m]) => {
+  const entries = Object.entries(members || {});
+  if (!entries.length) return '';
+  const row = ([uid, m]) => {
     const canRemove = isOwner && m.role !== 'owner';
+    const name = (m.companionName || '').trim();
+    const shown = name && name !== 'Observateur' ? name : (m.role === 'observer' ? 'Observateur sans nom' : '?');
+    const sub = m.role === 'owner' ? 'Organisateur' : m.role === 'member' ? 'Voyageur · peut modifier' : 'Observateur · lecture seule';
     return `
-      <div style="display:flex;align-items:center;gap:8px;padding:5px 0">
-        <div class="comp-avatar" style="width:26px;height:26px;font-size:10px;flex-shrink:0">${_initials(m.companionName)}</div>
-        <div style="flex:1;min-width:0">
-          <div style="font-size:12px;font-weight:700;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_esc(m.companionName || '?')}</div>
-          <div style="font-size:10px;color:var(--ink4)">${roleLabels[m.role] || m.role}</div>
-        </div>
-        ${canRemove ? `<button type="button" data-action="remove-participant" data-uid="${_esc(uid)}" title="Retirer"
-            style="background:none;border:none;color:var(--ink4);cursor:pointer;font-size:14px;padding:2px 6px;line-height:1;flex-shrink:0">✕</button>` : ''}
+      <div class="sh-person">
+        <span class="sh-av sh-av-${_esc(m.role)}">${m.role === 'observer' ? '👁' : _initials(shown)}</span>
+        <div class="sh-person-t"><b>${_esc(shown)}</b><small>${sub}</small></div>
+        ${canRemove ? `<button type="button" class="sh-x" data-action="remove-participant" data-uid="${_esc(uid)}" title="Retirer">✕</button>` : ''}
       </div>`;
-  }).join('');
-
+  };
+  const trav = entries.filter(([, m]) => m.role !== 'observer')
+    .sort(([, a], [, b]) => (a.role === 'owner' ? -1 : 0) - (b.role === 'owner' ? -1 : 0));
+  const obs = entries.filter(([, m]) => m.role === 'observer');
   return `
-    <div class="share-section" style="margin-top:10px">
-      <div class="share-section-title" style="margin-bottom:2px">Participants</div>
-      ${rows}
-    </div>`;
+    <div class="sh-sec">Voyageurs · ${trav.length}</div>
+    <div class="sh-card">${trav.map(row).join('')}</div>
+    <div class="sh-sec">Observateurs · ${obs.length}</div>
+    <div class="sh-card">${obs.length ? obs.map(row).join('') : '<div class="sh-empty">Personne ne suit encore ce voyage.</div>'}</div>`;
 }
 
 function _shareModalHtml(trip, collabUrl, obsUrl, members, isOwner) {
-  const guestCount  = Object.keys(members || {}).length - 1; // exclude owner
-  const membersNote = guestCount > 0
-    ? `<strong>${guestCount} participant${guestCount > 1 ? 's' : ''}</strong> a déjà rejoint.`
-    : 'Aucun participant n\'a encore rejoint.';
-
+  const link = (id, ic, title, desc, url) => `
+    <div class="sh-link">
+      <div class="sh-link-hd"><span class="sh-link-ic">${ic}</span><div><b>${title}</b><small>${desc}</small></div></div>
+      <div class="sh-link-row">
+        <input class="sh-input" type="text" readonly value="${_esc(url)}" onclick="this.select()">
+        <button class="sh-btn" id="share-copy-${id}">Copier</button>
+        ${navigator.share ? `<button class="sh-btn sh-btn-dark" id="share-send-${id}" title="Envoyer">Envoyer</button>` : ''}
+      </div>
+    </div>`;
   return `
-    <button class="mc" onclick="closeModal()">✕</button>
-    <h3 class="modal-title">Partager — ${_esc(trip.flag)} ${_esc(trip.name)}</h3>
-    <p class="share-hint" style="margin-bottom:12px">${membersNote}</p>
+    <div class="hv2-modal-head"><h3>Partager</h3>
+      <button class="hv2-round hv2-round-light" onclick="closeModal()" title="Fermer">✕</button></div>
+    <div class="sh-trip">${trip.photo ? `<img src="${_esc(trip.photo)}" alt="">` : `<span>${_esc(trip.flag || '🌍')}</span>`}<b>${_esc(trip.name || 'Voyage')}</b></div>
+    <div class="sh-sec">Inviter</div>
+    ${link('collab', '✈️', 'Un voyageur', 'Modifie le voyage et documente le carnet', collabUrl)}
+    ${link('obs', '👁', 'Un observateur', 'Suit le voyage en direct · lecture seule', obsUrl)}
+    <button class="sh-qr" id="share-presentiel-btn">▦ Afficher le QR code observateur</button>
     ${_participantsListHtml(members, isOwner)}
-
-    <div class="share-section" style="margin-top:10px">
-      <div class="share-section-hd">
-        <span class="share-section-icon">✈️</span>
-        <div>
-          <div class="share-section-title">Inviter un voyageur</div>
-          <div class="share-section-desc">Peut éditer le voyage et documenter le carnet</div>
-        </div>
-      </div>
-      <div class="share-link-row">
-        <input class="share-link-input" type="text" readonly value="${_esc(collabUrl)}" onclick="this.select()" />
-        <button class="share-copy-btn" id="share-copy-collab">Copier</button>
-      </div>
-    </div>
-
-    <div class="share-section" style="margin-top:10px">
-      <div class="share-section-hd">
-        <span class="share-section-icon">👁</span>
-        <div>
-          <div class="share-section-title">Inviter un observateur</div>
-          <div class="share-section-desc">Suit le voyage en direct · lecture seule</div>
-        </div>
-      </div>
-      <div class="share-link-row">
-        <input class="share-link-input" type="text" readonly value="${_esc(obsUrl)}" onclick="this.select()" />
-        <button class="share-copy-btn" id="share-copy-obs">Copier</button>
-      </div>
-      <button class="share-presentiel-btn" id="share-presentiel-btn">📺 Mode présentiel</button>
-    </div>
-
-    <div class="ma" style="margin-top:14px"><button class="bc" onclick="closeModal()">Fermer</button></div>
   `;
 }
 
@@ -919,7 +825,7 @@ function _showPresentielOverlay(trip, tripId, obsUrl) {
       <div class="presentiel-counter" id="presentiel-counter">👁 — observateurs</div>
     </div>
   `;
-  document.body.appendChild(overlay);
+  document.documentElement.appendChild(overlay);   // hors de body (règle iOS 26, cf. CLAUDE.md)
   overlay.focus();
 
   let _pollTimer = null;
@@ -1124,7 +1030,9 @@ function _showCompanionPicker(trip, members, tripId, user) {
       closeModal();
 
       try {
-        await joinSharedTrip(tripId, compId || null, compName, isObserver ? 'observer' : 'member');
+        // Observateur : son vrai nom (v244 — affiché au propriétaire), plus le libellé « Observateur »
+        const joinName = isObserver ? (getCurrentUser()?.displayName || compName) : compName;
+        await joinSharedTrip(tripId, compId || null, joinName, isObserver ? 'observer' : 'member');
 
         if (!_sharedTripIds.includes(tripId)) {
           _sharedTripIds.push(tripId);

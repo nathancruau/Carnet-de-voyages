@@ -5,9 +5,9 @@
    - Toast notifications
    - Modal management
    - Date helpers & generateDays
-   - Event type lookups (tCol, tIc, trIc, trNm, trCol)
+   - Event type lookups (tCol, trIc, trNm, trCol)
    - Date picker widget (dpInit, dpClick, renderDp …)
-   - Type badge & color swatches HTML
+   - Color swatches HTML
    ============================================================ */
 
 import { TRIP_TYPES, COMP_COLORS, getEventTypes } from './store.js';
@@ -131,6 +131,8 @@ export function showModal(htmlContent, { onClose, fullscreenMobile = false, boxC
 
   // Clicks inside the box must not bubble up to the overlay's close handler
   box.onclick = e => e.stopPropagation();
+  box.style.transform = ''; box.style.transition = '';
+  _bindModalSwipe(ov, box);
 
   // iOS 26 (appli) : la fenêtre s'arrête ~59 px avant le bas de l'écran et iOS peint
   // cette bande avec le fond de html/body. On lui donne la couleur de la modale (bas
@@ -146,6 +148,73 @@ export function showModal(htmlContent, { onClose, fullscreenMobile = false, boxC
     document.body.style.top       = `-${_scrollLockY}px`;
     document.body.style.width     = '100%';
   }
+}
+
+// ── Fermer une fenêtre en la glissant vers le bas (v244, mobile) ────────────────
+// Toutes les fenêtres showModal() : quand le contenu est tout en haut, tirer vers
+// le bas fait suivre la fenêtre au doigt ; relâchée assez bas (ou d'un geste rapide)
+// elle se ferme, sinon elle remonte. Ignoré dans un champ de saisie, une carte, un
+// carrousel horizontal, ou sur un élément marqué data-noswipe.
+const _NO_SWIPE = 'input,textarea,select,[contenteditable],canvas,.leaflet-container,.maplibregl-map,[data-noswipe]';
+function _inHScroll(el, stop) {
+  for (; el && el !== stop && el.nodeType === 1; el = el.parentElement) {
+    if (el.scrollWidth > el.clientWidth + 2) {
+      const ox = getComputedStyle(el).overflowX;
+      if (ox === 'auto' || ox === 'scroll') return true;
+    }
+  }
+  return false;
+}
+function _bindModalSwipe(ov, box) {
+  if (box._swipeBound) return;
+  box._swipeBound = true;
+  let y0 = 0, x0 = 0, dy = 0, st = null, samples = [];
+  box.addEventListener('touchstart', e => {
+    st = null; dy = 0;
+    if (window.innerWidth > 768 || e.touches.length > 1 || !ov.classList.contains('open')) return;
+    if (box.scrollTop > 0 || e.target.closest?.(_NO_SWIPE) || _inHScroll(e.target, box)) return;
+    y0 = e.touches[0].clientY; x0 = e.touches[0].clientX; st = 'wait';
+    samples = [{ y: y0, t: performance.now() }];
+  }, { passive: true });
+  box.addEventListener('touchmove', e => {
+    if (!st) return;
+    const y = e.touches[0].clientY, x = e.touches[0].clientX;
+    if (st === 'wait') {
+      const ddy = y - y0, ddx = x - x0;
+      if (Math.abs(ddy) < 8 && Math.abs(ddx) < 8) return;
+      if (ddy <= 0 || Math.abs(ddx) > Math.abs(ddy) || box.scrollTop > 0) { st = null; return; }
+      st = 'drag'; y0 = y;
+      box.style.transition = 'none';
+    }
+    e.cancelable && e.preventDefault();
+    dy = Math.max(0, y - y0);
+    samples.push({ y, t: performance.now() }); if (samples.length > 8) samples.shift();
+    box.style.transform = `translate3d(0,${dy}px,0)`;
+    ov.style.setProperty('--sw-p', String(Math.min(1, dy / 400)));
+  }, { passive: false });
+  const end = () => {
+    if (st !== 'drag') { st = null; return; }
+    st = null;
+    const a = samples[0], b = samples[samples.length - 1];
+    const v = a && b && b.t > a.t ? (b.y - a.y) / (b.t - a.t) : 0;
+    const close = dy > Math.min(160, box.offsetHeight * 0.3) || (v > 0.55 && dy > 40);
+    box.style.transition = 'transform .24s cubic-bezier(.3,.6,.3,1)';
+    if (close) {
+      box.style.transform = `translate3d(0,${box.offsetHeight + 40}px,0)`;
+      setTimeout(() => {
+        if (!ov.classList.contains('open')) return;
+        closeModal();
+        box.style.transition = 'none'; box.style.transform = '';
+        ov.style.removeProperty('--sw-p');
+      }, 230);
+    } else {
+      box.style.transform = 'translate3d(0,0,0)';
+      ov.style.removeProperty('--sw-p');
+      setTimeout(() => { box.style.transition = ''; }, 260);
+    }
+  };
+  box.addEventListener('touchend', end);
+  box.addEventListener('touchcancel', end);
 }
 
 /** Close the modal and invoke the optional onClose callback. */
@@ -443,14 +512,6 @@ export function tCol(t, item) {
   return { drive: '#0284c7', visit: '#16a34a', activity: '#d97706', sleep: '#7c3aed' }[t] || '#888';
 }
 
-/** Return the emoji icon for an event, checking custom settings first. */
-export function tIc(t, item) {
-  if (item?.emoji) return item.emoji;
-  const found = getEventTypes().find(et => et.key === t);
-  if (found) return found.emoji;
-  return { drive: '🚐', visit: '📍', activity: '⚡', sleep: '🌙' }[t] || '•';
-}
-
 /** Emoji icon for a transport mode key. */
 export function trIc(m) {
   return { car: '🚗', ferry: '⛴', plane: '✈', bus: '🚌', foot: '🚶', bike: '🚲', train: '🚆' }[m] || '🚐';
@@ -744,16 +805,6 @@ window.dpPickYear   = dpPickYear;
 window.dpPickMonth  = dpPickMonth;
 
 // ── Type badge HTML ────────────────────────────────────────────────────────────
-
-/** Return an inline badge `<span>` for a trip type ('voyage', 'weekend', 'sortie'). */
-export function typeBadge(type) {
-  const t = TRIP_TYPES[type] || TRIP_TYPES.voyage;
-  let cls = 'badge-type';
-  if (type === 'voyage')  cls += ' badge-voyage';
-  if (type === 'weekend') cls += ' badge-weekend';
-  if (type === 'sortie')  cls += ' badge-sortie';
-  return `<span class="${cls}">${t.icon} ${t.label}</span>`;
-}
 
 // ── Colour-swatch options HTML ─────────────────────────────────────────────────
 
