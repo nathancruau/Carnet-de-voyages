@@ -13,7 +13,7 @@ import {
   notify, showModal, closeModal,
   fmtDate, fmtDateShort,
   dpInit, dpGetDates,
-  generateDays,
+  generateDays, isoToDate, dateToIso,
   reverseGeocodeCountry, fmtFlag,
 } from './utils.js';
 // navigateToTrip accessed via window global (set by app.js) to avoid circular import
@@ -3897,7 +3897,76 @@ function _startInlineSortieCompRename(idx) {
 
 // ── Modal: save / delete ───────────────────────────────────────────────────────
 
-function _handleSave() {
+// ── Changement de dates d'un voyage (v245) ─────────────────────────────────────
+// Le voyage glisse en bloc de l'écart de la date de début : le jour 1 reste le
+// jour 1 avec tous ses événements (et son identifiant, donc dépenses et lignes de
+// budget restent rattachées), les dates des hébergements suivent — sauf si seule la
+// date de début change (jours ajoutés/retirés au début : chaque jour garde sa date). Allongé → jours
+// vides ajoutés ; raccourci → les jours en trop sont retirés (leurs événements
+// déplacés au premier/dernier jour restant ou supprimés, au choix — demandé avant d'enregistrer).
+function _isoAdd(iso, n) { const d = isoToDate(iso); d.setDate(d.getDate() + n); return dateToIso(d); }
+function _isoDiff(a, b) { return Math.round((isoToDate(b) - isoToDate(a)) / 86400000); }
+
+function _replanDays(trip, newStart, newEnd, dropMode = 'delete') {
+  // Seule la date de début bouge (fin inchangée) = jours ajoutés/retirés AVANT :
+  // les événements gardent leurs dates. Sinon le voyage glisse de l'écart du début.
+  const startDelta = trip.startDate ? _isoDiff(trip.startDate, newStart) : 0;
+  const endUnchanged = trip.endDate && trip.endDate === newEnd;
+  const shift = endUnchanged ? 0 : startDelta;
+  const shiftItem = it => (it.type === 'sleep' && shift)
+    ? { ...it, dateFrom: it.dateFrom ? _isoAdd(it.dateFrom, shift) : it.dateFrom, dateTo: it.dateTo ? _isoAdd(it.dateTo, shift) : it.dateTo }
+    : it;
+  const moved = (trip.days || []).map(d => ({ ...d, date: d.date ? _isoAdd(d.date, shift) : d.date, items: (d.items || []).map(shiftItem) }));
+  const byDate = new Map(moved.filter(d => d.date).map(d => [d.date, d]));
+  const used = new Set();
+  const days = generateDays({ startDate: newStart, endDate: newEnd, destination: trip.destination }).map(nd => {
+    const old = byDate.get(nd.date);
+    if (!old) return nd;
+    used.add(old);
+    // Titre par défaut « Jour N » renuméroté (sinon il passerait pour un titre personnalisé)
+    const title = /^Jour \d+$/.test((old.title || '').trim()) || !old.title ? nd.title : old.title;
+    return { ...old, num: nd.num, title };
+  });
+  const dropped = moved.filter(d => !used.has(d));
+  const lostItems = dropped.flatMap(d => d.items || []);
+  // Jour retiré au début → ses événements vont au 1er jour ; à la fin → au dernier
+  const first = days[0], last = days[days.length - 1];
+  const target = {};
+  dropped.forEach(d => { target[d.id] = d.date && d.date < newStart ? first : last; });
+  if (dropMode === 'move' && last) {
+    dropped.forEach(d => {
+      const t = target[d.id];
+      if (!t || !(d.items || []).length) return;
+      const its = d.items.map(it => it.type === 'sleep' ? { ...it, dateFrom: t.date, dateTo: t.date } : it);
+      t.items = t === first && t !== last ? [...its, ...(t.items || [])] : [...(t.items || []), ...its];
+    });
+  }
+  // Hébergement qui déborde après la nouvelle fin : dernière nuit ramenée dans le voyage
+  days.forEach(d => {
+    d.items = (d.items || []).map(it => (it.type === 'sleep' && it.dateTo && it.dateTo > newEnd)
+      ? { ...it, dateTo: it.dateFrom && it.dateFrom > newEnd ? it.dateFrom : newEnd } : it);
+  });
+  return { days, dropped, lostItems, targetId: id => target[id]?.id || null };
+}
+
+/** Petite fenêtre de choix par-dessus la fenêtre ouverte → Promise(valeur du bouton | null). */
+function _askChoice(title, text, buttons) {
+  return new Promise(resolve => {
+    const ov = document.createElement('div');
+    ov.className = 'ask-ov';
+    ov.innerHTML = `<div class="ask-box hv2-modal"><h3>${_esc(title)}</h3><p>${text}</p>
+      ${buttons.map(b => `<button class="ask-btn${b.cls ? ' ' + b.cls : ''}" data-v="${_esc(b.value)}">${_esc(b.label)}</button>`).join('')}</div>`;
+    document.documentElement.appendChild(ov);   // hors de body (règle iOS 26)
+    ov.addEventListener('click', e => {
+      const b = e.target.closest('[data-v]');
+      if (!b && e.target !== ov) return;
+      ov.remove();
+      resolve(b ? b.dataset.v : null);
+    });
+  });
+}
+
+async function _handleSave() {
   const name = (document.getElementById('m-name')?.value || '').trim();
   if (!name) {
     notify('Veuillez saisir un nom de voyage.', '⚠️');
@@ -3936,6 +4005,24 @@ function _handleSave() {
     const oldDays    = existing?.days      || [];
     const hadDays    = Array.isArray(existing?.days) && existing.days.length > 0;
     const oldCompIds = (existing?.companions || []).map(c => c.id);
+    const dateChanged = data.startDate !== oldStart || data.endDate !== oldEnd;
+
+    // Dates modifiées et des jours en trop contiennent des événements : demander avant
+    let dropMode = 'delete';
+    if (dateChanged && hadDays && data.startDate && data.endDate) {
+      const { dropped, lostItems } = _replanDays(existing, data.startDate, data.endDate);
+      if (lostItems.length) {
+        const pub = lostItems.filter(it => it.journalData?.validated).length;
+        const nums = dropped.filter(d => (d.items || []).length).map(d => d.num);
+        const choice = await _askChoice('Jours retirés',
+          `Le voyage est raccourci : ${lostItems.length} événement${lostItems.length > 1 ? 's' : ''} sur ${nums.length > 1 ? 'les jours' : 'le jour'} ${nums.join(', ')}${pub ? ` (dont ${pub} publié${pub > 1 ? 's' : ''})` : ''} ne tien${lostItems.length > 1 ? 'nent' : 't'} plus dans les nouvelles dates.`,
+          [{ value: 'move', label: 'Les garder (premier ou dernier jour)', cls: 'ask-pri' },
+           { value: 'delete', label: 'Les supprimer', cls: 'ask-del' },
+           { value: 'cancel', label: 'Annuler' }]);
+        if (!choice || choice === 'cancel') return;
+        dropMode = choice;
+      }
+    }
 
     const updated = updateTrip(_editingId, data);
 
@@ -3948,24 +4035,19 @@ function _handleSave() {
     }
 
     if (updated) {
-      const dateChanged = data.startDate !== oldStart || data.endDate !== oldEnd;
-
-      if (dateChanged && data.startDate && data.endDate) {
-        // Regenerate day skeleton and merge with existing day data by date.
-        // Only id/num/date come from the fresh skeleton (they depend on the
-        // new range) — everything else on the old day is kept as-is via a
-        // blacklist rather than a hand-picked whitelist, so a field added
-        // later (day.departNightMode/returnNightMode, the transport mode
-        // editor's routeMode…) survives a date-range edit without needing
-        // to be remembered here too.
-        const newDays    = generateDays(updated);
-        const mergedDays = newDays.map(nd => {
-          const old = oldDays.find(od => od.date === nd.date);
-          if (!old) return nd;
-          const { id, num, date, ...oldContent } = old;
-          return { ...nd, ...oldContent };
-        });
-        updateTrip(_editingId, { days: mergedDays });
+      if (dateChanged && hadDays && data.startDate && data.endDate) {
+        // Glissement en bloc (cf. _replanDays) — remplace l'ancienne fusion par date
+        // exacte, qui vidait tout le voyage s'il était décalé (ex. d'un an)
+        const { days, dropped, targetId } = _replanDays(existing, data.startDate, data.endDate, dropMode);
+        const gone = new Set(dropped.map(d => d.id));
+        const relink = arr => (arr || []).map(x => gone.has(x.dayId) ? { ...x, dayId: dropMode === 'move' ? targetId(x.dayId) : null } : x);
+        const patch = { days };
+        if (gone.size) {
+          const fresh = getTrips().find(t => t.id === _editingId) || {};
+          patch.budgetLines  = relink(fresh.budgetLines);
+          patch.realExpenses = relink(fresh.realExpenses);
+        }
+        updateTrip(_editingId, patch);
       } else if (!hadDays) {
         // No days existed before — generate fresh if possible
         const newDays = generateDays(updated);

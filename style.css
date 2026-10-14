@@ -2172,3 +2172,12 @@ html:has(.tv2-story) #notif{z-index:20200}
 .home-wrap:has(> .gp){padding-bottom:0!important;background:transparent}
 #screen-home.active:has(.gp){background:#ffffff!important}
 [data-theme="dark"] #screen-home.active:has(.gp){background:#14181d!important}
+
+/* ══ v245 — Petite fenêtre de choix par-dessus une fenêtre (home.js _askChoice) ══ */
+.ask-ov{position:fixed;top:0;left:0;right:0;height:100lvh;z-index:20300;background:rgba(10,20,30,.45);display:flex;align-items:center;justify-content:center;padding:20px;box-sizing:border-box}
+.ask-box{width:100%;max-width:380px;background:var(--hv-sheet);color:var(--hv-ink);border-radius:24px;padding:22px 18px 16px;font-family:var(--fn);box-shadow:0 20px 60px rgba(0,0,0,.3)}
+.ask-box h3{margin:0 0 8px;font-size:19px;font-weight:800}
+.ask-box p{margin:0 0 16px;font-size:14.5px;font-weight:600;line-height:1.5;color:var(--hv-ink2)}
+.ask-btn{display:block;width:100%;margin-top:8px;border:none;border-radius:14px;padding:13px;font:800 14.5px var(--fn);background:var(--hv-chip);color:var(--hv-ink);cursor:pointer}
+.ask-pri{background:var(--hv-dark);color:var(--hv-sheet)}
+.ask-del{color:var(--hv-coral)}

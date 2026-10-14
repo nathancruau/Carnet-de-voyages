@@ -18,7 +18,7 @@ Quatre endroits à synchroniser, toujours le même numéro N :
 | `sw.js` | `const SHELL_CACHE = 'cv-shell-N'` |
 | `store.js` | `export const APP_VERSION = 'N'` |
 
-Version actuelle : **244**
+Version actuelle : **245**
 
 ---
 
@@ -130,6 +130,15 @@ js/
 - **Couverture** : la photo du voyage (`trip.photo`) sert de 1ʳᵉ carte du carrousel observateur (`.tv2-ocard-cover`). Pas de photo en tête de la page du voyage (retirée à la demande) ; `.tv2-cover` ne sert plus qu'à l'écran Sortie.
 - **Refontes v2** : Budget (`.bdg` + briques `.tr-*` : budget prévu, dépensé/%, répartition, catégories prévu vs dépensé avec ✎, filtres, lignes, coûts des activités — attention `.bd` est déjà la classe du bouton « supprimer ») ; écran Sortie (sortie.js réécrit : carte MapLibre de l'accueil + `createSheet`, PIN + trace GPX, fiche `.so-*`) ; fenêtre Partager (`.sh-*` : liens avec Copier/Envoyer, QR, voyageurs et observateurs séparés) ; écran de connexion (`.lg` : fond nuit + globe SVG animé, carte blanche en bas, html/body blanc) ; mode grands-parents. `switchTab` pose toujours le fond gris v2 (html/body) sur les sous-vues.
 - **Code supprimé** (analyse d'atteignabilité sur l'AST) : page Carte & Planning de mapcal.js (3 776 → ~1 090 lignes), onglet Carnet de journal.js (2 297 → ~570), carrousels/actions orphelins de home.js, `updateTopStats`, branches mapcal/journal de trip.js, `PRECACHE_TILES` du SW, exports jamais importés (`generateGpx`, `downloadFile`, `estimateTileCount`, `typeBadge`, `tIc`, `getPinTypes`, `homeMapResize`, `submitComment`, `deleteDayComment`, `deleteObserverReaction`), ~670 règles CSS dont les classes n'apparaissent plus nulle part (style.css 3 320 → ~2 250 lignes). Leaflet reste chargé : seule la fenêtre de création d'une sortie l'utilise encore (choix du lieu).
+
+---
+
+## v245 — changer les dates d'un voyage sans perdre ses événements
+
+- Avant : `_handleSave` (home.js) régénérait les jours et ne recopiait un ancien jour que si un nouveau avait **exactement la même date** → un voyage décalé (ex. d'un an) repartait **entièrement vide**, un voyage raccourci perdait en silence les événements des jours retirés, et tous les jours changeaient d'identifiant (dépenses/lignes de budget détachées de leur jour), les dates d'hébergement ne suivaient pas.
+- Maintenant `_replanDays(trip, newStart, newEnd, dropMode)` : le voyage **glisse en bloc** de l'écart de la date de début (jour 1 = jour 1, mêmes `day.id`, `dateFrom/dateTo` des hébergements décalés) ; **exception** : si seule la date de début change (fin identique), les jours gardent leurs dates (= jours ajoutés/retirés au début). Allongé → jours vides ajoutés. Titres par défaut « Jour N » renumérotés. Hébergement qui déborde après la nouvelle fin → dernière nuit ramenée à la fin.
+- Jours retirés contenant des événements → fenêtre de choix `_askChoice` (overlay `.ask-ov` rattaché à `<html>`, par-dessus la fenêtre du voyage, avant tout enregistrement) : **garder** (déplacés au 1er jour si retirés au début, au dernier sinon ; `dayId` des dépenses/lignes de budget suivent), **supprimer** (`dayId` remis à `null`) ou **annuler** (rien n'est enregistré, la fenêtre reste ouverte). Format des données inchangé.
+- Photo de couverture retirée du haut de la page du voyage (demande) — elle reste la 1ʳᵉ carte du carrousel observateur.
 
 ---
 
