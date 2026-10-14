@@ -42,39 +42,25 @@ function _tile(u, c1, c2, body, { gloss = true } = {}) {
 // ── Logos ─────────────────────────────────────────────────────────────────────
 
 function _passport(u) {
-  // Page de passeport crème légèrement inclinée, couverte de tampons
-  return _tile(u, '#1f4b7a', '#0b1f33', `
-    <g transform="translate(256 268) scale(1.1) rotate(-7) translate(-256 -268)">
-      <rect x="92" y="86" width="328" height="368" rx="22" fill="#000" opacity=".25" transform="translate(6 10)"/>
-      <rect x="92" y="86" width="328" height="368" rx="22" fill="#f7efdc"/>
-      <rect x="92" y="86" width="328" height="368" rx="22" fill="none" stroke="#e3d5b5" stroke-width="3"/>
-      <path d="M118 160h276M118 210h276M118 260h276M118 310h276M118 360h276M118 410h276" stroke="#eadfc4" stroke-width="2"/>
-      <!-- tampon rond rouge -->
-      <g transform="rotate(-14 196 190)" opacity=".92">
-        <circle cx="196" cy="190" r="70" fill="none" stroke="#d63b3b" stroke-width="9"/>
-        <circle cx="196" cy="190" r="54" fill="none" stroke="#d63b3b" stroke-width="3"/>
-        <text x="196" y="203" text-anchor="middle" font-family="Nunito,Arial,sans-serif" font-weight="900" font-size="38" fill="#d63b3b" letter-spacing="2">ATLAS</text>
-        <path d="M196 140l5 11 12 1-9 8 3 12-11-6-11 6 3-12-9-8 12-1z" fill="#d63b3b"/>
-        <path d="M166 226h60" stroke="#d63b3b" stroke-width="4"/>
-      </g>
-      <!-- tampon rectangulaire bleu-vert avec avion -->
-      <g transform="rotate(9 318 300)" opacity=".9">
-        <rect x="246" y="250" width="146" height="100" rx="12" fill="none" stroke="#11807a" stroke-width="8"/>
-        <rect x="258" y="262" width="122" height="76" rx="6" fill="none" stroke="#11807a" stroke-width="2.5"/>
-        <path d="M292 304l58-18c6-2 11 3 7 8l-16 10 8 22-7 3-15-17-18 8 1 9-6 2-6-14-14-4 2-6z" fill="#11807a"/>
-        <text x="319" y="333" text-anchor="middle" font-family="Nunito,Arial,sans-serif" font-weight="800" font-size="15" fill="#11807a" letter-spacing="1.5">DÉPART</text>
-      </g>
-      <!-- tampon ovale violet -->
-      <g transform="rotate(-6 198 372)" opacity=".85">
-        <ellipse cx="198" cy="372" rx="76" ry="42" fill="none" stroke="#6b46c1" stroke-width="6"/>
-        <ellipse cx="198" cy="372" rx="64" ry="31" fill="none" stroke="#6b46c1" stroke-width="2" stroke-dasharray="5 5"/>
-        <text x="198" y="381" text-anchor="middle" font-family="Nunito,Arial,sans-serif" font-weight="900" font-size="24" fill="#6b46c1" letter-spacing="1">ARRIVÉE</text>
-      </g>
-      <!-- petit tampon triangle orange -->
-      <g transform="rotate(12 352 148)" opacity=".85">
-        <path d="M352 104l46 80h-92z" fill="none" stroke="#e07a1f" stroke-width="7" stroke-linejoin="round"/>
-        <circle cx="352" cy="158" r="12" fill="#e07a1f"/>
-      </g>
+  // Page de passeport ouverte, bien droite (couture à gauche), deux tampons nets :
+  // un grand rond « ATLAS » en haut, un visa rectangulaire avec avion en bas.
+  const red = '#c8323a', teal = '#0f766e';
+  return _tile(u, '#1d4e7e', '#0a1c30', `
+    <defs><linearGradient id="pp${u}" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#ddcfab"/><stop offset=".08" stop-color="#f8f1df"/><stop offset="1" stop-color="#f3e9cf"/></linearGradient></defs>
+    <rect x="72" y="60" width="368" height="392" rx="28" fill="#000" opacity=".3" transform="translate(4 12)"/>
+    <rect x="72" y="60" width="368" height="392" rx="28" fill="url(#pp${u})"/>
+    <g transform="rotate(-10 236 182)">
+      <circle cx="236" cy="182" r="94" fill="none" stroke="${red}" stroke-width="13"/>
+      <circle cx="236" cy="182" r="75" fill="none" stroke="${red}" stroke-width="4"/>
+      <text x="236" y="200" text-anchor="middle" font-family="Nunito,Arial,sans-serif" font-weight="900" font-size="44" fill="${red}" textLength="128" lengthAdjust="spacingAndGlyphs">ATLAS</text>
+      <path d="M236 118l7 14 15 2-11 10 3 15-14-7-14 7 3-15-11-10 15-2z" fill="${red}"/>
+      <path d="M196 224h80" stroke="${red}" stroke-width="6" stroke-linecap="round"/>
+    </g>
+    <g transform="rotate(6 284 356)">
+      <rect x="180" y="302" width="208" height="108" rx="16" fill="none" stroke="${teal}" stroke-width="11"/>
+      <rect x="195" y="317" width="178" height="78" rx="8" fill="none" stroke="${teal}" stroke-width="3"/>
+      <path transform="translate(236 356) rotate(80) scale(.3) translate(-256 -256)" fill="${teal}" d="M256 128 C268 128 312 172 320 220 L388 256 C388 256 388 272 376 272 L320 260 L316 300 L340 316 C340 316 340 328 332 328 L280 308 L260 384 C260 384 248 388 244 384 L232 308 L180 328 C172 328 172 316 172 316 L196 300 L192 260 L136 272 C124 272 124 256 124 256 L192 220 C200 172 244 128 256 128Z"/>
+      <text x="324" y="367" text-anchor="middle" font-family="Nunito,Arial,sans-serif" font-weight="900" font-size="28" fill="${teal}" letter-spacing="2">VISA</text>
     </g>`);
 }
 
@@ -148,15 +134,13 @@ function _polaris(u) {
 }
 
 function _plane(u) {
-  return _tile(u, '#ffb15c', '#ef2d56', `
-    <circle cx="380" cy="150" r="56" fill="#fff" opacity=".25"/>
-    <path d="M70 400C150 330 200 360 250 300" fill="none" stroke="#fff" stroke-width="10" stroke-linecap="round" stroke-dasharray="4 26" opacity=".85"/>
-    <g transform="translate(300 220) rotate(-35)">
-      <path d="M-120 0c0-12 10-18 22-18h150l70-56c8-6 20 0 18 10l-22 46h54c12 0 26 8 26 18s-14 18-26 18h-54l22 46c2 10-10 16-18 10l-70-56h-150c-12 0-22-6-22-18z" fill="#fff"/>
-      <path d="M-100-18l-20-34c-3-6 2-12 8-10l40 44z" fill="#fff"/>
-      <path d="M-100 18l-20 34c-3 6 2 12 8 10l40-44z" fill="#fff"/>
-    </g>
-    <path d="M0 440c120-30 250-20 512-70V512H0z" fill="#fff" opacity=".14"/>`);
+  // Ancienne icône de l'appli (avion blanc sur sarcelle), reprise telle quelle
+  return _tile(u, '#0d9488', '#0d9488', `
+    <radialGradient id="pl${u}" cx="40%" cy="35%" r="60%"><stop offset="0%" stop-color="#14b8a6" stop-opacity=".6"/><stop offset="100%" stop-color="#0d9488" stop-opacity="0"/></radialGradient>
+    <rect width="512" height="512" fill="url(#pl${u})"/>
+    <path fill="#fff" opacity=".97" d="M256 128 C268 128 312 172 320 220 L388 256 C388 256 388 272 376 272 L320 260 L316 300 L340 316 C340 316 340 328 332 328 L280 308 L260 384 C260 384 248 388 244 384 L232 308 L180 328 C172 328 172 316 172 316 L196 300 L192 260 L136 272 C124 272 124 256 124 256 L192 220 C200 172 244 128 256 128Z"/>
+    <g stroke="#fff" stroke-width="3" stroke-linecap="round" fill="none"><circle cx="256" cy="420" r="28" opacity=".4"/><path d="M256 396v8M256 436v8M232 420h8M272 420h8" opacity=".5"/></g>
+    <circle cx="256" cy="420" r="4" fill="#fff" opacity=".5"/>`, { gloss: false });
 }
 
 function _compass(u) {
@@ -185,23 +169,75 @@ let _regionNames = null;
 function _countryName(code) {
   try { _regionNames ||= new Intl.DisplayNames(['fr'], { type: 'region' }); return _regionNames.of(code) || code; } catch (_) { return code; }
 }
+const _SHAPES = ['circle', 'rect', 'oval', 'octagon', 'scallop', 'hexagon'];
+const _F = 'font-family="Nunito,Arial,sans-serif"';
+function _poly(n, r, rot = 0, cx = 256, cy = 256) {
+  return Array.from({ length: n }, (_, i) => {
+    const a = (rot + i * 360 / n) * Math.PI / 180;
+    return `${(cx + Math.cos(a) * r).toFixed(1)},${(cy + Math.sin(a) * r).toFixed(1)}`;
+  }).join(' ');
+}
+// Texte droit (formes non rondes) : taille réduite pour tenir dans `w` px
+const _fit = (txt, w, max) => Math.min(max, Math.floor(w / (txt.length * 0.68)));
+
 function _stamp(u, code) {
   let h = 0; for (const c of code) h = (h * 31 + c.charCodeAt(0)) | 0;
-  const ink = _INKS[Math.abs(h) % _INKS.length];
-  const rot = (Math.abs(h) % 17) - 8;
+  h = Math.abs(h);
+  const ink = _INKS[h % _INKS.length];
+  const shape = _SHAPES[(h >> 3) % _SHAPES.length];
+  const rot = ((h >> 6) % 17) - 8;
   const name = _countryName(code).toUpperCase();
-  const fs = name.length > 20 ? 15 : name.length > 14 ? 19 : name.length > 9 ? 23 : 27;
+  const t = (x, y, fs, txt, extra = '') => `<text x="${x}" y="${y}" text-anchor="middle" ${_F} font-weight="900" font-size="${fs}" fill="${ink}" ${extra}>${_esc(txt)}</text>`;
+  let body;
+  if (shape === 'circle' || shape === 'scallop') {
+    const fs = name.length > 20 ? 15 : name.length > 14 ? 19 : name.length > 9 ? 23 : 27;
+    let edge;
+    if (shape === 'circle') {
+      edge = `<circle cx="256" cy="256" r="178" fill="none" stroke="${ink}" stroke-width="12"/><circle cx="256" cy="256" r="162" fill="none" stroke="${ink}" stroke-width="3"/>`;
+    } else {
+      // bord festonné (comme une dentelure de timbre)
+      let d = '';
+      const n = 28;
+      for (let i = 0; i <= n; i++) {
+        const a = i * 2 * Math.PI / n, r = 176;
+        const x = 256 + Math.cos(a) * r, y = 256 + Math.sin(a) * r;
+        if (!i) { d += `M${x.toFixed(1)} ${y.toFixed(1)}`; continue; }
+        const am = (i - .5) * 2 * Math.PI / n;
+        d += `Q${(256 + Math.cos(am) * 196).toFixed(1)} ${(256 + Math.sin(am) * 196).toFixed(1)} ${x.toFixed(1)} ${y.toFixed(1)}`;
+      }
+      edge = `<path d="${d}Z" fill="none" stroke="${ink}" stroke-width="10" stroke-linejoin="round"/><circle cx="256" cy="256" r="158" fill="none" stroke="${ink}" stroke-width="3" stroke-dasharray="6 7"/>`;
+    }
+    body = `
+      <defs><path id="tp${u}" d="M138 256a118 118 0 0 1 236 0"/><path id="bp${u}" d="M108 256a148 148 0 0 0 296 0"/></defs>
+      ${edge}
+      <circle cx="256" cy="256" r="100" fill="none" stroke="${ink}" stroke-width="5"/>
+      <text ${_F} font-weight="900" font-size="${fs}" fill="${ink}" letter-spacing="2"><textPath href="#tp${u}" startOffset="50%" text-anchor="middle">${_esc(name)}</textPath></text>
+      <text ${_F} font-weight="800" font-size="19" fill="${ink}" letter-spacing="5"><textPath href="#bp${u}" startOffset="50%" text-anchor="middle">★ ATLAS ★</textPath></text>
+      ${t(256, 285, 88, code)}`;
+  } else {
+    let edge, w, top, mid, bot;
+    if (shape === 'rect') {
+      edge = `<rect x="76" y="132" width="360" height="248" rx="22" fill="none" stroke="${ink}" stroke-width="12"/><rect x="94" y="150" width="324" height="212" rx="12" fill="none" stroke="${ink}" stroke-width="3"/>
+        <path d="M116 212h280M116 310h280" stroke="${ink}" stroke-width="3"/>`;
+      w = 290; top = 194; mid = 293; bot = 344;
+    } else if (shape === 'oval') {
+      edge = `<ellipse cx="256" cy="256" rx="196" ry="138" fill="none" stroke="${ink}" stroke-width="11"/><ellipse cx="256" cy="256" rx="176" ry="120" fill="none" stroke="${ink}" stroke-width="3" stroke-dasharray="8 7"/>`;
+      w = 250; top = 206; mid = 290; bot = 338;
+    } else if (shape === 'octagon') {
+      edge = `<polygon points="${_poly(8, 192, 22.5)}" fill="none" stroke="${ink}" stroke-width="12" stroke-linejoin="round"/><polygon points="${_poly(8, 172, 22.5)}" fill="none" stroke="${ink}" stroke-width="3" stroke-linejoin="round"/>`;
+      w = 260; top = 196; mid = 290; bot = 346;
+    } else { // hexagon
+      edge = `<polygon points="${_poly(6, 196, 0)}" fill="none" stroke="${ink}" stroke-width="12" stroke-linejoin="round"/><polygon points="${_poly(6, 176, 0)}" fill="none" stroke="${ink}" stroke-width="3" stroke-linejoin="round"/>`;
+      w = 250; top = 200; mid = 290; bot = 344;
+    }
+    body = `${edge}
+      ${t(256, top, _fit(name, w, 36), name, 'letter-spacing="2"')}
+      ${t(256, mid, shape === 'rect' ? 84 : 92, code)}
+      ${t(256, bot, 20, '★ ATLAS ★', 'letter-spacing="5" font-weight="800"')}`;
+  }
   return _tile(u, '#f7efdc', '#e9dcbc', `
     <path d="M0 140h512M0 250h512M0 360h512" stroke="#e2d3b0" stroke-width="2"/>
-    <g transform="rotate(${rot} 256 256)" opacity=".93">
-      <defs><path id="tp${u}" d="M138 256a118 118 0 0 1 236 0"/><path id="bp${u}" d="M108 256a148 148 0 0 0 296 0"/></defs>
-      <circle cx="256" cy="256" r="178" fill="none" stroke="${ink}" stroke-width="12"/>
-      <circle cx="256" cy="256" r="162" fill="none" stroke="${ink}" stroke-width="3"/>
-      <circle cx="256" cy="256" r="100" fill="none" stroke="${ink}" stroke-width="5"/>
-      <text font-family="Nunito,Arial,sans-serif" font-weight="900" font-size="${fs}" fill="${ink}" letter-spacing="2"><textPath href="#tp${u}" startOffset="50%" text-anchor="middle">${_esc(name)}</textPath></text>
-      <text font-family="Nunito,Arial,sans-serif" font-weight="800" font-size="19" fill="${ink}" letter-spacing="5"><textPath href="#bp${u}" startOffset="50%" text-anchor="middle">★ ATLAS ★</textPath></text>
-      <text x="256" y="285" text-anchor="middle" font-family="Nunito,Arial,sans-serif" font-weight="900" font-size="88" fill="${ink}">${_esc(code)}</text>
-    </g>`, { gloss: false });
+    <g transform="rotate(${rot} 256 256)" opacity=".93">${body}</g>`, { gloss: false });
 }
 
 const BASE = [

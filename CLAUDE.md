@@ -18,7 +18,7 @@ Quatre endroits à synchroniser, toujours le même numéro N :
 | `sw.js` | `const SHELL_CACHE = 'cv-shell-N'` |
 | `store.js` | `export const APP_VERSION = 'N'` |
 
-Version actuelle : **248**
+Version actuelle : **249**
 
 ---
 
@@ -166,6 +166,7 @@ js/
 - Nom affiché **Atlas** (title, `apple-mobile-web-app-title`, manifest `name`/`short_name`, connexion, accueil, version dans Paramètres, notification, texte de partage). Les clés internes (`carnet_voyages_v1`, `carnet_*`, `cv-shell-*`) ne changent pas.
 - **Icône d'écran d'accueil** = page de passeport tamponnée (`homeIconSvg()` de logos.js) : `icons/icon.svg` (arrondie), `icon-maskable.svg` (contenu réduit à 80 %), PNG `icon-192/512`, `apple-touch-icon` (180, carré plein — iOS arrondit), `favicon-32` ; générés en rendant le SVG dans Chromium. L'icône iOS est fixe : il faut ré-ajouter l'appli à l'écran d'accueil pour voir le nouveau nom/icône.
 - **Logo de l'appli au choix** (Paramètres → « Logo de l'appli ») : `availableLogos(trips)` = 6 logos pour tous + un **tampon par pays visité** (codes `countryCode` des PINs, nom du pays via `Intl.DisplayNames`). `setAppLogo(id)` mémorise `atlas_logo_id` + le SVG dans `atlas_logo_svg` et re-remplit tous les `[data-app-logo]` ; le choix est aussi enregistré dans `settings.appLogo` (nouveau champ) et adopté sur les autres appareils par `syncLogoCache(settings.appLogo)` au début de `renderHome`.
+- **v249** : tampons pays débloqués seulement par les voyages **à soi** (pas les voyages observés) **faits ou commencés** (`_logoTrips`, home.js) ; **6 formes de tampon** choisies par hachage du code pays (`_SHAPES` : rond, rectangle, ovale, octogone, festonné, hexagone) ; passeport redessiné (page droite, un tampon rond « ATLAS » + un visa avec avion, sans chevauchement) ; logo **Avion = l'ancienne icône de l'appli** (avion blanc sur sarcelle). Paramètres : ligne « Changer de logo » (logo actuel) qui déplie la liste (`#hv2-logo-panel`).
 - Le logo apparaît : **écran de démarrage** (`.splash` dans index.html, SVG lu dans localStorage par un script inline, repli `/icons/icon.svg`), en-tête de l'accueil (`.hv2-brand`, à la place de l'avion), carte de connexion (`.lg-brand`), mode grands-parents (`.gp-logo`). `appLogoHtml(cls)` pour l'insérer ailleurs.
 
 ---

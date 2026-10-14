@@ -2219,7 +2219,6 @@ html:has(.tv2-story) #notif{z-index:20200}
 .lg-app-logo{width:44px;height:44px;filter:drop-shadow(0 4px 10px rgba(0,0,0,.18))}
 .gp-logo{width:42px;height:42px}
 .gp-top > div{flex:1}
-.hv2-logo-group{padding:12px 12px 10px}
 .hv2-logo-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(72px,1fr));gap:10px 8px}
 .hv2-logo-opt{display:flex;flex-direction:column;align-items:center;gap:5px;background:none;border:0;padding:4px 0;cursor:pointer;font-family:inherit;color:var(--hv-ink);min-width:0}
 .hv2-logo-opt .app-logo{width:58px;height:58px;border-radius:15px;box-shadow:0 2px 6px rgba(0,0,0,.14);transition:transform .15s,box-shadow .15s}
@@ -2228,3 +2227,11 @@ html:has(.tv2-story) #notif{z-index:20200}
 .hv2-logo-opt.sel .app-logo{box-shadow:0 0 0 3px var(--hv-sheet),0 0 0 5.5px var(--teal)}
 .hv2-logo-opt.sel small{color:var(--teal)}
 .hv2-logo-hint{font-size:12px;font-weight:600;color:var(--hv-ink2);margin-top:10px;line-height:1.4}
+/* v249 — bouton « Changer de logo » + liste dépliable */
+.hv2-logo-row{gap:12px}
+.hv2-logo-row > span:not(.app-logo){flex:1;display:flex;flex-direction:column;text-align:left}
+.hv2-logo-row small{font-size:12px;font-weight:600;color:var(--hv-ink2);margin-top:2px}
+.hv2-logo-cur{width:40px;height:40px;border-radius:10px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.15)}
+.hv2-logo-row > i{transition:transform .2s}
+.hv2-logo-row.open > i{transform:rotate(90deg)}
+.hv2-logo-panel{padding:12px 12px 12px;border-top:1px solid var(--hv-line)}

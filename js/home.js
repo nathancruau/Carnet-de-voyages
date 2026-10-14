@@ -2324,6 +2324,14 @@ function _buildCsv(rows) {
 
 // ── Settings Modal ─────────────────────────────────────────────────────────────
 
+// Voyages qui comptent pour les tampons pays du logo : les siens (pas les voyages
+// observés) et déjà faits ou commencés — un voyage seulement prévu ne débloque rien.
+function _logoTrips() {
+  const today = new Date().toLocaleDateString('sv');
+  return getTrips().filter(t => !isCurrentUserObserver(t.id)
+    && (t.status === 'done' || ((t.startDate || t.pin?.date || '9999') <= today)));
+}
+
 function _openSettingsModal() {
   const settings   = getSettings();
   const curTheme   = settings.theme || 'light';
@@ -2371,11 +2379,15 @@ function _openSettingsModal() {
       </div>
 
       <div class="hv2-fsec">Logo de l'appli</div>
-      <div class="hv2-card-group hv2-logo-group">
-        <div class="hv2-logo-grid" id="hv2-logo-grid">${availableLogos(getTrips()).map(l => `
-          <button type="button" class="hv2-logo-opt${l.id === currentLogoId() ? ' sel' : ''}" data-logo="${_esc(l.id)}" title="${_esc(l.name)}">
-            <span class="app-logo" aria-hidden="true">${logoSvg(l.id)}</span><small>${_esc(l.name)}</small></button>`).join('')}</div>
-        <div class="hv2-logo-hint">🛂 Un tampon se débloque pour chaque pays visité (pays détecté sur vos PINs).</div>
+      <div class="hv2-card-group">
+        <button type="button" class="hv2-row hv2-row-btn hv2-logo-row" id="hv2-logo-toggle">
+          ${appLogoHtml('hv2-logo-cur')}<span>Changer de logo<small>Écran de démarrage et en-tête de l'accueil</small></span><i>›</i></button>
+        <div class="hv2-logo-panel" id="hv2-logo-panel" hidden>
+          <div class="hv2-logo-grid" id="hv2-logo-grid">${availableLogos(_logoTrips()).map(l => `
+            <button type="button" class="hv2-logo-opt${l.id === currentLogoId() ? ' sel' : ''}" data-logo="${_esc(l.id)}" title="${_esc(l.name)}">
+              <span class="app-logo" aria-hidden="true">${logoSvg(l.id)}</span><small>${_esc(l.name)}</small></button>`).join('')}</div>
+          <div class="hv2-logo-hint">🛂 Un tampon se débloque pour chaque pays où vous êtes allé (voyages faits, hors voyages observés).</div>
+        </div>
       </div>
 
       <div class="hv2-fsec">Notifications</div>
@@ -2462,7 +2474,15 @@ function _openSettingsModal() {
   };
   _box?.addEventListener('change', _box._settingsChange);
 
-  // Choix du logo (écran de démarrage, en-tête de l'accueil, connexion)
+  // Choix du logo (écran de démarrage, en-tête de l'accueil, connexion) : la liste
+  // s'ouvre au tap sur « Changer de logo »
+  document.getElementById('hv2-logo-toggle')?.addEventListener('click', e => {
+    const panel = document.getElementById('hv2-logo-panel');
+    if (!panel) return;
+    panel.hidden = !panel.hidden;
+    e.currentTarget.classList.toggle('open', !panel.hidden);
+    if (!panel.hidden) panel.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  });
   document.getElementById('hv2-logo-grid')?.addEventListener('click', e => {
     const b = e.target.closest('[data-logo]');
     if (!b) return;
