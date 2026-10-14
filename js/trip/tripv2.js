@@ -409,7 +409,6 @@ function _heroHtml(trip) {
   const obs = _observerNames();
   return `
     <div class="tv2-hero">
-      ${trip.photo ? `<div class="tv2-cover"><img src="${_esc(trip.photo)}" alt="" decoding="async"></div>` : ''}
       <div class="tv2-hero-top">${status}${flags ? `<span class="tv2-flags">${flags}</span>` : ''}</div>
       <h1>${_esc(trip.name || 'Voyage')}</h1>
       ${dates ? `<div class="tv2-hero-dates">${dates}</div>` : ''}
