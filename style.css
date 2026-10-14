@@ -15,7 +15,7 @@
   --sh:0 2px 8px rgba(28,26,23,.09);
   --shm:0 4px 20px rgba(28,26,23,.13);
   --shl:0 12px 48px rgba(28,26,23,.18);
-  --r:12px;--fn:'Nunito',sans-serif;--sf:'Lora',serif;
+  --r:12px;--fn:'Nunito',sans-serif;--sf:'Nunito',sans-serif;
 }
 
 [data-theme="dark"]{

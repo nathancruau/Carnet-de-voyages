@@ -7,7 +7,7 @@ import {
   TRIP_TYPES, COMP_COLORS, uid,
   getSettings, updateSettings,
   getEventTypes,
-  getLanguage, isTripShared, APP_VERSION,
+  getLanguage, isTripShared, APP_VERSION, wipeLocalData,
 } from './store.js';
 import {
   notify, showModal, closeModal,
@@ -2433,7 +2433,7 @@ function _openSettingsModal() {
 
   document.getElementById('settings-clear-data')?.addEventListener('click', () => {
     if (confirm('Effacer TOUTES les données (voyages, journal, bagages) ? Cette action est irréversible.')) {
-      localStorage.clear();
+      wipeLocalData(true);
       location.reload();
     }
   });
@@ -2545,7 +2545,7 @@ function _attachListeners(wrap) {
           .catch(() => {})
           .finally(() => {
             logout().then(() => {
-              localStorage.removeItem('carnet_voyages_v1');
+              wipeLocalData();
               window.location.reload();
             });
           });
@@ -2849,7 +2849,7 @@ function _buildSortieModalHtml(trip) {
     </div>`;
 
   return `
-    <h3 style="font-family:'Lora',serif;font-size:18px;font-weight:700;margin-bottom:16px">
+    <h3 style="font-size:18px;font-weight:800;margin-bottom:16px">
       ${isEdit ? '✎ Modifier la sortie' : '🎯 Nouvelle sortie'}
     </h3>
 
@@ -3158,13 +3158,31 @@ function _initSortieModalListeners(trip) {
   document.getElementById('sm-cancel')?.addEventListener('click', () => { _cleanupSortieModalMap(); closeModal(); });
   document.getElementById('sm-delete')?.addEventListener('click', _handleDelete);
 
-  // Init map with a small delay so the DOM has fully laid out
-  setTimeout(() => _initSortieModalMap(), 80);
+  // Init map with a small delay so the DOM has fully laid out (Leaflet chargé à la demande)
+  setTimeout(() => { _ensureLeaflet().then(_initSortieModalMap).catch(() => {}); }, 80);
+}
+
+// Leaflet (147 Ko) ne sert plus qu'à cette petite carte : chargé à la 1ʳᵉ ouverture
+// au lieu d'à chaque lancement de l'appli (v246). Fichiers déjà en cache du SW.
+let _leafletP = null;
+function _ensureLeaflet() {
+  if (window.L) return Promise.resolve();
+  return (_leafletP ||= new Promise((resolve, reject) => {
+    const css = document.createElement('link');
+    css.rel = 'stylesheet'; css.href = 'vendor/leaflet.css';
+    // avant style.css, qui surcharge quelques règles .leaflet-*
+    document.head.insertBefore(css, document.querySelector('link[href^="style.css"]'));
+    const js = document.createElement('script');
+    js.src = 'vendor/leaflet.js';
+    js.onload = () => resolve();
+    js.onerror = () => { _leafletP = null; reject(new Error('leaflet')); };
+    document.head.appendChild(js);
+  }));
 }
 
 function _initSortieModalMap() {
   const container = document.getElementById('sm-map');
-  if (!container) return;
+  if (!container || !window.L) return;
   _cleanupSortieModalMap();
 
   const hasCoords = _sortieLat != null && _sortieLng != null;
@@ -3419,7 +3437,7 @@ function _buildModalHtml(trip) {
     </div>`;
 
   return `
-    <h3 style="font-family:'Lora',serif;font-size:18px;font-weight:700;margin-bottom:16px">
+    <h3 style="font-size:18px;font-weight:800;margin-bottom:16px">
       ${isEdit ? '✎ Modifier le voyage' : '＋ Nouveau voyage'}
     </h3>
 

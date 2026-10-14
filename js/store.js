@@ -23,11 +23,40 @@ const THEME_KEY = 'carnet_theme';
 
 /** Persist the full state blob, keeping the small THEME_KEY mirror in sync. */
 function _persistState() {
+  clearTimeout(_persistTimer); _persistTimer = 0;
+  if (_wiped) return;
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
   try { localStorage.setItem(THEME_KEY, state.settings?.theme || ''); } catch (_) {}
 }
 
-export const APP_VERSION = '245';
+// Écriture locale regroupée (v246) : l'état fait souvent plusieurs Mo (photos en
+// base64) et était sérialisé en entier, de façon synchrone, à CHAQUE updateTrip
+// (cocher un bagage, glisser une étape…) — saccades sur téléphone. Les écritures
+// rapprochées sont fusionnées en une seule, 300 ms plus tard ; tout est écrit
+// immédiatement quand l'appli passe en arrière-plan ou se ferme.
+let _persistTimer = 0, _wiped = false;
+function _schedulePersist() {
+  if (_persistTimer) return;
+  _persistTimer = setTimeout(() => {
+    try { _persistState(); } catch (e) { console.warn('Carnet: localStorage full or unavailable — data may not persist', e); }
+  }, 300);
+}
+export function flushPersist() {
+  if (!_persistTimer) return;
+  try { _persistState(); } catch (e) { console.warn('Carnet: localStorage full or unavailable', e); }
+}
+/** Efface les données locales (déconnexion, « tout effacer ») sans qu'une écriture en attente les recrée. */
+export function wipeLocalData(all = false) {
+  _wiped = true;
+  clearTimeout(_persistTimer); _persistTimer = 0;
+  if (all) localStorage.clear(); else localStorage.removeItem(STORAGE_KEY);
+}
+if (typeof window !== 'undefined') {
+  window.addEventListener('pagehide', flushPersist);
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flushPersist(); });
+}
+
+export const APP_VERSION = '246';
 
 export const COMP_COLORS = [
   '#0d9488','#7c3aed','#e85d3e','#d97706',
@@ -243,7 +272,7 @@ export function replaceTripFromNetwork(id, tripData) {
   } else {
     state.trips.unshift(migrated);
   }
-  try { _persistState(); } catch (e) {}
+  _schedulePersist();
 }
 
 /**
@@ -299,8 +328,7 @@ export function setState(cloudData) {
   if (!Array.isArray(state.trips)) state.trips = [];
   // Run migration on every trip to fill missing fields from older schema versions
   state.trips = state.trips.map(t => _migrateTrip(t));
-  try { _persistState(); }
-  catch (e) { console.warn('Carnet: failed to persist merged state', e); }
+  _schedulePersist();
 }
 
 export function setSyncCallback(fn) { _syncCallback = fn; }
@@ -385,11 +413,7 @@ function _migrateTrip(t) {
  * lost, but localStorage is already up to date so no data is actually lost.
  */
 export function saveData() {
-  try {
-    _persistState();
-  } catch (e) {
-    console.warn('Carnet: localStorage full or unavailable — data may not persist', e);
-  }
+  _schedulePersist();
   clearTimeout(_syncTimer);
   const deletedSnapshot = [..._recentlyDeletedIds];
   _syncTimer = setTimeout(() => {

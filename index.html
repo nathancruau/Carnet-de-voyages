@@ -35,7 +35,7 @@
        (openShareModal, isCurrentUserObserver, …), so every session fetches it
        anyway; preloading it here fetches it in parallel with home.js instead of
        only being discovered once home.js itself finishes parsing. -->
-  <link rel="modulepreload" href="js/app.js?v=245" />
+  <link rel="modulepreload" href="js/app.js?v=246" />
   <link rel="modulepreload" href="js/store.js" />
   <link rel="modulepreload" href="js/utils.js" />
   <link rel="modulepreload" href="js/auth.js" />
@@ -46,15 +46,26 @@
   <link rel="modulepreload" href="js/trip/trip.js" />
   <link rel="modulepreload" href="js/notifications.js" />
 
-  <!-- Leaflet CSS: not needed for the login/home screens, so load it without
-       blocking first paint (swap media once loaded). Must stay before style.css
-       in document order — style.css overrides several .leaflet-* rules and
-       needs to win the cascade once both are applied. -->
-  <link rel="stylesheet" href="vendor/leaflet.css" media="print" onload="this.media='all'" />
-  <link rel="stylesheet" href="style.css?v=245" />
+  <!-- Leaflet (CSS + JS) n'est plus chargé au démarrage : home.js le charge à la
+       1ʳᵉ ouverture de la fenêtre d'une sortie (_ensureLeaflet), CSS inséré avant style.css. -->
+  <link rel="stylesheet" href="style.css?v=246" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,600;0,700;1,400;1,600;1,700&family=Nunito:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <script>
+    // v246 : compte déjà connecté sur ce navigateur → l'accueil (et sa carte) s'affiche
+    // dès le démarrage : on lance tout de suite le téléchargement de MapLibre (≈1 Mo,
+    // en cache du SW) au lieu d'attendre que app.js → home.js → homemap.js le demandent.
+    try {
+      if (localStorage.getItem('carnet_last_uid')) {
+        ['/vendor/maplibre-gl.js|script', '/vendor/maplibre-gl.css|style'].forEach(function (x) {
+          var p = x.split('|'), l = document.createElement('link');
+          l.rel = 'preload'; l.href = p[0]; l.as = p[1]; document.head.appendChild(l);
+        });
+      }
+    } catch (e) {}
+  </script>
+  <!-- Police chargée sans bloquer le 1er affichage (v246 : Lora retirée, plus utilisée) -->
+  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;500;600;700;800&display=swap" rel="stylesheet" media="print" onload="this.media='all'" />
   <script>
     // iOS 26 (appli ajoutée à l'écran d'accueil, barre d'état translucide) : la fenêtre
     // est raccourcie de la hauteur de la barre d'état mais reste calée en haut → bande
@@ -217,7 +228,6 @@
     <span id="n-msg"></span>
   </div>
 
-  <script src="vendor/leaflet.js" defer></script>
   <script>
     function _showErr(msg, detail) {
       // Don't replace body if already showing an error (prevents double-trigger)
@@ -292,6 +302,6 @@
       if (bar) bar.style.display = 'none';
     }
   </script>
-<script type="module" src="js/app.js?v=245"></script>
+<script type="module" src="js/app.js?v=246"></script>
 </body>
 </html>

@@ -89,7 +89,7 @@ function _loadLib() {
   if (window.maplibregl) return Promise.resolve(window.maplibregl);
   if (!_libPromise) {
     _libPromise = new Promise((resolve, reject) => {
-      if (!document.querySelector(`link[href="${MAPLIBRE_CSS}"]`)) {
+      if (!document.querySelector(`link[rel="stylesheet"][href="${MAPLIBRE_CSS}"]`)) {
         const link = document.createElement('link');
         link.rel = 'stylesheet'; link.href = MAPLIBRE_CSS;
         document.head.appendChild(link);

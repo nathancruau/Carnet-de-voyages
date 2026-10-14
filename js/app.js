@@ -5,7 +5,7 @@
 import { loadData, getState, setState, setSyncCallback, getSettings, getTrips, hasPendingLocalChanges, getRecentlyDeletedIds } from './store.js';
 import { renderHome } from './home.js';
 import { openTrip, refreshTrip, destroyTripMap } from './trip/trip.js';
-import { closeModal, showModal, esc } from './utils.js';
+import { closeModal, showModal, esc, notify } from './utils.js';
 import { initAuth, loginWithGoogle, syncToFirestore, isFirebaseConfigured, listenUserDoc, setSyncErrorCallback } from './auth.js';
 import { checkDepartureNotifications } from './notifications.js';
 
@@ -133,7 +133,7 @@ function _renderLogin() {
 
 // ── Auth bootstrap ─────────────────────────────────────────────────────────────
 
-function _onAuthReady(user, cloudData) {
+function _onAuthReady(user, cloudData, meta = {}) {
   if (!isFirebaseConfigured()) {
     // Local-only mode: no login required
     loadData();
@@ -143,8 +143,16 @@ function _onAuthReady(user, cloudData) {
     return;
   }
 
+  // Firebase injoignable (hors-ligne) alors que l'accueil est déjà affiché depuis le
+  // cache : on y reste (mode local) au lieu de renvoyer vers l'écran de connexion.
+  if (!user && meta.offline && _optimistic) {
+    notify('Hors-ligne : données de cet appareil', '📴');
+    return;
+  }
   if (!user) {
     if (_userDocUnsub) { _userDocUnsub(); _userDocUnsub = null; }
+    try { localStorage.removeItem(LAST_UID_KEY); } catch (_) {}
+    _optimistic = false;
     _renderLogin();
     showScreen('login');
     return;
@@ -154,9 +162,15 @@ function _onAuthReady(user, cloudData) {
   try {
     setSyncCallback(syncToFirestore);
 
+    try { localStorage.setItem(LAST_UID_KEY, user.uid); } catch (_) {}
+    // Accueil déjà affiché depuis le cache local (démarrage rapide) : l'état en
+    // mémoire contient déjà localStorage + les éventuelles modifs faites depuis,
+    // inutile de le relire (JSON de plusieurs Mo).
+    const wasOptimistic = _optimistic && _optimistic === user.uid;
+    _optimistic = false;
     if (cloudData) {
       // Read localStorage first so setState can merge local edits that didn't reach Firestore yet
-      loadData();
+      if (!wasOptimistic) loadData();
       setState(cloudData);
       // Re-push if local merged state differs from cloud snapshot.
       // Covers: (1) trips created offline missing from Firestore,
@@ -166,17 +180,20 @@ function _onAuthReady(user, cloudData) {
       }
     } else {
       // First login on this device: upload existing local trips to cloud
-      loadData();
+      if (!wasOptimistic) loadData();
       const localState = getState();
       if (localState.trips && localState.trips.length > 0) {
         syncToFirestore(localState);
       }
     }
 
-    renderHome();
-    showScreen('home');
-
-    checkDepartureNotifications(getTrips(), getSettings());
+    // Déjà sur l'accueil (démarrage rapide) : re-rendu sur place (nom/photo du compte,
+    // données du cloud) sans repasser par showScreen, ni re-vérifier les départs.
+    if (!wasOptimistic || currentScreen === 'home') renderHome();
+    if (!wasOptimistic) {
+      showScreen('home');
+      checkDepartureNotifications(getTrips(), getSettings());
+    }
 
     // Re-apply theme listener for 'auto' mode.
     // Remove any previous listener first to avoid accumulation across auth cycles.
@@ -383,5 +400,26 @@ window._refreshJournalInteractions = (updatedTripId) => {
 };
 
 // ── Bootstrap ──────────────────────────────────────────────────────────────────
+// Démarrage rapide (v246) : si ce navigateur était déjà connecté la dernière fois,
+// l'accueil s'affiche tout de suite depuis le cache local, sans attendre le SDK
+// Firebase (CDN), l'état d'authentification ni la lecture serveur (jusqu'à 8 s sur
+// mobile). _onAuthReady fusionne ensuite les données du cloud et re-rend sur place ;
+// s'il s'avère qu'on n'est plus connecté, il affiche l'écran de connexion.
+const LAST_UID_KEY = 'carnet_last_uid';
+let _optimistic = false;
+try {
+  const lastUid = isFirebaseConfigured() && !new URLSearchParams(location.search).has('invite')
+    ? localStorage.getItem(LAST_UID_KEY) : null;
+  if (lastUid) {
+    loadData();
+    _optimistic = lastUid;
+    renderHome();
+    showScreen('home');
+    checkDepartureNotifications(getTrips(), getSettings());
+  }
+} catch (err) {
+  console.warn('[app] démarrage rapide impossible :', err);
+  _optimistic = false;
+}
 initAuth(_onAuthReady);
 

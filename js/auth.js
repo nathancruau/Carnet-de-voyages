@@ -152,7 +152,7 @@ export async function initAuth(onReady) {
 
   } catch (err) {
     console.error('[auth] Firebase init failed:', err.message);
-    onReady(null, null);
+    onReady(null, null, { offline: true });   // SDK injoignable (hors-ligne) ≠ déconnecté
   }
 }
 
