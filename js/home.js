@@ -2045,7 +2045,7 @@ function _renderHomeV2(wrap, { myTrips, observingTrips, filter }) {
       <div class="hv2-dim"></div>
       <div class="hv2-top" id="hv2-top">
         <button class="hv2-round hv2-menu${filtersOn ? ' hv2-has-filter' : ''}" data-action="hv2-destinations" title="Destinations & filtres">${_HV2_ICONS.menu}</button>
-        <div class="hv2-brand">${appLogoHtml('hv2-logo', { bare: true })}Atlas</div>
+        <div class="hv2-brand">${appLogoHtml('hv2-logo')}Atlas</div>
         <button class="hv2-round" data-action="open-settings" title="Paramètres">${_HV2_ICONS.gear}</button>
       </div>
       <div class="hv2-pin-pop" id="hv2-pin-pop" hidden></div>
@@ -2387,6 +2387,7 @@ function _openSettingsModal() {
             <button type="button" class="hv2-logo-opt${l.id === currentLogoId() ? ' sel' : ''}" data-logo="${_esc(l.id)}" title="${_esc(l.name)}">
               <span class="app-logo" aria-hidden="true">${logoSvg(l.id)}</span><small>${_esc(l.name)}</small></button>`).join('')}</div>
           <div class="hv2-logo-hint">🛂 Un tampon se débloque pour chaque pays où vous êtes allé (voyages faits, hors voyages observés).</div>
+          <div class="hv2-logo-hint">📱 Icône de l'écran d'accueil de l'iPhone : iOS la fixe au moment de l'ajout. Choisissez l'icône ici <b>dans Safari</b>, puis Partager → « Sur l'écran d'accueil » (supprimez l'ancienne appli d'abord ; vos voyages se resynchronisent à la connexion).</div>
         </div>
       </div>
 

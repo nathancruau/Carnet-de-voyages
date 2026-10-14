@@ -23,12 +23,8 @@ let _seq = 0;
 
 const _esc = s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
-// Fond d'icône : carré arrondi façon iOS, dégradé + léger reflet en haut.
-// Logo (_bare) : le même dessin sans le carré arrondi ni la couleur de fond — les
-// éléments de décor du fond (lignes de papier, horizon…) portent data-bg et sautent.
-let _bare = false;
+// Fond d'icône : carré arrondi façon iOS, dégradé + léger reflet en haut
 function _tile(u, c1, c2, body, { gloss = true } = {}) {
-  if (_bare) return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">${body.replace(/<[^<>]*\bdata-bg\b[^<>]*\/>/g, '')}</svg>`;
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
   <defs>
     <linearGradient id="bg${u}" x1="0" y1="0" x2="0.35" y2="1"><stop offset="0" stop-color="${c1}"/><stop offset="1" stop-color="${c2}"/></linearGradient>
@@ -133,36 +129,36 @@ function _polaris(u) {
     <g fill="none" stroke-linecap="round">${arcs.join('')}</g>
     <circle cx="${cx}" cy="${cy}" r="58" fill="url(#pg${u})"/>
     <path d="M${cx} ${cy - 44}L${cx + 9} ${cy - 9}L${cx + 44} ${cy}L${cx + 9} ${cy + 9}L${cx} ${cy + 44}L${cx - 9} ${cy + 9}L${cx - 44} ${cy}L${cx - 9} ${cy - 9}Z" fill="#fff"/>
-    <path data-bg d="M0 470c90-40 170-44 256-30s170 10 256-24V512H0z" fill="#03050f"/>
-    <path data-bg d="M60 470l26-40 22 26 20-50 30 64z" fill="#03050f"/>`, { gloss: false });
+    <path d="M0 470c90-40 170-44 256-30s170 10 256-24V512H0z" fill="#03050f"/>
+    <path d="M60 470l26-40 22 26 20-50 30 64z" fill="#03050f"/>`, { gloss: false });
 }
 
 function _plane(u) {
   // Ancien logo de l'en-tête de l'accueil : ✈ blanc dans un rond cerclé de blanc, penché de -20°
-  const mark = `<g transform="rotate(-20 256 256)">
+  return _tile(u, '#14b8a6', '#0b7a6e', `
+    <g transform="translate(256 256) scale(.62) rotate(-20) translate(-256 -256)">
       <circle cx="256" cy="256" r="232" fill="none" stroke="#fff" stroke-width="36"/>
-      <text x="256" y="256" text-anchor="middle" dominant-baseline="central" font-family="Nunito,-apple-system,sans-serif" font-size="220" fill="#fff">✈</text></g>`;
-  return _tile(u, '#14b8a6', '#0b7a6e', _bare ? mark : `<g transform="translate(256 256) scale(.62) translate(-256 -256)">${mark}</g>`);
+      <text x="256" y="256" text-anchor="middle" dominant-baseline="central" font-family="Nunito,-apple-system,sans-serif" font-size="220" fill="#fff">✈</text>
+    </g>`);
 }
 
 function _compass(u) {
-  const navy = _bare ? '#dbe6f0' : '#23384f', brass = _bare ? '#e2c48a' : '#8a6a35';
   const ticks = [];
   for (let a = 0; a < 360; a += 15) {
     const r = a * Math.PI / 180, l = a % 90 ? 10 : 22;
     ticks.push(`<path d="M${(256 + Math.sin(r) * 176).toFixed(1)} ${(256 - Math.cos(r) * 176).toFixed(1)}L${(256 + Math.sin(r) * (176 - l)).toFixed(1)} ${(256 - Math.cos(r) * (176 - l)).toFixed(1)}"/>`);
   }
   return _tile(u, '#f4ead3', '#d9c49a', `
-    <circle cx="256" cy="256" r="190" fill="none" stroke="${brass}" stroke-width="6"/>
-    <circle cx="256" cy="256" r="176" fill="none" stroke="${brass}" stroke-width="2"/>
-    <g stroke="${brass}" stroke-width="4">${ticks.join('')}</g>
+    <circle cx="256" cy="256" r="190" fill="none" stroke="#8a6a35" stroke-width="6"/>
+    <circle cx="256" cy="256" r="176" fill="none" stroke="#8a6a35" stroke-width="2"/>
+    <g stroke="#8a6a35" stroke-width="4">${ticks.join('')}</g>
     <g transform="rotate(45 256 256)" opacity=".75">
-      <path d="M256 120l18 136-18 136-18-136z" fill="${brass}"/>
-      <path d="M120 256l136-18 136 18-136 18z" fill="${brass}"/>
+      <path d="M256 120l18 136-18 136-18-136z" fill="#8a6a35"/>
+      <path d="M120 256l136-18 136 18-136 18z" fill="#8a6a35"/>
     </g>
-    <path d="M256 80l26 176h-52z" fill="#c8323a"/><path d="M256 432l26-176h-52z" fill="${navy}"/>
-    <path d="M80 256l176-26v52z" fill="${navy}"/><path d="M432 256l-176-26v52z" fill="${navy}"/>
-    <circle cx="256" cy="256" r="18" fill="#f4ead3" stroke="${brass}" stroke-width="6"/>
+    <path d="M256 80l26 176h-52z" fill="#c8323a"/><path d="M256 432l26-176h-52z" fill="#23384f"/>
+    <path d="M80 256l176-26v52z" fill="#23384f"/><path d="M432 256l-176-26v52z" fill="#23384f"/>
+    <circle cx="256" cy="256" r="18" fill="#f4ead3" stroke="#8a6a35" stroke-width="6"/>
     <text x="256" y="66" text-anchor="middle" font-family="Nunito,Arial,sans-serif" font-weight="900" font-size="40" fill="#c8323a">N</text>`, { gloss: false });
 }
 
@@ -172,7 +168,6 @@ let _regionNames = null;
 function _countryName(code) {
   try { _regionNames ||= new Intl.DisplayNames(['fr'], { type: 'region' }); return _regionNames.of(code) || code; } catch (_) { return code; }
 }
-const _light = (hex, k) => '#' + [1, 3, 5].map(i => Math.round(parseInt(hex.slice(i, i + 2), 16) * (1 - k) + 255 * k).toString(16).padStart(2, '0')).join('');
 const _SHAPES = ['circle', 'rect', 'oval', 'octagon', 'scallop', 'hexagon'];
 const _F = 'font-family="Nunito,Arial,sans-serif"';
 function _poly(n, r, rot = 0, cx = 256, cy = 256) {
@@ -187,12 +182,11 @@ const _fit = (txt, w, max) => Math.min(max, Math.floor(w / (txt.length * 0.68)))
 function _stamp(u, code) {
   let h = 0; for (const c of code) h = (h * 31 + c.charCodeAt(0)) | 0;
   h = Math.abs(h);
-  // Logo (sans fond, affiché sur fond nuit) : encre éclaircie pour rester lisible
-  const ink = _bare ? _light(_INKS[h % _INKS.length], .38) : _INKS[h % _INKS.length];
+  const ink = _INKS[h % _INKS.length];
   const shape = _SHAPES[(h >> 3) % _SHAPES.length];
   const rot = ((h >> 6) % 17) - 8;
   const name = _countryName(code).toUpperCase();
-  const t = (x, y, fs, txt, extra = '') => `<text x="${x}" y="${y}" text-anchor="middle" ${_F} font-weight="900" font-size="${fs}" fill="${ink}" ${extra}>${_esc(txt)}</text>`;
+  const t = (x, y, fs, txt, extra = '', fw = 900) => `<text x="${x}" y="${y}" text-anchor="middle" ${_F} font-weight="${fw}" font-size="${fs}" fill="${ink}" ${extra}>${_esc(txt)}</text>`;
   let body;
   if (shape === 'circle' || shape === 'scallop') {
     const fs = name.length > 20 ? 15 : name.length > 14 ? 19 : name.length > 9 ? 23 : 27;
@@ -238,11 +232,11 @@ function _stamp(u, code) {
     body = `${edge}
       ${t(256, top, _fit(name, w, 36), name, 'letter-spacing="2"')}
       ${t(256, mid, shape === 'rect' ? 84 : 92, code)}
-      ${t(256, bot, 20, '★ ATLAS ★', 'letter-spacing="5" font-weight="800"')}`;
+      ${t(256, bot, 20, '★ ATLAS ★', 'letter-spacing="5"', 800)}`;
   }
   return _tile(u, '#f7efdc', '#e9dcbc', `
-    <path data-bg d="M0 140h512M0 250h512M0 360h512" stroke="#e2d3b0" stroke-width="2"/>
-    <g transform="rotate(${rot} 256 256)" opacity="${_bare ? 1 : .93}">${body}</g>`, { gloss: false });
+    <path d="M0 140h512M0 250h512M0 360h512" stroke="#e2d3b0" stroke-width="2"/>
+    <g transform="rotate(${rot} 256 256)" opacity=".93">${body}</g>`, { gloss: false });
 }
 
 const BASE = [
@@ -256,16 +250,11 @@ const BASE = [
 
 export const DEFAULT_LOGO = 'passport';
 
-/** SVG d'une icône (carré arrondi avec fond) ; { bare:true } = le logo : même dessin
- *  sans bords ni couleur de fond (écran de démarrage, en-tête de l'accueil). */
-export function logoSvg(id = DEFAULT_LOGO, { bare = false, uid = '' } = {}) {
+export function logoSvg(id = DEFAULT_LOGO, { uid = '' } = {}) {
   const u = uid || 'L' + (++_seq);
   const m = /^stamp:([A-Z]{2})$/.exec(id || '');
-  _bare = bare;
-  try {
-    if (m) return _stamp(u, m[1]);
-    return (BASE.find(b => b.id === id) || BASE[0]).fn(u);
-  } finally { _bare = false; }
+  if (m) return _stamp(u, m[1]);
+  return (BASE.find(b => b.id === id) || BASE[0]).fn(u);
 }
 
 /** Icône d'écran d'accueil (passeport) : carré plein (iOS arrondit lui-même) ;
@@ -300,29 +289,56 @@ export function currentLogoId() {
   try { return localStorage.getItem(LS_ID) || DEFAULT_LOGO; } catch (_) { return DEFAULT_LOGO; }
 }
 
-// SVG du logo mis en cache pour l'écran de démarrage (id fixe → comparable d'une fois sur l'autre)
-const _splashSvg = id => logoSvg(id, { bare: true, uid: 'S' });
+// SVG mis en cache pour l'écran de démarrage (id fixe → comparable d'une fois sur l'autre)
+const _splashSvg = id => logoSvg(id, { uid: 'S' });
 
-/** Choisit l'icône/le logo : mémorisé (et le logo, pour l'écran de démarrage) + mise à jour à l'écran. */
-export function setAppLogo(id) {
-  try { localStorage.setItem(LS_ID, id); localStorage.setItem(LS_SVG, _splashSvg(id)); } catch (_) {}
-  document.querySelectorAll('[data-app-logo]').forEach(el => { el.innerHTML = logoSvg(id, { bare: el.dataset.appLogo === 'bare' }); });
+// Icône d'écran d'accueil iPhone : iOS lit <link rel="apple-touch-icon"> au moment où l'on
+// ajoute l'appli à l'écran d'accueil. On garde donc un PNG 180 px de l'icône choisie
+// (carré plein, iOS arrondit lui-même) que index.html met dans ce lien dès le chargement.
+const LS_PNG = 'atlas_icon_png';
+const LS_PNG_KEY = 'atlas_icon_png_key';
+function _cacheTouchIcon(id) {
+  const svg = logoSvg(id, { uid: 'T' }).replace('rx="114"', 'rx="0"');
+  try { if (localStorage.getItem(LS_PNG_KEY) === svg.length + ':' + id && localStorage.getItem(LS_PNG)) return; } catch (_) { return; }
+  const img = new Image();
+  img.onload = () => {
+    try {
+      const c = document.createElement('canvas');
+      c.width = c.height = 180;
+      c.getContext('2d').drawImage(img, 0, 0, 180, 180);
+      const png = c.toDataURL('image/png');
+      localStorage.setItem(LS_PNG, png);
+      localStorage.setItem(LS_PNG_KEY, svg.length + ':' + id);
+      const link = document.querySelector('link[rel="apple-touch-icon"]');
+      if (link) link.href = png;
+    } catch (_) {}
+  };
+  img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
 }
 
-/** <span data-app-logo> rempli avec l'icône courante — { bare:true } = le logo (sans
- *  bords ni fond). Re-rempli par setAppLogo. */
-export function appLogoHtml(cls = '', { bare = false } = {}) {
-  return `<span class="app-logo ${cls}" data-app-logo="${bare ? 'bare' : 'icon'}" aria-hidden="true">${logoSvg(currentLogoId(), { bare })}</span>`;
+/** Choisit l'icône : mémorisée (+ SVG pour l'écran de démarrage, PNG pour l'icône
+ *  d'écran d'accueil iPhone) et mise à jour à l'écran. */
+export function setAppLogo(id) {
+  try { localStorage.setItem(LS_ID, id); localStorage.setItem(LS_SVG, _splashSvg(id)); } catch (_) {}
+  document.querySelectorAll('[data-app-logo]').forEach(el => { el.innerHTML = logoSvg(id); });
+  _cacheTouchIcon(id);
+}
+
+/** <span data-app-logo> rempli avec le logo courant (re-rempli par setAppLogo). */
+export function appLogoHtml(cls = '') {
+  return `<span class="app-logo ${cls}" data-app-logo aria-hidden="true">${logoSvg(currentLogoId())}</span>`;
 }
 
 /** Au démarrage / après la synchro : adopte le logo des paramètres (choisi sur un
- *  autre appareil) et garde le SVG mis en cache à jour (nouvelle version des dessins). */
+ *  autre appareil) et garde les caches (démarrage, icône iPhone) à jour. */
 export function syncLogoCache(preferred) {
   try {
     if (preferred && preferred !== currentLogoId() && (BASE.some(b => b.id === preferred) || /^stamp:[A-Z]{2}$/.test(preferred))) {
       setAppLogo(preferred); return;
     }
-    const svg = _splashSvg(currentLogoId());
+    const id = currentLogoId();
+    const svg = _splashSvg(id);
     if (localStorage.getItem(LS_SVG) !== svg) localStorage.setItem(LS_SVG, svg);
+    _cacheTouchIcon(id);
   } catch (_) {}
 }

@@ -2235,7 +2235,3 @@ html:has(.tv2-story) #notif{z-index:20200}
 .hv2-logo-row > i{transition:transform .2s}
 .hv2-logo-row.open > i{transform:rotate(90deg)}
 .hv2-logo-panel{padding:12px 12px 12px;border-top:1px solid var(--hv-line)}
-/* v250 — logo (sans fond) affiché sur fond sombre */
-.hv2-logo,.splash-logo{filter:drop-shadow(0 2px 6px rgba(0,0,0,.4))}
-.hv2-logo{width:34px;height:34px}
-.splash-logo{width:128px;height:128px}
