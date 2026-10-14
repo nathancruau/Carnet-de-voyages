@@ -23,8 +23,12 @@ let _seq = 0;
 
 const _esc = s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
-// Fond d'icône : carré arrondi façon iOS, dégradé + léger reflet en haut
+// Fond d'icône : carré arrondi façon iOS, dégradé + léger reflet en haut.
+// Logo (_bare) : le même dessin sans le carré arrondi ni la couleur de fond — les
+// éléments de décor du fond (lignes de papier, horizon…) portent data-bg et sautent.
+let _bare = false;
 function _tile(u, c1, c2, body, { gloss = true } = {}) {
+  if (_bare) return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">${body.replace(/<[^<>]*\bdata-bg\b[^<>]*\/>/g, '')}</svg>`;
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
   <defs>
     <linearGradient id="bg${u}" x1="0" y1="0" x2="0.35" y2="1"><stop offset="0" stop-color="${c1}"/><stop offset="1" stop-color="${c2}"/></linearGradient>
@@ -129,37 +133,36 @@ function _polaris(u) {
     <g fill="none" stroke-linecap="round">${arcs.join('')}</g>
     <circle cx="${cx}" cy="${cy}" r="58" fill="url(#pg${u})"/>
     <path d="M${cx} ${cy - 44}L${cx + 9} ${cy - 9}L${cx + 44} ${cy}L${cx + 9} ${cy + 9}L${cx} ${cy + 44}L${cx - 9} ${cy + 9}L${cx - 44} ${cy}L${cx - 9} ${cy - 9}Z" fill="#fff"/>
-    <path d="M0 470c90-40 170-44 256-30s170 10 256-24V512H0z" fill="#03050f"/>
-    <path d="M60 470l26-40 22 26 20-50 30 64z" fill="#03050f"/>`, { gloss: false });
+    <path data-bg d="M0 470c90-40 170-44 256-30s170 10 256-24V512H0z" fill="#03050f"/>
+    <path data-bg d="M60 470l26-40 22 26 20-50 30 64z" fill="#03050f"/>`, { gloss: false });
 }
 
 function _plane(u) {
-  // Ancienne icône de l'appli (avion blanc sur sarcelle), reprise telle quelle
-  return _tile(u, '#0d9488', '#0d9488', `
-    <radialGradient id="pl${u}" cx="40%" cy="35%" r="60%"><stop offset="0%" stop-color="#14b8a6" stop-opacity=".6"/><stop offset="100%" stop-color="#0d9488" stop-opacity="0"/></radialGradient>
-    <rect width="512" height="512" fill="url(#pl${u})"/>
-    <path fill="#fff" opacity=".97" d="M256 128 C268 128 312 172 320 220 L388 256 C388 256 388 272 376 272 L320 260 L316 300 L340 316 C340 316 340 328 332 328 L280 308 L260 384 C260 384 248 388 244 384 L232 308 L180 328 C172 328 172 316 172 316 L196 300 L192 260 L136 272 C124 272 124 256 124 256 L192 220 C200 172 244 128 256 128Z"/>
-    <g stroke="#fff" stroke-width="3" stroke-linecap="round" fill="none"><circle cx="256" cy="420" r="28" opacity=".4"/><path d="M256 396v8M256 436v8M232 420h8M272 420h8" opacity=".5"/></g>
-    <circle cx="256" cy="420" r="4" fill="#fff" opacity=".5"/>`, { gloss: false });
+  // Ancien logo de l'en-tête de l'accueil : ✈ blanc dans un rond cerclé de blanc, penché de -20°
+  const mark = `<g transform="rotate(-20 256 256)">
+      <circle cx="256" cy="256" r="232" fill="none" stroke="#fff" stroke-width="36"/>
+      <text x="256" y="256" text-anchor="middle" dominant-baseline="central" font-family="Nunito,-apple-system,sans-serif" font-size="220" fill="#fff">✈</text></g>`;
+  return _tile(u, '#14b8a6', '#0b7a6e', _bare ? mark : `<g transform="translate(256 256) scale(.62) translate(-256 -256)">${mark}</g>`);
 }
 
 function _compass(u) {
+  const navy = _bare ? '#dbe6f0' : '#23384f', brass = _bare ? '#e2c48a' : '#8a6a35';
   const ticks = [];
   for (let a = 0; a < 360; a += 15) {
     const r = a * Math.PI / 180, l = a % 90 ? 10 : 22;
     ticks.push(`<path d="M${(256 + Math.sin(r) * 176).toFixed(1)} ${(256 - Math.cos(r) * 176).toFixed(1)}L${(256 + Math.sin(r) * (176 - l)).toFixed(1)} ${(256 - Math.cos(r) * (176 - l)).toFixed(1)}"/>`);
   }
   return _tile(u, '#f4ead3', '#d9c49a', `
-    <circle cx="256" cy="256" r="190" fill="none" stroke="#8a6a35" stroke-width="6"/>
-    <circle cx="256" cy="256" r="176" fill="none" stroke="#8a6a35" stroke-width="2"/>
-    <g stroke="#8a6a35" stroke-width="4">${ticks.join('')}</g>
+    <circle cx="256" cy="256" r="190" fill="none" stroke="${brass}" stroke-width="6"/>
+    <circle cx="256" cy="256" r="176" fill="none" stroke="${brass}" stroke-width="2"/>
+    <g stroke="${brass}" stroke-width="4">${ticks.join('')}</g>
     <g transform="rotate(45 256 256)" opacity=".75">
-      <path d="M256 120l18 136-18 136-18-136z" fill="#8a6a35"/>
-      <path d="M120 256l136-18 136 18-136 18z" fill="#8a6a35"/>
+      <path d="M256 120l18 136-18 136-18-136z" fill="${brass}"/>
+      <path d="M120 256l136-18 136 18-136 18z" fill="${brass}"/>
     </g>
-    <path d="M256 80l26 176h-52z" fill="#c8323a"/><path d="M256 432l26-176h-52z" fill="#23384f"/>
-    <path d="M80 256l176-26v52z" fill="#23384f"/><path d="M432 256l-176-26v52z" fill="#23384f"/>
-    <circle cx="256" cy="256" r="18" fill="#f4ead3" stroke="#8a6a35" stroke-width="6"/>
+    <path d="M256 80l26 176h-52z" fill="#c8323a"/><path d="M256 432l26-176h-52z" fill="${navy}"/>
+    <path d="M80 256l176-26v52z" fill="${navy}"/><path d="M432 256l-176-26v52z" fill="${navy}"/>
+    <circle cx="256" cy="256" r="18" fill="#f4ead3" stroke="${brass}" stroke-width="6"/>
     <text x="256" y="66" text-anchor="middle" font-family="Nunito,Arial,sans-serif" font-weight="900" font-size="40" fill="#c8323a">N</text>`, { gloss: false });
 }
 
@@ -169,6 +172,7 @@ let _regionNames = null;
 function _countryName(code) {
   try { _regionNames ||= new Intl.DisplayNames(['fr'], { type: 'region' }); return _regionNames.of(code) || code; } catch (_) { return code; }
 }
+const _light = (hex, k) => '#' + [1, 3, 5].map(i => Math.round(parseInt(hex.slice(i, i + 2), 16) * (1 - k) + 255 * k).toString(16).padStart(2, '0')).join('');
 const _SHAPES = ['circle', 'rect', 'oval', 'octagon', 'scallop', 'hexagon'];
 const _F = 'font-family="Nunito,Arial,sans-serif"';
 function _poly(n, r, rot = 0, cx = 256, cy = 256) {
@@ -183,7 +187,8 @@ const _fit = (txt, w, max) => Math.min(max, Math.floor(w / (txt.length * 0.68)))
 function _stamp(u, code) {
   let h = 0; for (const c of code) h = (h * 31 + c.charCodeAt(0)) | 0;
   h = Math.abs(h);
-  const ink = _INKS[h % _INKS.length];
+  // Logo (sans fond, affiché sur fond nuit) : encre éclaircie pour rester lisible
+  const ink = _bare ? _light(_INKS[h % _INKS.length], .38) : _INKS[h % _INKS.length];
   const shape = _SHAPES[(h >> 3) % _SHAPES.length];
   const rot = ((h >> 6) % 17) - 8;
   const name = _countryName(code).toUpperCase();
@@ -236,8 +241,8 @@ function _stamp(u, code) {
       ${t(256, bot, 20, '★ ATLAS ★', 'letter-spacing="5" font-weight="800"')}`;
   }
   return _tile(u, '#f7efdc', '#e9dcbc', `
-    <path d="M0 140h512M0 250h512M0 360h512" stroke="#e2d3b0" stroke-width="2"/>
-    <g transform="rotate(${rot} 256 256)" opacity=".93">${body}</g>`, { gloss: false });
+    <path data-bg d="M0 140h512M0 250h512M0 360h512" stroke="#e2d3b0" stroke-width="2"/>
+    <g transform="rotate(${rot} 256 256)" opacity="${_bare ? 1 : .93}">${body}</g>`, { gloss: false });
 }
 
 const BASE = [
@@ -251,11 +256,16 @@ const BASE = [
 
 export const DEFAULT_LOGO = 'passport';
 
-export function logoSvg(id = DEFAULT_LOGO) {
-  const u = 'L' + (++_seq);
+/** SVG d'une icône (carré arrondi avec fond) ; { bare:true } = le logo : même dessin
+ *  sans bords ni couleur de fond (écran de démarrage, en-tête de l'accueil). */
+export function logoSvg(id = DEFAULT_LOGO, { bare = false, uid = '' } = {}) {
+  const u = uid || 'L' + (++_seq);
   const m = /^stamp:([A-Z]{2})$/.exec(id || '');
-  if (m) return _stamp(u, m[1]);
-  return (BASE.find(b => b.id === id) || BASE[0]).fn(u);
+  _bare = bare;
+  try {
+    if (m) return _stamp(u, m[1]);
+    return (BASE.find(b => b.id === id) || BASE[0]).fn(u);
+  } finally { _bare = false; }
 }
 
 /** Icône d'écran d'accueil (passeport) : carré plein (iOS arrondit lui-même) ;
@@ -290,16 +300,19 @@ export function currentLogoId() {
   try { return localStorage.getItem(LS_ID) || DEFAULT_LOGO; } catch (_) { return DEFAULT_LOGO; }
 }
 
-/** Choisit le logo : mémorisé (et son SVG, pour l'écran de démarrage) + mise à jour à l'écran. */
+// SVG du logo mis en cache pour l'écran de démarrage (id fixe → comparable d'une fois sur l'autre)
+const _splashSvg = id => logoSvg(id, { bare: true, uid: 'S' });
+
+/** Choisit l'icône/le logo : mémorisé (et le logo, pour l'écran de démarrage) + mise à jour à l'écran. */
 export function setAppLogo(id) {
-  const svg = logoSvg(id);
-  try { localStorage.setItem(LS_ID, id); localStorage.setItem(LS_SVG, svg); } catch (_) {}
-  document.querySelectorAll('[data-app-logo]').forEach(el => { el.innerHTML = logoSvg(id); });
+  try { localStorage.setItem(LS_ID, id); localStorage.setItem(LS_SVG, _splashSvg(id)); } catch (_) {}
+  document.querySelectorAll('[data-app-logo]').forEach(el => { el.innerHTML = logoSvg(id, { bare: el.dataset.appLogo === 'bare' }); });
 }
 
-/** <span data-app-logo> rempli avec le logo courant (re-rempli par setAppLogo). */
-export function appLogoHtml(cls = '') {
-  return `<span class="app-logo ${cls}" data-app-logo aria-hidden="true">${logoSvg(currentLogoId())}</span>`;
+/** <span data-app-logo> rempli avec l'icône courante — { bare:true } = le logo (sans
+ *  bords ni fond). Re-rempli par setAppLogo. */
+export function appLogoHtml(cls = '', { bare = false } = {}) {
+  return `<span class="app-logo ${cls}" data-app-logo="${bare ? 'bare' : 'icon'}" aria-hidden="true">${logoSvg(currentLogoId(), { bare })}</span>`;
 }
 
 /** Au démarrage / après la synchro : adopte le logo des paramètres (choisi sur un
@@ -309,8 +322,7 @@ export function syncLogoCache(preferred) {
     if (preferred && preferred !== currentLogoId() && (BASE.some(b => b.id === preferred) || /^stamp:[A-Z]{2}$/.test(preferred))) {
       setAppLogo(preferred); return;
     }
-    const id = currentLogoId();
-    const svg = logoSvg(id);
+    const svg = _splashSvg(currentLogoId());
     if (localStorage.getItem(LS_SVG) !== svg) localStorage.setItem(LS_SVG, svg);
   } catch (_) {}
 }

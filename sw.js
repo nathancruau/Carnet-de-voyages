@@ -6,7 +6,7 @@
    - Firebase   : network-only (handles its own offline via IndexedDB)
    ============================================================ */
 
-const SHELL_CACHE = 'cv-shell-249';
+const SHELL_CACHE = 'cv-shell-250';
 const TILE_CACHE  = 'cv-tiles-1';
 
 const SHELL_URLS = [
@@ -17,6 +17,7 @@ const SHELL_URLS = [
   '/vendor/leaflet.css',
   '/vendor/leaflet.js',
   '/icons/icon.svg',
+  '/icons/logo.svg',
   '/icons/icon-192.png',
   '/icons/icon-512.png',
   '/icons/apple-touch-icon.png',

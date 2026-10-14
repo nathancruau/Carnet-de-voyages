@@ -2045,7 +2045,7 @@ function _renderHomeV2(wrap, { myTrips, observingTrips, filter }) {
       <div class="hv2-dim"></div>
       <div class="hv2-top" id="hv2-top">
         <button class="hv2-round hv2-menu${filtersOn ? ' hv2-has-filter' : ''}" data-action="hv2-destinations" title="Destinations & filtres">${_HV2_ICONS.menu}</button>
-        <div class="hv2-brand">${appLogoHtml('hv2-logo')}Atlas</div>
+        <div class="hv2-brand">${appLogoHtml('hv2-logo', { bare: true })}Atlas</div>
         <button class="hv2-round" data-action="open-settings" title="Paramètres">${_HV2_ICONS.gear}</button>
       </div>
       <div class="hv2-pin-pop" id="hv2-pin-pop" hidden></div>
