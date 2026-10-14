@@ -245,6 +245,7 @@ function _collectStorageUrls(trips) {
     for (const je of (t.journalEntries || [])) {
       for (const p of (je.photos || [])) check(p.url);
     }
+    for (const e of (t.realExpenses || [])) check(e.receipt);
   }
   return urls;
 }
@@ -308,8 +309,11 @@ export async function syncToFirestore(localState, recentlyDeletedIds = []) {
         const sharedUrls = await _collectSharedTripsUrls(sharedIds);
         for (const url of sharedUrls) newUrls.add(url);
       }
+      // Seulement les fichiers de NOTRE dossier : une photo d'un autre (propriétaire
+      // d'un voyage partagé qu'on vient de quitter…) n'est jamais effacée par nous (v247)
+      const mine = `users%2F${_uid}%2F`;
       for (const url of prevUrls) {
-        if (!newUrls.has(url)) deletePhoto(url);
+        if (!newUrls.has(url) && url.includes(mine)) deletePhoto(url);
       }
     }
 

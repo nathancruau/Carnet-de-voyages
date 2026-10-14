@@ -2181,3 +2181,20 @@ html:has(.tv2-story) #notif{z-index:20200}
 .ask-btn{display:block;width:100%;margin-top:8px;border:none;border-radius:14px;padding:13px;font:800 14.5px var(--fn);background:var(--hv-chip);color:var(--hv-ink);cursor:pointer}
 .ask-pri{background:var(--hv-dark);color:var(--hv-sheet)}
 .ask-del{color:var(--hv-coral)}
+
+/* ══ v247 — Finitions : notification en pastille en haut, apparition douce des images, retour au toucher ══ */
+.notif{
+  top:calc(min(env(safe-area-inset-top,0px),59px) + 10px)!important;bottom:auto!important;left:50%!important;right:auto!important;
+  transform:translate(-50%,-140%)!important;width:max-content!important;max-width:min(92vw,420px)!important;white-space:normal;
+  background:#0f2233!important;color:#fff!important;border:none!important;border-radius:999px!important;
+  padding:11px 18px!important;font:700 13.5px var(--fn)!important;gap:8px!important;
+  box-shadow:0 10px 30px rgba(10,20,30,.28)!important;z-index:20250!important;pointer-events:none;
+  transition:transform .32s cubic-bezier(.2,.9,.3,1.2),opacity .2s!important;
+}
+.notif.show{transform:translate(-50%,0)!important}
+[data-theme="dark"] .notif{background:#eef2f5!important;color:#0f2233!important}
+@keyframes v2ImgIn{from{opacity:0}to{opacity:1}}
+.hv2-card-img,.tv2-step-thumb img,.tv2-post-media img,.lv-slide img,.tv2-ocard-bg,.so-thumbs img,.lvp-ph img{animation:v2ImgIn .35s ease}
+.hv2-card{transition:transform .18s ease}
+.hv2-card:active{transform:scale(.985)}
+.tv2-post:active,.tv2-ocard:active,.lv-post .lv-media:active{transform:scale(.99)}

@@ -25,9 +25,25 @@ const THEME_KEY = 'carnet_theme';
 function _persistState() {
   clearTimeout(_persistTimer); _persistTimer = 0;
   if (_wiped) return;
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  const json = JSON.stringify(state);
+  try {
+    localStorage.setItem(STORAGE_KEY, json);
+  } catch (e) {
+    // Stockage plein : on libère les caches reconstructibles (itinéraires, envois
+    // de photos) puis on réessaie ; sinon on prévient (une fois) au lieu d'échouer
+    // en silence — les modifications suivantes ne survivraient pas à un redémarrage.
+    try { localStorage.removeItem('carnet_route_cache_v1'); localStorage.setItem(STORAGE_KEY, json); }
+    catch (_) {
+      if (!_quotaWarned) {
+        _quotaWarned = true;
+        import('./utils.js').then(u => u.notify('Stockage du téléphone plein : les dernières modifications risquent de ne pas être gardées', '⚠️')).catch(() => {});
+      }
+      throw e;
+    }
+  }
   try { localStorage.setItem(THEME_KEY, state.settings?.theme || ''); } catch (_) {}
 }
+let _quotaWarned = false;
 
 // Écriture locale regroupée (v246) : l'état fait souvent plusieurs Mo (photos en
 // base64) et était sérialisé en entier, de façon synchrone, à CHAQUE updateTrip
@@ -56,7 +72,7 @@ if (typeof window !== 'undefined') {
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flushPersist(); });
 }
 
-export const APP_VERSION = '246';
+export const APP_VERSION = '247';
 
 export const COMP_COLORS = [
   '#0d9488','#7c3aed','#e85d3e','#d97706',

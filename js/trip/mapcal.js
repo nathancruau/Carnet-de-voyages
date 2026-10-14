@@ -425,8 +425,9 @@ function _openEditEventModal(dayId, evtIdx, tripId) {
   document.getElementById('ee-cancel')?.addEventListener('click', _closeMobileEventSheet);
 
   document.getElementById('ee-del')?.addEventListener('click', () => {
+    if (!confirm(`Supprimer « ${item.text || 'cet événement'} »${item.journalData?.validated ? ' et sa publication' : ''} ?`)) return;
     _closeMobileEventSheet();
-    _deleteEvent(dayId, evtIdx, tripId);
+    _deleteEvent(dayId, item.id ?? evtIdx, tripId);
   });
 
   document.getElementById('ee-save')?.addEventListener('click', () => {
@@ -449,7 +450,14 @@ function _openEditEventModal(dayId, evtIdx, tripId) {
     const freshDay = (freshTrip.days || []).find(d => d.id === dayId);
     if (!freshDay) return;
 
-    const oldItem  = freshDay.items[evtIdx];
+    // Retrouver l'événement par son id : un collaborateur (ou un glissé) a pu
+    // réordonner la journée depuis l'ouverture de la fenêtre (v247)
+    const curIdx = item.id ? (freshDay.items || []).findIndex(it => it.id === item.id) : evtIdx;
+    const oldItem = freshDay.items?.[curIdx];
+    if (!oldItem) { _closeMobileEventSheet(); notify('Cet événement a été modifié ou supprimé entre-temps', '⚠️'); return; }
+    const saveBtn = document.getElementById('ee-save');
+    if (saveBtn?.disabled) return;          // double tap
+    if (saveBtn) saveBtn.disabled = true;
     const newEt    = getEventTypes().find(et => et.key === selType);
 
     // Country override: only rendered (so only present) for a geolocated pin.
@@ -460,7 +468,7 @@ function _openEditEventModal(dayId, evtIdx, tripId) {
     const countryFlag = countryFlagInput ? (countryFlagInput.value.trim() || null) : undefined;
 
     const updatedItems = [...(freshDay.items || [])];
-    updatedItems[evtIdx] = {
+    updatedItems[curIdx] = {
       ...oldItem,
       type:      selType,
       emoji:     newEt?.emoji || null,
@@ -477,10 +485,26 @@ function _openEditEventModal(dayId, evtIdx, tripId) {
       ...(newGpx === null ? { gpxTrackId: null, gpxStats: null, gpxPoints: null } : {}),
       ...(newGpx ? { gpxTrackId: newGpx.track.id, gpxStats: newGpx.stats, gpxPoints: downsampleGpxPoints(newGpx.track.points) } : {}),
     };
-    if (newGpx !== undefined && oldItem.gpxTrackId) removeLocalGpxTrack(tripId, oldItem.gpxTrackId);
-    if (newGpx) saveLocalGpxTrack(tripId, newGpx.track);
+    // Nouvelle trace enregistrée AVANT de retirer l'ancienne (quota localStorage :
+    // en cas d'échec, l'ancienne reste et l'événement est quand même enregistré)
+    if (newGpx) { try { saveLocalGpxTrack(tripId, newGpx.track); } catch (_) { notify('Trace trop lourde pour être gardée en entier sur cet appareil', '⚠️'); } }
+    if (newGpx !== undefined && oldItem.gpxTrackId) { try { removeLocalGpxTrack(tripId, oldItem.gpxTrackId); } catch (_) {} }
 
-    updateTrip(tripId, { days: freshTrip.days.map(d => d.id === dayId ? { ...d, items: updatedItems } : d) });
+    // Jour cible : choisi dans la liste, ou (hébergement) le jour de la date d'arrivée
+    const newDayId = document.getElementById('ee-day')?.value;
+    let days = freshTrip.days.map(d => d.id === dayId ? { ...d, items: updatedItems } : d);
+    let targetDayId = newDayId && newDayId !== dayId ? newDayId : null;
+    if (!targetDayId && selType === 'sleep' && sleepFrom) {
+      const anchor = days.find(d => d.date === sleepFrom);
+      if (anchor && anchor.id !== dayId) targetDayId = anchor.id;
+    }
+    if (targetDayId) days = _moveInDays(days, dayId, curIdx, targetDayId);
+
+    // Une seule écriture (jours + ligne de budget liée)
+    const patch = { days };
+    const bl = oldItem.id && (freshTrip.budgetLines || []).find(l => l.source === 'event' && l.eventId === oldItem.id);
+    if (bl) patch.budgetLines = freshTrip.budgetLines.map(l => l.id === bl.id ? { ...l, amount: cost, desc: text } : l);
+    updateTrip(tripId, patch);
 
     // Nouvel emplacement : le pays du PIN est re-détecté (en arrière-plan, comme à l'ajout)
     if (newLoc && oldItem.id) {
@@ -493,92 +517,66 @@ function _openEditEventModal(dayId, evtIdx, tripId) {
       }).catch(() => {});
     }
 
-    if (oldItem.id) {
-      const t3 = getTrip(tripId);
-      if (t3) {
-        const bl = (t3.budgetLines || []).find(l => l.source === 'event' && l.eventId === oldItem.id);
-        if (bl) {
-          updateTrip(tripId, { budgetLines: (t3.budgetLines || []).map(l =>
-            l.id === bl.id ? { ...l, amount: cost, desc: text } : l
-          )});
-        }
-      }
-    }
-
-    // Move to another day if the picker selection changed — reuses the same
-    // move logic as the desktop drag-and-drop, which doesn't work on touch.
-    const newDayId = document.getElementById('ee-day')?.value;
-
     _closeMobileEventSheet();
-
-    if (newDayId && newDayId !== dayId) {
-      _moveEvent(dayId, evtIdx, newDayId, tripId);
-    } else {
-      notify('Événement mis à jour', '✅');
-    }
+    notify(targetDayId ? 'Événement mis à jour et déplacé' : 'Événement mis à jour', '✅');
   });
 }
 
 // ─── Move event between days ──────────────────────────────────────────────────
 
-function _moveEvent(sourceDayId, evtIdx, targetDayId, tripId) {
-  if (!sourceDayId || !targetDayId || sourceDayId === targetDayId) return;
-  const trip = getTrip(tripId);
-  if (!trip) return;
-
-  const days      = trip.days || [];
-  const srcDay    = days.find(d => d.id === sourceDayId);
-  const tgtDay    = days.find(d => d.id === targetDayId);
-  if (!srcDay || !tgtDay) return;
-
-  const srcItems = [...(srcDay.items || [])];
-  if (evtIdx < 0 || evtIdx >= srcItems.length) return;
-  const [moved] = srcItems.splice(evtIdx, 1);
-  srcDay.items = srcItems;
-
-  // If the event's coords were the source day's representative pin (no other items
-  // with coords remain and they match the day's fallback), clear them so the target
-  // day doesn't inherit the wrong location.
-  const stillHaveCoords = srcItems.some(it => it.lat != null && it.lng != null);
-  const movedEvent = (
-    !stillHaveCoords &&
-    moved.lat != null &&
-    moved.lat === srcDay.lat &&
-    moved.lng === srcDay.lng
-  ) ? { ...moved, lat: null, lng: null } : moved;
-
-  tgtDay.items = [...(tgtDay.items || []), movedEvent];
-
-  updateTrip(tripId, { days });
-  notify('Événement déplacé', '✅');
+// Copie des jours avec l'événement `idx` du jour source déplacé à la fin du jour cible.
+// Si l'événement était le PIN de repli du jour source, c'est ce repli qui est effacé
+// (avant v247 c'était la position de l'événement lui-même qui était perdue).
+function _moveInDays(days, sourceDayId, idx, targetDayId) {
+  const src = days.find(d => d.id === sourceDayId);
+  const moved = src?.items?.[idx];
+  if (!moved || !days.some(d => d.id === targetDayId)) return days;
+  return days.map(d => {
+    if (d.id === sourceDayId) {
+      const items = d.items.filter((_, i) => i !== idx);
+      const clearPin = moved.lat != null && moved.lat === d.lat && moved.lng === d.lng
+        && !items.some(it => it.lat != null && it.lng != null);
+      return { ...d, items, ...(clearPin ? { lat: null, lng: null } : {}) };
+    }
+    if (d.id === targetDayId) return { ...d, items: [...(d.items || []), moved] };
+    return d;
+  });
 }
 
 // ─── Delete event ─────────────────────────────────────────────────────────────
 
-function _deleteEvent(dayId, evtIdx, tripId) {
+// `ref` = id de l'événement (index en repli pour un très vieil événement sans id)
+function _deleteEvent(dayId, ref, tripId) {
   const trip = getTrip(tripId);
   if (!trip) return;
+  const src = (trip.days || []).find(d => d.id === dayId);
+  const idx = typeof ref === 'number' ? ref : (src?.items || []).findIndex(it => it.id === ref);
+  const gone = src?.items?.[idx];
+  if (!gone) return;
 
   // Deep-copy days so we never mutate the live store reference before the write
   const days = (trip.days || []).map(d =>
-    d.id === dayId ? { ...d, items: [...(d.items || [])] } : d
+    d.id === dayId ? { ...d, items: d.items.filter((_, i) => i !== idx) } : d
   );
   const day = days.find(d => d.id === dayId);
-  if (!day) return;
-
-  day.items.splice(evtIdx, 1);
 
   // Re-derive day pin from remaining items to avoid ghost markers
   const firstPin = day.items.find(it => it.lat != null && it.lng != null);
   if (firstPin) {
     day.lat = firstPin.lat;
     day.lng = firstPin.lng;
-  } else if (!day.items.some(it => it.lat != null)) {
+  } else {
     day.lat = null;
     day.lng = null;
   }
 
-  updateTrip(tripId, { days });
+  // Ligne de budget créée avec l'événement + trace GPX locale : retirées aussi
+  const patch = { days };
+  if (gone.id && (trip.budgetLines || []).some(l => l.source === 'event' && l.eventId === gone.id)) {
+    patch.budgetLines = trip.budgetLines.filter(l => !(l.source === 'event' && l.eventId === gone.id));
+  }
+  if (gone.gpxTrackId) { try { removeLocalGpxTrack(tripId, gone.gpxTrackId); } catch (_) {} }
+  updateTrip(tripId, patch);
   notify('Événement supprimé', '🗑');
 }
 
@@ -941,6 +939,10 @@ function _openAddEventModal(dayId, tripId, prefill = null) {
 
   document.getElementById('ae-save')?.addEventListener('click', async ev => {
     const saveBtn = ev.currentTarget;
+    // Double tap pendant la fermeture (300 ms) ou la recherche du pays : un seul ajout (v247)
+    if (saveBtn._busy) return;
+    saveBtn._busy = true;
+    const fail = msg => { saveBtn._busy = false; saveBtn.disabled = false; notify(msg, '⚠️'); };
     const text  = (document.getElementById('ae-text')?.value  || '').trim();
     const time  = (document.getElementById('ae-time')?.value  || '').trim() || null;
     const cost  = parseFloat(document.getElementById('ae-cost')?.value || '0') || 0;
@@ -988,16 +990,18 @@ function _openAddEventModal(dayId, tripId, prefill = null) {
       // a plain desktop close that leaves the hidden markup untouched.
       const stillOpen = document.getElementById('ae-save') === saveBtn &&
         (_isMob || document.getElementById('modal-overlay')?.classList.contains('open'));
-      if (!stillOpen) return;
+      if (!stillOpen) { saveBtn._busy = false; return; }
 
       if (geo) { event.countryCode = geo.code; event.countryFlag = geo.flag; }
       saveBtn.disabled = false;
       saveBtn.textContent = prevLabel;
     }
 
-    const trip2 = getTrip(tripId);
-    if (!trip2) return;
-    const day = (trip2.days || []).find(d => d.id === dayId);
+    const fresh = getTrip(tripId);
+    if (!fresh) return;
+    // Copie : on ne modifie jamais l'objet du store avant l'écriture
+    const trip2 = { ...fresh, days: (fresh.days || []).map(d => ({ ...d, items: [...(d.items || [])] })) };
+    const day = trip2.days.find(d => d.id === dayId);
     if (!day) return;
 
     if (pickedLat != null && pickedLng != null && selType !== 'sleep' && day.lat == null) {
@@ -1008,27 +1012,26 @@ function _openAddEventModal(dayId, tripId, prefill = null) {
     // Date validation for sleep events
     if (selType === 'sleep') {
       const df = event.dateFrom, dt = event.dateTo;
-      if (!df || !dt) { notify("Les dates d'arrivée et de départ sont requises", '⚠️'); return; }
-      if (df > dt) { notify("Le départ doit être au moins le lendemain de l'arrivée", '⚠️'); return; }
-      if (_aeStart && df < _aeStart) { notify('La date de début est avant le voyage', '⚠️'); return; }
-      if (_aeEnd   && dt > _aeEnd)   { notify('La date de fin est après le voyage',   '⚠️'); return; }
+      if (!df || !dt) return fail("Les dates d'arrivée et de départ sont requises");
+      if (df > dt) return fail("Le départ doit être au moins le lendemain de l'arrivée");
+      if (_aeStart && df < _aeStart) return fail('La date de début est avant le voyage');
+      if (_aeEnd   && dt > _aeEnd)   return fail('La date de fin est après le voyage');
     }
 
     // Sleep items: anchor in the day matching dateFrom so they appear on the right day
     const targetDay = selType === 'sleep' && event.dateFrom
       ? ((trip2.days || []).find(d => d.date === event.dateFrom) || day)
       : day;
-    (targetDay.items = targetDay.items || []).push(event);
-    updateTrip(tripId, { days: trip2.days });
+    targetDay.items.push(event);
+    const patch = { days: trip2.days };
 
-    // ── Cost → Budget sync ────────────────────────────────────────────────
+    // ── Cost → Budget sync (même écriture que l'événement) ─────────────────
     if (cost > 0) {
       const catMap = { drive: 'Transport', visit: 'Activités', activity: 'Activités', sleep: 'Hébergement' };
       const catName = catMap[selType] || null;
       if (catName) {
-        const trip3 = getTrip(tripId);
-        const budgetCats  = trip3?.budgetCats  || [];
-        const budgetLines = trip3?.budgetLines || [];
+        const budgetCats  = fresh.budgetCats  || [];
+        const budgetLines = fresh.budgetLines || [];
         const cat = budgetCats.find(c => c.name === catName);
         if (cat) {
           const newLine = {
@@ -1041,10 +1044,11 @@ function _openAddEventModal(dayId, tripId, prefill = null) {
             source: 'event',
             eventId: event.id,
           };
-          updateTrip(tripId, { budgetLines: [...budgetLines, newLine] });
+          patch.budgetLines = [...budgetLines, newLine];
         }
       }
     }
+    updateTrip(tripId, patch);
     // ─────────────────────────────────────────────────────────────────────
 
     _close();

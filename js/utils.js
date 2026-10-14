@@ -165,6 +165,14 @@ function _inHScroll(el, stop) {
   }
   return false;
 }
+// Zone qui défile à l'intérieur de la fenêtre (liste, historique…) et pas tout en haut :
+// tirer vers le bas doit la faire remonter, pas fermer la fenêtre
+function _inVScrolled(el, stop) {
+  for (; el && el !== stop && el.nodeType === 1; el = el.parentElement) {
+    if (el.scrollTop > 0 && el.scrollHeight > el.clientHeight + 2) return true;
+  }
+  return false;
+}
 function _bindModalSwipe(ov, box) {
   if (box._swipeBound) return;
   box._swipeBound = true;
@@ -172,7 +180,7 @@ function _bindModalSwipe(ov, box) {
   box.addEventListener('touchstart', e => {
     st = null; dy = 0;
     if (window.innerWidth > 768 || e.touches.length > 1 || !ov.classList.contains('open')) return;
-    if (box.scrollTop > 0 || e.target.closest?.(_NO_SWIPE) || _inHScroll(e.target, box)) return;
+    if (box.scrollTop > 0 || e.target.closest?.(_NO_SWIPE) || _inHScroll(e.target, box) || _inVScrolled(e.target, box)) return;
     y0 = e.touches[0].clientY; x0 = e.touches[0].clientX; st = 'wait';
     samples = [{ y: y0, t: performance.now() }];
   }, { passive: true });
@@ -319,7 +327,13 @@ export async function transformTripPhotos(trip, transformFn) {
 
   if (t.photo) t.photo = scanUrl(t.photo);
   t.photos = scanPhotoObjs(t.photos);
-  if (t.pin?.gpxPoints) delete t.pin.gpxPoints;
+  // Reçus de dépenses (base64) : même traitement que les photos (v247 — jusque-là
+  // embarqués tels quels, ils pouvaient faire dépasser 1 Mo au document)
+  t.realExpenses = (t.realExpenses || []).map(e => e.receipt ? { ...e, receipt: scanUrl(e.receipt) } : e);
+  // Traces GPX : seules les versions déjà sous-échantillonnées (≤ 300 points) sont
+  // synchronisées — sans elles, observateurs et autres appareils ne voyaient pas la trace
+  const _heavyGpx = pts => !Array.isArray(pts) || pts.length > 300;
+  if (t.pin?.gpxPoints && _heavyGpx(t.pin.gpxPoints)) delete t.pin.gpxPoints;
   t.days = (t.days || []).map(day => ({
     ...day,
     items: (day.items || []).map(item => {
@@ -330,7 +344,7 @@ export async function transformTripPhotos(trip, transformFn) {
       if (i.journalData?.photos?.length) {
         i.journalData = { ...i.journalData, photos: scanPhotoStrs(i.journalData.photos) };
       }
-      delete i.gpxPoints;
+      if (i.gpxPoints && _heavyGpx(i.gpxPoints)) delete i.gpxPoints;
       return i;
     }),
   }));
@@ -359,6 +373,7 @@ export async function transformTripPhotos(trip, transformFn) {
     })),
   }));
   t.journalEntries = t.journalEntries.map(je => ({ ...je, photos: fixPhotoObjs(je.photos) }));
+  t.realExpenses = t.realExpenses.map(e => e.receipt ? { ...e, receipt: replaceSlot(e.receipt) || null } : e);
 
   return t;
 }
@@ -391,6 +406,7 @@ function _stripAllPhotos(trip) {
     }),
   }));
   t.journalEntries = (t.journalEntries || []).map(je => ({ ...je, photos: [] }));
+  t.realExpenses = (t.realExpenses || []).map(e => e.receipt && String(e.receipt).startsWith('data:') ? { ...e, receipt: null } : e);
   return t;
 }
 

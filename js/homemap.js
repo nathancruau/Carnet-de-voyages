@@ -468,7 +468,7 @@ export async function attachHomeMap(slot, opts) {
         Math.max(200, _host.clientHeight - (pad.top  || 0) - (pad.bottom || 0))) });
       _needsZoom = false;
     }
-    if (_map.loaded() || _map.isStyleLoaded()) {
+    if (_styleReady) {
       if ((opts.base || 'relief') !== _base) _applyBase(opts.base || 'relief');
       if ((opts.projection || 'globe') !== _proj) _applyProjection(opts.projection || 'globe');
     }
@@ -535,7 +535,10 @@ export function fitHomeMap(padding, animate = true) {
 }
 
 export function setHomeMapPins(pins) {
-  const same = pins.length === _pins.length && pins.every((p, i) => p.id === _pins[i]?.id && p.lat === _pins[i].lat && p.lng === _pins[i].lng && p.country === _pins[i].country && p.thumb === _pins[i].thumb && p.num === _pins[i].num);
+  // Toute donnée lue au tap (jour, index, titre…) compte : sinon un marqueur gardé
+  // après un réordonnancement ouvrait l'ancien événement (v247)
+  const K = ['id', 'lat', 'lng', 'country', 'thumb', 'num', 'dayId', 'itemIdx', 'title', 'emoji', 'validated', 'date'];
+  const same = pins.length === _pins.length && pins.every((p, i) => _pins[i] && K.every(k => p[k] === _pins[i][k]));
   _pins = pins;
   if (!_map || same) return;
   _syncSources();
@@ -543,7 +546,9 @@ export function setHomeMapPins(pins) {
 
 export function setHomeMapPadding(padding, animate = false) {
   _padding = padding;
-  if (!_map || !_map.isStyleLoaded()) return;
+  // _styleReady et non isStyleLoaded() : ce dernier vaut false tant que des tuiles
+  // chargent, la marge était alors ignorée (retour voyage → accueil)
+  if (!_map || !_styleReady) return;
   if (animate) _map.easeTo({ padding, duration: 320 });
   else _map.setPadding(padding);
 }

@@ -1029,7 +1029,7 @@ function _statsViewHtml(trips) {
 /** Barre horizontale (libellé, valeur, % de remplissage). */
 function _hsBar(label, value, pct, color) {
   return `<div class="hs-bar"><div class="hs-bar-top"><span>${label}</span><b>${value}</b></div>
-    <div class="hs-bar-track"><i style="width:${Math.max(2, Math.round(pct))}%${color ? `;background:${color}` : ''}"></i></div></div>`;
+    <div class="hs-bar-track"><i style="width:${Math.max(2, Math.round(pct))}%${color ? `;background:${_esc(color)}` : ''}"></i></div></div>`;
 }
 
 /** Histogramme en colonnes : items = [{ label, value, txt, color? }]. */
@@ -1037,7 +1037,7 @@ function _hsCols(items, max) {
   return `<div class="hs-cols">${items.map(it => {
     const h = it.value > 0 ? Math.max(6, Math.round((it.value / (max || 1)) * 96)) : 3;   // px (zone de 96 px)
     return `<div class="hs-col${it.value > 0 ? '' : ' hs-col-0'}"><small>${it.txt}</small>
-      <i style="height:${h}px${it.color ? `;background:${it.color}` : ''}"></i><span>${it.label}</span></div>`;
+      <i style="height:${h}px${it.color ? `;background:${_esc(it.color)}` : ''}"></i><span>${it.label}</span></div>`;
   }).join('')}</div>`;
 }
 
@@ -1253,12 +1253,18 @@ function _openLiveProfile(ownerId) {
     ${grid ? `<div class="hv2-fsec">Dernières photos</div><div class="lvp-grid">${grid}</div>` : ''}
     <p class="lvp-note">Seuls les voyages que ${_esc(owner.name.split(/\s+/)[0])} a partagés avec vous apparaissent ici.</p>`,
     { boxClass: 'hv2-modal', fullscreenMobile: true });
-  document.querySelector('.mbox')?.addEventListener('click', e => {
-    const b = e.target.closest('[data-trip-id]');
-    if (!b) return;
-    closeModal();
-    window.navigateToTrip(b.dataset.tripId);
-  });
+  const box = document.querySelector('.mbox');
+  if (box?._lvpClick) box.removeEventListener('click', box._lvpClick);   // pas d'écouteur en double
+  if (box) {
+    box._lvpClick = e => {
+      if (!box.querySelector('.lvp')) return;
+      const b = e.target.closest('[data-trip-id]');
+      if (!b) return;
+      closeModal();
+      window.navigateToTrip(b.dataset.tripId);
+    };
+    box.addEventListener('click', box._lvpClick);
+  }
 }
 
 function _openLiveCommentsModal(tripId, itemId, itemText) {
@@ -1403,7 +1409,7 @@ function _hv2StatusPill(trip, { observed = false } = {}) {
 }
 
 function _hv2CoverHtml(trip, fallbackEmoji) {
-  const ph = `<div class="hv2-card-ph" style="--tc:${_esc(trip.color || '#0d9488')}"${trip.photo ? ' hidden' : ''}>${fallbackEmoji}</div>`;
+  const ph = `<div class="hv2-card-ph" style="--tc:${_esc(trip.color || '#0d9488')}"${trip.photo ? ' hidden' : ''}>${_esc(fallbackEmoji)}</div>`;
   if (!trip.photo) return ph;
   return `<img class="hv2-card-img" src="${_esc(trip.photo)}" alt="" loading="lazy" decoding="async"
             onerror="this.remove();this.parentElement.querySelector('.hv2-card-ph').hidden=false">${ph}`;
@@ -1412,7 +1418,7 @@ function _hv2CoverHtml(trip, fallbackEmoji) {
 function _hv2CompsHtml(comps) {
   if (!comps?.length) return '';
   return `<div class="hv2-card-comps">${comps.slice(0, 3).map((c, i) =>
-    `<span style="background:${c.color || _compColor(i)}" title="${_esc(c.name)}">${_initials(c.name)}</span>`).join('')}
+    `<span style="background:${_esc(c.color || _compColor(i))}" title="${_esc(c.name)}">${_esc(_initials(c.name))}</span>`).join('')}
     ${comps.length > 3 ? `<span class="hv2-comps-more">+${comps.length - 3}</span>` : ''}</div>`;
 }
 
@@ -2171,7 +2177,30 @@ window.addEventListener('resize', () => {
 
 // ── Render home ────────────────────────────────────────────────────────────────
 
+/**
+ * Rafraîchissement venant du réseau (autre appareil, voyage partagé…) — v247.
+ * renderHome() ramène à l'onglet « Mes voyages » et reconstruit la barre de
+ * recherche : appelé tel quel, il sortait de la page Statistiques et effaçait le
+ * texte en cours de frappe. Regroupé à une fois par image.
+ */
+let _homeDirty = false, _homeRaf = 0;
+export function refreshHome() {
+  cancelAnimationFrame(_homeRaf);
+  _homeRaf = requestAnimationFrame(() => {
+    if (_currentTab === 'stats') { _homeDirty = true; return; }
+    const q = document.getElementById('global-search');
+    if (q && (q.value || document.activeElement === q)) { _homeDirty = true; return; }
+    _homeDirty = false;
+    renderHome();
+  });
+}
+// Recherche quittée et vidée : on applique la mise à jour mise de côté
+document.addEventListener('focusout', e => {
+  if (_homeDirty && e.target?.id === 'global-search' && !e.target.value) setTimeout(refreshHome, 0);
+});
+
 export function renderHome(filter = _currentFilter) {
+  _homeDirty = false;
   _currentFilter = filter;
   _currentTab    = 'trips';
 
@@ -2397,8 +2426,15 @@ function _openSettingsModal() {
     else renderHome(_currentFilter);
   }
 
-  // Delegate change events on the whole modal — covers all inputs/radios/checkboxes
-  document.querySelector('.mbox')?.addEventListener('change', async e => {
+  // Delegate change events on the whole modal — covers all inputs/radios/checkboxes.
+  // La boîte .mbox est réutilisée par toutes les fenêtres : l'écouteur est remplacé à
+  // chaque ouverture et ne réagit que tant que les Paramètres sont affichés — avant
+  // v247, un changement dans une autre fenêtre (dépense, voyage…) ré-enregistrait les
+  // paramètres avec leurs valeurs par défaut (thème clair, mode grands-parents coupé…).
+  const _box = document.querySelector('.mbox');
+  if (_box?._settingsChange) _box.removeEventListener('change', _box._settingsChange);
+  if (_box) _box._settingsChange = async e => {
+    if (!_box.querySelector('input[name="theme-sel"]')) return;
     // Toggle notification sub-panel visibility
     if (e.target.id === 'notif-enabled') {
       const sub = document.getElementById('notif-sub');
@@ -2413,7 +2449,8 @@ function _openSettingsModal() {
       const granted = await requestNotificationPermission();
       if (!granted) notify('Permission refusée par le navigateur', '⚠️');
     }
-  });
+  };
+  _box?.addEventListener('change', _box._settingsChange);
 
   // La modale est hors de #home-wrap : le listener délégué de l'accueil ne la voit pas
   document.querySelector('.mbox [data-action="export-all"]')?.addEventListener('click', () => _openExportModal());
@@ -3256,6 +3293,10 @@ async function _handleSortieSave() {
     document.getElementById('sm-name')?.focus();
     return;
   }
+  // Double tap pendant la recherche du pays (jusqu'à 6 s) : une seule sortie créée (v247)
+  const saveBtn = document.getElementById('sm-save');
+  if (saveBtn?.disabled) return;
+  if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Enregistrement…'; }
 
   const { start: startDate, end: rawEnd } = dpGetDates();
   const endDate = rawEnd || startDate;
@@ -3276,8 +3317,6 @@ async function _handleSortieSave() {
   if (photo) photos.push({ url: photo });
   photos.push(..._sortieExtraPhotos);
 
-  _cleanupSortieModalMap();
-
   const _existingTrip = _editingId ? getTrip(_editingId) : null;
   const _existingPin  = _existingTrip?.pin || {};
 
@@ -3294,7 +3333,10 @@ async function _handleSortieSave() {
   if (!_locationUnchanged && _sortieLat != null && _sortieLng != null) {
     const geo = await reverseGeocodeCountry(_sortieLat, _sortieLng);
     if (geo) flag = geo.flag;
+    // Fenêtre fermée (glissée vers le bas…) pendant la recherche : rien n'est enregistré
+    if (!document.getElementById('sm-save') || !document.getElementById('modal-overlay')?.classList.contains('open')) return;
   }
+  _cleanupSortieModalMap();
 
   // GPX — resolve final state (new upload / existing / deleted). gpx.js is only
   // loaded here, on demand, when this save actually touches a GPX track.
@@ -3926,16 +3968,20 @@ function _isoAdd(iso, n) { const d = isoToDate(iso); d.setDate(d.getDate() + n);
 function _isoDiff(a, b) { return Math.round((isoToDate(b) - isoToDate(a)) / 86400000); }
 
 function _replanDays(trip, newStart, newEnd, dropMode = 'delete') {
-  // Seule la date de début bouge (fin inchangée) = jours ajoutés/retirés AVANT :
+  // Pas de glissement si seule la date de début bouge (jours ajoutés/retirés AVANT)
+  // ou si la nouvelle période englobe l'ancienne (jours ajoutés des deux côtés) :
   // les événements gardent leurs dates. Sinon le voyage glisse de l'écart du début.
   const startDelta = trip.startDate ? _isoDiff(trip.startDate, newStart) : 0;
   const endUnchanged = trip.endDate && trip.endDate === newEnd;
-  const shift = endUnchanged ? 0 : startDelta;
+  const widened = trip.startDate && trip.endDate && newStart <= trip.startDate && newEnd >= trip.endDate;
+  const shift = endUnchanged || widened ? 0 : startDelta;
   const shiftItem = it => (it.type === 'sleep' && shift)
     ? { ...it, dateFrom: it.dateFrom ? _isoAdd(it.dateFrom, shift) : it.dateFrom, dateTo: it.dateTo ? _isoAdd(it.dateTo, shift) : it.dateTo }
     : it;
   const moved = (trip.days || []).map(d => ({ ...d, date: d.date ? _isoAdd(d.date, shift) : d.date, items: (d.items || []).map(shiftItem) }));
-  const byDate = new Map(moved.filter(d => d.date).map(d => [d.date, d]));
+  // 1er jour de chaque date seulement (« ＋ jour » peut créer un 2ᵉ jour à la même date)
+  const byDate = new Map();
+  moved.forEach(d => { if (d.date && !byDate.has(d.date)) byDate.set(d.date, d); });
   const used = new Set();
   const days = generateDays({ startDate: newStart, endDate: newEnd, destination: trip.destination }).map(nd => {
     const old = byDate.get(nd.date);
@@ -3945,10 +3991,31 @@ function _replanDays(trip, newStart, newEnd, dropMode = 'delete') {
     const title = /^Jour \d+$/.test((old.title || '').trim()) || !old.title ? nd.title : old.title;
     return { ...old, num: nd.num, title };
   });
+  const genLen = days.length;
+  // Jours en double (même date) ou sans date : gardés, à la suite — jamais « perdus »
+  const inRange = d => !d.date || (d.date >= newStart && d.date <= newEnd);
+  moved.filter(d => !used.has(d) && inRange(d)).forEach(d => {
+    used.add(d);
+    const num = days.length + 1;
+    days.push({ ...d, num, title: /^Jour \d+$/.test((d.title || '').trim()) || !d.title ? `Jour ${num}` : d.title });
+  });
   const dropped = moved.filter(d => !used.has(d));
+  const first = days[0], last = days[genLen - 1];
+  const byDay = new Map(days.filter(d => d.date).map(d => [d.date, d]));
+  // Hébergement d'un jour retiré mais dont des nuits restent dans la période : ré-ancré
+  // au 1er soir encore couvert, ses nuits suivantes sont gardées
+  dropped.forEach(d => {
+    d.items = (d.items || []).filter(it => {
+      if (it.type !== 'sleep' || !it.dateTo || it.dateTo < newStart || (it.dateFrom || '') > newEnd) return true;
+      const from = it.dateFrom && it.dateFrom > newStart ? it.dateFrom : newStart;
+      const host = byDay.get(from);
+      if (!host) return true;
+      host.items = [...(host.items || []), { ...it, dateFrom: from }];
+      return false;
+    });
+  });
   const lostItems = dropped.flatMap(d => d.items || []);
   // Jour retiré au début → ses événements vont au 1er jour ; à la fin → au dernier
-  const first = days[0], last = days[days.length - 1];
   const target = {};
   dropped.forEach(d => { target[d.id] = d.date && d.date < newStart ? first : last; });
   if (dropMode === 'move' && last) {
@@ -3993,7 +4060,8 @@ async function _handleSave() {
   }
 
   const destination = (document.getElementById('m-dest')?.value  || '').trim();
-  const { start, end } = dpGetDates();
+  const { start, end: endPicked } = dpGetDates();
+  const end = endPicked || start;   // une seule date choisie = voyage d'un jour (comme les sorties)
 
   // Resolve photo: base64 takes priority (from file upload or URL crop)
   let photo;
@@ -4056,7 +4124,11 @@ async function _handleSave() {
       if (dateChanged && hadDays && data.startDate && data.endDate) {
         // Glissement en bloc (cf. _replanDays) — remplace l'ancienne fusion par date
         // exacte, qui vidait tout le voyage s'il était décalé (ex. d'un an)
-        const { days, dropped, targetId } = _replanDays(existing, data.startDate, data.endDate, dropMode);
+        const { days, dropped, targetId } = _replanDays(
+          // relu après la fenêtre de choix (un co-voyageur a pu ajouter des étapes entre-temps),
+          // avec les ANCIENNES dates (updateTrip(data) vient de poser les nouvelles)
+          { ...(getTrips().find(t => t.id === _editingId) || existing), startDate: oldStart, endDate: oldEnd },
+          data.startDate, data.endDate, dropMode);
         const gone = new Set(dropped.map(d => d.id));
         const relink = arr => (arr || []).map(x => gone.has(x.dayId) ? { ...x, dayId: dropMode === 'move' ? targetId(x.dayId) : null } : x);
         const patch = { days };
@@ -4374,7 +4446,12 @@ function _openImportModal() {
 
 function _closeTripMenu() {
   if (_openTripMenuEl) { _openTripMenuEl.remove(); _openTripMenuEl = null; }
+  // Écouteurs « une fois » restés en place (menu fermé par défilement) : retirés, sinon
+  // ils refermaient le menu suivant aussitôt ouvert (v247)
+  document.removeEventListener('click', _closeTripMenu);
+  if (_tripMenuScroll) { window.removeEventListener('scroll', _tripMenuScroll, { capture: true }); _tripMenuScroll = null; }
 }
+let _tripMenuScroll = null;
 
 function _openTripMenu(tripId, btn) {
   _closeTripMenu();
@@ -4462,6 +4539,7 @@ function _openTripMenu(tripId, btn) {
 
   // Close on any scroll (once)
   const onScroll = () => _closeTripMenu();
+  _tripMenuScroll = onScroll;
   window.addEventListener('scroll', onScroll, { once: true, capture: true, passive: true });
 
   setTimeout(() => document.addEventListener('click', _closeTripMenu, { once: true }), 0);
@@ -4612,7 +4690,7 @@ function _openExportModal() {
     <div class="exp-trip-row">
       <input type="checkbox" class="exp-cb" value="${t.id}" checked>
       <div class="exp-trip-info">
-        <span class="exp-trip-lbl">${t.flag || '🌍'} ${_esc(t.name || 'Voyage')}</span>
+        <span class="exp-trip-lbl">${_esc(t.flag || '🌍')} ${_esc(t.name || 'Voyage')}</span>
         ${t.startDate ? `<span class="exp-trip-meta">${t.startDate.slice(0, 7)}</span>` : ''}
       </div>
     </div>`).join('');

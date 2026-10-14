@@ -270,6 +270,8 @@ function _openValidateModal(tripId, dayId, itemIdx) {
   if (!item) return;
 
   const jd = item.journalData || {};
+  const itemRef = item.id;      // l'index peut changer pendant que la fenêtre est ouverte
+  let closed = false;           // envois terminés après fermeture : ne plus toucher au DOM
 
   const state = {
     weather: jd.weather || '',
@@ -293,7 +295,14 @@ function _openValidateModal(tripId, dayId, itemIdx) {
       try {
         const { isPhotoStoreReady, uploadPhoto } = await import('../photostore.js');
         if (isPhotoStoreReady()) {
-          const url = await uploadPhoto(user.uid, big);
+          // Voyage partagé : toujours dans le dossier du PROPRIÉTAIRE (règle v184) —
+          // sinon la photo d'un voyageur était effacée de Storage quand il quittait le voyage
+          let folder = user.uid;
+          if (isTripShared(tripId)) {
+            try { folder = (await import('../share.js')).getSharedDocData(tripId)?.ownerId || folder; } catch (_) {}
+          }
+          let url = await uploadPhoto(folder, big).catch(() => null);
+          if (!url && folder !== user.uid) url = await uploadPhoto(user.uid, big).catch(() => null);
           if (url) return url;
         }
       } catch (_) {}
@@ -302,10 +311,12 @@ function _openValidateModal(tripId, dayId, itemIdx) {
   }
 
   async function _compressImg(file, maxSize = 1280, quality = 0.82) {
-    return new Promise(resolve => {
+    return new Promise((resolve, reject) => {
       const reader = new FileReader();
+      reader.onerror = () => reject(new Error('lecture'));
       reader.onload = ev => {
         const img = new Image();
+        img.onerror = () => reject(new Error('format'));   // HEIC sur ordinateur, fichier abîmé…
         img.onload = () => {
           const canvas  = document.createElement('canvas');
           let { width, height } = img;
@@ -391,12 +402,14 @@ function _openValidateModal(tripId, dayId, itemIdx) {
       ${jd.validated ? `<button class="bc" id="vld-devalidate" style="color:var(--coral);border-color:var(--coral)">✕ Dévalider</button>` : ''}
       <button class="bc" onclick="closeModal()">Annuler</button>
       <button class="bs" id="vld-save">Enregistrer</button>
-    </div>`);
+    </div>`, { onClose: () => { closed = true; } });
 
   // Dévalider
   document.getElementById('vld-devalidate')?.addEventListener('click', () => {
     closeModal();
-    _devalidateItem(tripId, dayId, itemIdx);
+    const t = getTrip(tripId), d = t?.days?.find(x => x.id === dayId);
+    const i = itemRef ? (d?.items || []).findIndex(it => it.id === itemRef) : itemIdx;
+    if (i >= 0) _devalidateItem(tripId, dayId, i);
   });
 
   // Partager — uses whatever is currently filled in the form (no need to save first)
@@ -444,6 +457,7 @@ function _openValidateModal(tripId, dayId, itemIdx) {
     if (!files.length) return;
     ev.target.value = '';
     const refresh = () => {
+      if (closed) return;
       const list = document.getElementById('vld-photos-list');
       if (list) list.innerHTML = buildPhotosHtml();
       const save = document.getElementById('vld-save');
@@ -464,6 +478,8 @@ function _openValidateModal(tripId, dayId, itemIdx) {
         } else {
           state.photos.push(await _photoForJournal(file));
         }
+      } catch (_) {
+        notify(`Impossible de lire « ${file.name} » (format non pris en charge ?)`, '⚠️');
       } finally {
         state.pending--;
         refresh();
@@ -485,7 +501,9 @@ function _openValidateModal(tripId, dayId, itemIdx) {
     if (dayIdx === -1) { closeModal(); return; }
 
     const items = [...(days[dayIdx].items || [])];
-    if (!items[itemIdx]) { closeModal(); return; }
+    const idx = itemRef ? items.findIndex(it => it.id === itemRef) : itemIdx;
+    if (!items[idx]) { closeModal(); notify('Cette étape a été modifiée ou supprimée entre-temps', '⚠️'); return; }
+    itemIdx = idx;
 
     const itemId = items[itemIdx].id;
     const prevJd = items[itemIdx].journalData || {};
@@ -502,10 +520,10 @@ function _openValidateModal(tripId, dayId, itemIdx) {
       },
     };
     days[dayIdx] = { ...days[dayIdx], items };
-    updateTrip(tripId, { days });
+    const patch = { days };      // une seule écriture (étape + dépense liée)
 
     if (state.amount > 0) {
-      const freshTrip2 = getTrip(tripId);
+      const freshTrip2 = freshTrip;
       const expenses   = [...(freshTrip2.realExpenses || [])];
       const cats       = freshTrip2.budgetCats || [];
       const actCat     = cats.find(c => c.name === 'Activités');
@@ -527,9 +545,14 @@ function _openValidateModal(tripId, dayId, itemIdx) {
       if (existIdx >= 0) expenses[existIdx] = newExp;
       else expenses.push(newExp);
 
-      updateTrip(tripId, { realExpenses: expenses });
+      patch.realExpenses = expenses;
+      updateTrip(tripId, patch);
       notify('Activité validée · dépense créée', '✓');
     } else {
+      // Montant remis à 0 : la dépense créée automatiquement disparaît aussi
+      const exps = freshTrip.realExpenses || [];
+      if (itemId && exps.some(ex => ex.journalItemId === itemId)) patch.realExpenses = exps.filter(ex => ex.journalItemId !== itemId);
+      updateTrip(tripId, patch);
       notify('Activité validée', '✓');
     }
 

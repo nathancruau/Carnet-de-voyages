@@ -13,12 +13,12 @@
    fetchRoutes(legs) → Promise<boolean>  (true si au moins un nouveau tracé)
      demande les tronçons manquants, 2 à la fois.
 
-   Cache persisté dans localStorage (géométrie simplifiée, ≤ 300 points,
+   Cache persisté dans localStorage (géométrie simplifiée, ≤ 120 points,
    5 décimales) pour un affichage immédiat à la réouverture, hors-ligne compris.
    ============================================================ */
 
 const LS_KEY  = 'carnet_route_cache_v1';
-const MAX_ENT = 400;
+const MAX_ENT = 200;          // ≈ 200 × 120 points : quelques centaines de Ko au plus
 const ROUTED  = new Set(['car', 'bus', 'foot', 'bike']);
 
 let _cache = null;           // key → { c, m, s, t } | { n:1, t }
@@ -44,6 +44,12 @@ function _save() {
 }
 
 const _r5 = n => Math.round(n * 1e5) / 1e5;
+function _km(a, b) {
+  const R = 6371, rad = x => x * Math.PI / 180;
+  const dLat = rad(b.lat - a.lat), dLng = rad(b.lng - a.lng);
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
+}
 
 function _key(from, to, mode) {
   const prof = mode === 'bus' ? 'car' : mode;
@@ -61,7 +67,7 @@ function _url(from, to, mode) {
 }
 
 // Simplification : garde au plus `max` points, régulièrement répartis (extrémités incluses)
-function _thin(coords, max = 300) {
+function _thin(coords, max = 120) {
   if (coords.length <= max) return coords.map(([x, y]) => [_r5(x), _r5(y)]);
   const out = [], step = (coords.length - 1) / (max - 1);
   for (let i = 0; i < max; i++) {
@@ -87,8 +93,10 @@ async function _fetchOne(from, to, mode) {
     const timer = ctl && setTimeout(() => ctl.abort(), 12000);
     try {
       const resp = await fetch(_url(from, to, mode), ctl ? { signal: ctl.signal } : undefined);
-      if (!resp.ok) throw new Error('http ' + resp.status);
-      const data = await resp.json();
+      // OSRM répond 400 « NoRoute » (océan, île…) : à mémoriser comme « pas d'itinéraire »,
+      // sinon la requête repartait à chaque rafraîchissement du voyage
+      if (!resp.ok && resp.status !== 400) throw new Error('http ' + resp.status);
+      const data = await resp.json().catch(() => ({}));
       const r = data.routes?.[0];
       const c = _load();
       if (r?.geometry?.coordinates?.length > 1) {
@@ -112,6 +120,11 @@ async function _fetchOne(from, to, mode) {
 /** legs = [{ from, to, mode }] — demande les tronçons manquants. */
 export async function fetchRoutes(legs) {
   const todo = legs.filter(l => isRoutedMode(l.mode) && cachedRoute(l.from, l.to, l.mode) === undefined);
+  // Tronçon de plus de 2 500 km en voiture/à pied : pas de calcul (mode sans doute
+  // laissé par défaut sur un vol) — mémorisé comme « pas d'itinéraire »
+  const far = todo.filter(l => _km(l.from, l.to) > 2500);
+  if (far.length) { const c = _load(); far.forEach(l => { c[_key(l.from, l.to, l.mode)] = { n: 1, t: Date.now() }; }); _save(); }
+  todo.splice(0, todo.length, ...todo.filter(l => !far.includes(l)));
   if (!todo.length) return false;
   let changed = false, i = 0;
   const worker = async () => {

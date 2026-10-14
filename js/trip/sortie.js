@@ -126,7 +126,7 @@ export async function renderSortie(tripId) {
     context: 'trip', pins: _pins(trip), route: _route(trip),
     ...((getSettings().homeMap) || {}),
     padding: _mapPadding(),
-    onPinsTap: () => _sheet?.setSnap('mid'),
+    onPinsTap: pins => { if (pins?.length) _sheet?.setSnap('mid'); },
     onResize: () => _sheet?.refresh(),
     onError: () => notify('Carte indisponible (hors-ligne ?)', '🗺'),
   }).then(() => { if (_tripId === tripId) fitHomeMap(_mapPadding(), false); });
@@ -139,6 +139,8 @@ export async function renderSortie(tripId) {
       if (!t || !document.querySelector('#tv2.so')) return;
       const pane = document.getElementById('tv2-pane');
       if (pane) pane.innerHTML = _infoHtml(t);
+      const et = _type(t), title = document.querySelector('#tv2.so .tv2-title');
+      if (title) title.innerHTML = `<small>${et.emoji} ${_esc(et.label || 'Sortie')}</small><b>${_esc(t.name || 'Sortie')}</b>`;
       _initChart(t);
       setHomeMapPins(_pins(t));
       setHomeMapRoute(_route(t));

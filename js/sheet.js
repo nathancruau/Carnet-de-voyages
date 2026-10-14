@@ -70,7 +70,9 @@ export function createSheet(cfg) {
       const retry = () => {
         if (!root.isConnected) { headRetry = false; return; }
         const h = headEl()?.offsetHeight;
-        if (!h) { requestAnimationFrame(retry); return; }
+        // masqué (écran pas encore affiché, sous-vue ouverte) : on revérifie sans
+        // relire la mise en page à chaque image
+        if (!h) { if (root.offsetParent) requestAnimationFrame(retry); else setTimeout(retry, 300); return; }
         headRetry = false; headH = h;
         if (!wide()) apply(translate, false);
       };
@@ -209,7 +211,9 @@ export function createSheet(cfg) {
   cfg.grab?.addEventListener('click', () => { if (!wide()) setSnap(snap === 'peek' ? 'mid' : snap === 'mid' ? 'full' : 'mid'); });
   sheet.addEventListener('click', e => { if (suppressClick) { e.stopPropagation(); e.preventDefault(); } }, true);
 
-  const onResize = () => { headH = null; if (root.isConnected) setSnap(snap, false); };
+  // Feuille masquée (sous-vue Budget/Bagages ouverte) : rien à recalculer — sinon la
+  // relance « en-tête pas encore mesuré » tournait à chaque image jusqu'au retour
+  const onResize = () => { headH = null; if (root.isConnected && root.offsetParent) setSnap(snap, false); };
   window.addEventListener('resize', onResize);
 
   return {

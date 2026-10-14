@@ -3,7 +3,7 @@
    ============================================================ */
 
 import { loadData, getState, setState, setSyncCallback, getSettings, getTrips, hasPendingLocalChanges, getRecentlyDeletedIds } from './store.js';
-import { renderHome } from './home.js';
+import { renderHome, refreshHome } from './home.js';
 import { openTrip, refreshTrip, destroyTripMap } from './trip/trip.js';
 import { closeModal, showModal, esc, notify } from './utils.js';
 import { initAuth, loginWithGoogle, syncToFirestore, isFirebaseConfigured, listenUserDoc, setSyncErrorCallback } from './auth.js';
@@ -217,7 +217,7 @@ function _onAuthReady(user, cloudData, meta = {}) {
       // Skip if signature matches — covers our own write echoes and duplicate events
       if (_tripsSignature(data?.trips) === _tripsSignature(prevTrips)) return;
       setState(data);
-      if (currentScreen === 'home') renderHome();
+      if (currentScreen === 'home') refreshHome();
       // Re-push if the merged local state still differs from what the server sent.
       // Covers both missing trips AND locally-newer trips that would otherwise stay
       // stuck when a concurrent write from another device overwrote a newer local edit.
@@ -245,7 +245,7 @@ function _onAuthReady(user, cloudData, meta = {}) {
           _tripsSignature(getState().trips) !== _sigBeforeShared ||
           _obsSig() !== _obsBeforeShared
         )) {
-          renderHome();
+          refreshHome();
         }
         return handlePendingInvite(user);
       });
@@ -267,8 +267,9 @@ function _onAuthReady(user, cloudData, meta = {}) {
 
 function _isModalOpen() {
   return !!(
-    document.getElementById('modal-overlay')?.classList.contains('ov-visible') ||
-    document.querySelector('.mobile-sheet')
+    document.getElementById('modal-overlay')?.classList.contains('open') ||
+    document.getElementById('_evt-sheet') ||
+    document.querySelector('.ask-ov')
   );
 }
 
@@ -385,7 +386,7 @@ window._pho = function(url) { window._openSlides([url], 0); };
 // Called by share.js after a remote real-time update to refresh the visible screen
 window._rerenderCurrentView = (updatedTripId) => {
   if (currentScreen === 'home') {
-    renderHome();
+    refreshHome();
   } else if (currentScreen === 'app' && currentTripId === updatedTripId) {
     // Rafraîchit la vue affichée (écran voyage v2 ou sous-vue) sans revenir au début
     refreshTrip(currentTripId);

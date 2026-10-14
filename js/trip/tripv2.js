@@ -110,14 +110,33 @@ function _observerNames() {
     .map(m => { const n = (m.companionName || '').trim(); return n && n !== 'Observateur' ? n : 'Sans nom'; });
 }
 
+// Commentaires regroupés par étape une fois par document (au lieu d'un filtre
+// complet par publication à chaque rendu)
+let _cmtDoc = null, _cmtCounts = null;
 function _postCounts(post, doc) {
   if (!doc) return { likes: 0, comments: 0, mine: false };
+  if (_cmtDoc !== doc.observerComments) {
+    _cmtDoc = doc.observerComments; _cmtCounts = new Map();
+    for (const c of Object.values(_cmtDoc || {})) _cmtCounts.set(c.itemId, (_cmtCounts.get(c.itemId) || 0) + 1);
+  }
   const r = doc.reactions?.[post.item.id] || {};
   const uid = getCurrentUser()?.uid;
   const likes = Object.values(r).filter(e => e === '❤️').length;
-  const comments = Object.values(doc.observerComments || {}).filter(c => c.itemId === post.item.id).length;
-  return { likes, comments, mine: !!(uid && r[uid] === '❤️') };
+  return { likes, comments: _cmtCounts.get(post.item.id) || 0, mine: !!(uid && r[uid] === '❤️') };
 }
+
+// Points de l'itinéraire, calculés une fois par version du voyage (updateTrip crée un
+// nouvel objet) : ils servaient 3 fois par rendu (distance, tronçons, tracé)
+let _wpTrip = null, _wpList = [];
+function _waypoints(trip) {
+  if (trip !== _wpTrip) {
+    _wpTrip = trip;
+    try { _wpList = _mapcal?.collectTripWaypoints(trip) || []; } catch (_) { _wpList = []; }
+  }
+  return _wpList;
+}
+
+const _todayIso = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 
 // Géométrie d'un tronçon (v244) : tracé routier en cache si le mode suit les routes
 // (voiture, bus, marche, vélo), sinon ligne droite — pointillée pour avion/bateau,
@@ -147,11 +166,11 @@ let _routeReq = 0;
 function _routeLines(trip, observer) {
   if (!_mapcal) return null;
   let wps = [];
-  try { wps = _mapcal.collectTripWaypoints(trip) || []; } catch (_) { return null; }
+  wps = _waypoints(trip);
+  const pubIds = observer ? new Set(_collectPosts(trip).map(p => p.item.id)) : null;
   if (observer) {
     // Observateur : seulement ce qui a été publié (ne pas dévoiler l'itinéraire prévu)
-    const pub = new Set(_collectPosts(trip).map(p => p.item.id));
-    wps = wps.filter(w => w.itemId && pub.has(w.itemId));
+    wps = wps.filter(w => w.itemId && pubIds.has(w.itemId));
   }
   const lines = [], pending = [];
   for (const leg of _pairs(wps)) {
@@ -160,7 +179,7 @@ function _routeLines(trip, observer) {
     if (g.pending) pending.push(leg);
   }
   // Traces GPX importées sur un événement (v244)
-  const pub = observer ? new Set(_collectPosts(trip).map(p => p.item.id)) : null;
+  const pub = observer ? pubIds : null;
   (trip.days || []).forEach(d => (d.items || []).forEach(it => {
     if (pub && !pub.has(it.id)) return;
     const pts = (it.gpxPoints || []).filter(p => !isNaN(+p.lat) && !isNaN(+p.lng)).map(p => [+p.lng, +p.lat]);
@@ -173,7 +192,7 @@ function _routeLines(trip, observer) {
       const fresh = getTrip(tid);
       if (!fresh) return;
       setHomeMapRoute(_routeLines(fresh, _observer));
-      if (!_observer) _renderPane(fresh);
+      if (!_observer) { if (_drag) _dragDirty = true; else _renderPane(fresh); }
     });
   }
   return lines.length ? lines : null;
@@ -255,6 +274,8 @@ function _bindUpdates() {
 }
 
 function _scheduleRefresh() {
+  // Pas de re-rendu pendant un glissé d'étape (il détruirait la poignée tenue) : après
+  if (_drag) { _dragDirty = true; return; }
   cancelAnimationFrame(_refreshRaf);
   _refreshRaf = requestAnimationFrame(() => {
     const trip = getTrip(_tripId);
@@ -391,7 +412,7 @@ function _heroHtml(trip) {
   const countries = new Set();
   (trip.days || []).forEach(d => (d.items || []).forEach(it => { if (it.countryCode) countries.add(it.countryCode.toUpperCase()); }));
   const flags = [...countries].slice(0, 6).map(c => _flagOf(c)).join(' ');
-  const today = new Date().toISOString().slice(0, 10);
+  const today = _todayIso();
   let status = '';
   if (trip.startDate && today < trip.startDate) {
     const n = Math.round((new Date(trip.startDate + 'T12:00:00') - new Date(today + 'T12:00:00')) / 86400000);
@@ -426,7 +447,7 @@ function _heroHtml(trip) {
 function _distanceKm(trip) {
   if (!_mapcal) return 0;
   try {
-    const wps = _mapcal.collectTripWaypoints(trip) || [];
+    const wps = _waypoints(trip);
     const m = _pairs(wps).reduce((n, l) => n + _legGeom(l.from, l.to, l.mode).meters, 0);
     return Math.round(m / 1000);
   } catch (_) { return 0; }
@@ -442,7 +463,7 @@ function _collectLegs(trip) {
   _legs = [];
   const byItem = new Map(), departs = new Map(), returns = new Map();
   let wps = [];
-  try { wps = _mapcal?.collectTripWaypoints(trip) || []; } catch (_) {}
+  wps = _waypoints(trip);
   for (let i = 1; i < wps.length; i++) {
     const from = wps[i - 1], to = wps[i];
     if (haversineMeters(from, to) < 50) continue;
@@ -677,7 +698,7 @@ function _onOwnerClick(e) {
 // Poignée ⋮ à droite de chaque étape (hors hébergements) : on la tient et on glisse,
 // dans la même journée ou vers un autre jour. Pointer Events + capture ; la feuille
 // ne reçoit pas le geste (touch* arrêtés sur la poignée).
-let _drag = null, _dragEndAt = 0;
+let _drag = null, _dragEndAt = 0, _dragDirty = false;
 
 function _bindStepDrag(pane) {
   if (pane._tv2Drag) return;
@@ -702,16 +723,20 @@ function _bindStepDrag(pane) {
     card.classList.add('tv2-dragging');
     document.getElementById('tv2')?.classList.add('tv2-reorder');
     _drag = { h, card, ghost, ind, y0: e.clientY, top0: r.top, y: e.clientY, raf: 0, scrollRaf: 0, target: null,
-      fromDay: card.dataset.dayId, fromIdx: +card.dataset.idx };
+      fromDay: card.dataset.dayId, fromIdx: +card.dataset.idx,
+      fromId: getTrip(_tripId)?.days?.find(x => x.id === card.dataset.dayId)?.items?.[+card.dataset.idx]?.id || null };
     navigator.vibrate?.(8);
     const move = ev => { if (!_drag) return; _drag.y = ev.clientY; if (!_drag.raf) _drag.raf = requestAnimationFrame(_dragFrame); };
-    const up = () => {
-      h.removeEventListener('pointermove', move); h.removeEventListener('pointerup', up); h.removeEventListener('pointercancel', up);
-      _dragDrop();
+    const up = ev => {
+      h.removeEventListener('pointermove', move); h.removeEventListener('pointerup', up);
+      h.removeEventListener('pointercancel', up); h.removeEventListener('lostpointercapture', up);
+      // Geste interrompu (appel, geste système…) : on annule au lieu de déposer
+      _dragDrop(ev.type !== 'pointerup');
     };
     h.addEventListener('pointermove', move);
     h.addEventListener('pointerup', up);
     h.addEventListener('pointercancel', up);
+    h.addEventListener('lostpointercapture', up);
     _dragFrame();
     _dragAutoScroll();
   });
@@ -752,33 +777,41 @@ function _dragAutoScroll() {
   if (sc && sc.scrollHeight > sc.clientHeight + 2) {
     const r = sc.getBoundingClientRect();
     const edge = 70;
+    // Bas de la zone VISIBLE (en cran « mid » la liste dépasse sous l'écran)
+    const navTop = document.querySelector('.tv2-nav')?.getBoundingClientRect().top || window.innerHeight;
+    const bottom = Math.min(r.bottom, navTop);
     let v = 0;
     if (d.y < r.top + edge) v = -Math.ceil((r.top + edge - d.y) / 6);
-    else if (d.y > r.bottom - edge - 80) v = Math.ceil((d.y - (r.bottom - edge - 80)) / 6);
+    else if (d.y > bottom - edge) v = Math.ceil((d.y - (bottom - edge)) / 6);
     if (v) { sc.scrollTop += v; _dragFrame(); }
   }
   d.scrollRaf = requestAnimationFrame(_dragAutoScroll);
 }
 
-function _dragDrop() {
+function _dragDrop(cancel = false) {
   const d = _drag;
   if (!d) return;
   _drag = null;
+  const dirty = _dragDirty; _dragDirty = false;
   _dragEndAt = Date.now();
   cancelAnimationFrame(d.raf); cancelAnimationFrame(d.scrollRaf);
   d.ghost.remove(); d.ind.remove();
   d.card.classList.remove('tv2-dragging');
   document.getElementById('tv2')?.classList.remove('tv2-reorder');
-  if (d.target) _moveStep(d.fromDay, d.fromIdx, d.target.dayId, d.target.pos);
+  if (!cancel && d.target && _moveStep(d.fromDay, d.fromIdx, d.target.dayId, d.target.pos, d.fromId)) return;
+  if (dirty) _scheduleRefresh();   // une mise à jour est arrivée pendant le glissé
 }
 
 // pos = rang parmi les étapes « glissables » (hors nuits) du jour d'arrivée, étape déplacée exclue
-function _moveStep(fromDayId, fromIdx, toDayId, pos) {
+// → true si le voyage a été modifié (le rafraîchissement suit via « trip-updated »)
+function _moveStep(fromDayId, fromIdx, toDayId, pos, fromId = null) {
   const trip = getTrip(_tripId);
-  if (!trip) return;
-  const days = trip.days || [];
+  if (!trip) return false;
+  // Copie des jours (jamais l'objet du store) ; étape retrouvée par son id
+  const days = (trip.days || []).map(d => ({ ...d, items: [...(d.items || [])] }));
   const src = days.find(d => d.id === fromDayId), dst = days.find(d => d.id === toDayId);
-  if (!src || !dst || !src.items?.[fromIdx]) return;
+  if (fromId && src) fromIdx = src.items.findIndex(it => it.id === fromId);
+  if (!src || !dst || !src.items?.[fromIdx]) return false;
   const srcItems = [...src.items];
   const [moved] = srcItems.splice(fromIdx, 1);
   const dstItems = src === dst ? srcItems : [...(dst.items || [])];
@@ -793,13 +826,14 @@ function _moveStep(fromDayId, fromIdx, toDayId, pos) {
   }
   dstItems.splice(at, 0, moved);
   if (src === dst) {
-    if (dstItems.every((it, i) => it === src.items[i])) return;   // rien n'a bougé
+    if (dstItems.every((it, i) => it === src.items[i])) return false;   // rien n'a bougé
     src.items = dstItems;
   } else {
     src.items = srcItems; dst.items = dstItems;
   }
   updateTrip(_tripId, { days });
   notify(src === dst ? 'Étape déplacée' : `Étape déplacée au jour ${dst.num}`, '↕️');
+  return true;
 }
 
 function _onPinTap(pin) {
@@ -871,7 +905,7 @@ function _renderObserver(host, trip, isRefresh = false) {
   const startCard = `
     <div class="tv2-ocard tv2-ocard-start${trip.photo ? ' tv2-ocard-cover' : ''}">
       ${trip.photo ? `<img class="tv2-ocard-bg" src="${_esc(trip.photo)}" alt="" decoding="async"><span class="tv2-post-shade"></span>` : '<i>🏠</i>'}
-      <b>${trip.photo ? _esc(trip.name || 'Voyage') : `Voyage ${trip.startDate && trip.startDate > new Date().toISOString().slice(0, 10) ? 'prévu' : 'entamé'}`}</b>
+      <b>${trip.photo ? _esc(trip.name || 'Voyage') : `Voyage ${trip.startDate && trip.startDate > _todayIso() ? 'prévu' : 'entamé'}`}</b>
       <small>${trip.startDate ? _esc(fmtDate(trip.startDate)) : ''}</small>
     </div>`;
 
@@ -1001,7 +1035,11 @@ function _renderObserver(host, trip, isRefresh = false) {
     padding: _mapPadding(),
     onPinsTap: pins => { if (pins[0]) _onPinTap(pins[0]); },
     onError: () => notify('Carte indisponible (hors-ligne ?)', '🗺'),
-  }).then(() => { setHomeMapPadding(_mapPadding()); fitHomeMap(_mapPadding(), false); });
+  }).then(() => {
+    // l'observateur a pu revenir à l'accueil avant le chargement de la carte
+    if (_tripId !== trip.id || !_observer) return;
+    setHomeMapPadding(_mapPadding()); fitHomeMap(_mapPadding(), false);
+  });
 }
 
 function _openObserverMenu() {

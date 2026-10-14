@@ -786,8 +786,10 @@ function _openExpenseModal(tripId, expId) {
   async function _compressImage(file) {
     return new Promise(resolve => {
       const reader = new FileReader();
+      reader.onerror = () => resolve(null);
       reader.onload = ev => {
         const img = new Image();
+        img.onerror = () => resolve(null);   // format illisible (HEIC sur ordinateur…)
         img.onload = () => {
           const maxSize = 800;
           const canvas  = document.createElement('canvas');
@@ -809,7 +811,7 @@ function _openExpenseModal(tripId, expId) {
   function buildReceiptHtml() {
     if (state.receipt) {
       return `
-        <img src="${state.receipt}" alt="Reçu" style="max-height:80px;max-width:100%;border-radius:6px;border:1px solid var(--c3);display:block;margin-bottom:6px">
+        <img src="${_esc(state.receipt)}" alt="Reçu" style="max-height:80px;max-width:100%;border-radius:6px;border:1px solid var(--c3);display:block;margin-bottom:6px">
         <button type="button" id="ex-receipt-clear" style="background:var(--c2);border:1px solid var(--c3);border-radius:6px;padding:4px 10px;font-size:11px;cursor:pointer;color:var(--coral)">✕ Supprimer la photo</button>`;
     }
     return `<input type="file" id="ex-receipt-file" accept="image/*" style="font-size:12px;color:var(--ink3)">`;
@@ -826,7 +828,9 @@ function _openExpenseModal(tripId, expId) {
     document.getElementById('ex-receipt-file')?.addEventListener('change', async ev => {
       const file = ev.target.files?.[0];
       if (!file) return;
-      state.receipt = await _compressImage(file);
+      const img = await _compressImage(file);
+      if (!img) { notify('Image illisible (format non pris en charge ?)', '⚠️'); return; }
+      state.receipt = img;
       refreshReceiptArea();
     });
     document.getElementById('ex-receipt-clear')?.addEventListener('click', () => {
@@ -1279,12 +1283,12 @@ function _openTransferModal(tripId, expId = null) {
 
     <div class="fg">
       <label>Montant (€)</label>
-      <input type="text" inputmode="decimal" id="tr-amount" placeholder="0" value="${existing ? existing.amount : ''}">
+      <input type="text" inputmode="decimal" id="tr-amount" placeholder="0" value="${existing ? _esc(existing.amount) : ''}">
     </div>
 
     <div class="fg">
       <label>Date</label>
-      <input type="date" id="tr-date" value="${existing ? existing.date : today}">
+      <input type="date" id="tr-date" value="${existing ? _esc(existing.date || today) : today}">
     </div>
 
     <div class="fg">

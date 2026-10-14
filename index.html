@@ -35,7 +35,7 @@
        (openShareModal, isCurrentUserObserver, …), so every session fetches it
        anyway; preloading it here fetches it in parallel with home.js instead of
        only being discovered once home.js itself finishes parsing. -->
-  <link rel="modulepreload" href="js/app.js?v=246" />
+  <link rel="modulepreload" href="js/app.js?v=247" />
   <link rel="modulepreload" href="js/store.js" />
   <link rel="modulepreload" href="js/utils.js" />
   <link rel="modulepreload" href="js/auth.js" />
@@ -48,7 +48,7 @@
 
   <!-- Leaflet (CSS + JS) n'est plus chargé au démarrage : home.js le charge à la
        1ʳᵉ ouverture de la fenêtre d'une sortie (_ensureLeaflet), CSS inséré avant style.css. -->
-  <link rel="stylesheet" href="style.css?v=246" />
+  <link rel="stylesheet" href="style.css?v=247" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <script>
@@ -302,6 +302,6 @@
       if (bar) bar.style.display = 'none';
     }
   </script>
-<script type="module" src="js/app.js?v=246"></script>
+<script type="module" src="js/app.js?v=247"></script>
 </body>
 </html>

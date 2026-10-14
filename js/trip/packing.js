@@ -130,7 +130,7 @@ function _buildHtml(trip) {
     return `
       <section class="pk-cat" style="--pc:${_esc(cat.color || '#0d9488')}">
         <header class="pk-cat-hd">
-          <span class="pk-cat-ic">${cat.icon || '📦'}</span>
+          <span class="pk-cat-ic">${_esc(cat.icon || '📦')}</span>
           <div class="pk-cat-t">
             <b>${_esc(cat.name)}</b>
             <span class="pk-cat-meta"><i class="pk-bar"><i style="width:${cp}%"></i></i>${n}/${items.length}</span>

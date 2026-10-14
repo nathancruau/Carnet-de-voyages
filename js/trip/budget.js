@@ -442,10 +442,14 @@ function _openCatModal(tripId, catId) {
       </div>`;
   }
 
+  let typedName = null;   // nom saisi, gardé quand on change d'icône/couleur (v247)
   function reRender() {
     const mbox = document.querySelector('.mbox');
     if (mbox) {
+      typedName = document.getElementById('bc-name')?.value ?? typedName;
       mbox.innerHTML = buildHtml();
+      const nm = document.getElementById('bc-name');
+      if (nm && typedName != null) nm.value = typedName;
       attachEvents();
     }
   }

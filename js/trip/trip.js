@@ -90,7 +90,8 @@ async function _openSubview(view, tab) {
   // Budget/Dépenses : voyage en cours ou passé → Dépenses partagées d'abord ;
   // voyage à venir (ou sans dates) → Budget prévisionnel d'abord.
   if (view === 'money' && !tab) {
-    const today = new Date().toISOString().slice(0, 10);
+    const n = new Date();   // date LOCALE (toISOString = UTC : décalé d'un jour au Japon avant 9 h)
+    const today = `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}-${String(n.getDate()).padStart(2, '0')}`;
     tab = trip.startDate && trip.startDate <= today ? 'tricount' : 'budget';
   }
   const panelTab = view === 'packing' ? 'packing' : (tab || 'budget');
