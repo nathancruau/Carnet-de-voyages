@@ -5,7 +5,8 @@
       "firebase.json",
       ".firebaserc",
       ".github",
-      "**/.*"
+      "**/.*",
+      "functions/**"
     ],
     "rewrites": [
       {
@@ -17,41 +18,76 @@
       {
         "source": "**/*.js",
         "headers": [
-          { "key": "Cache-Control", "value": "no-cache" }
+          {
+            "key": "Cache-Control",
+            "value": "no-cache"
+          }
         ]
       },
       {
         "source": "**/*.@(html|css|json)",
         "headers": [
-          { "key": "Cache-Control", "value": "no-cache" }
+          {
+            "key": "Cache-Control",
+            "value": "no-cache"
+          }
         ]
       },
       {
         "source": "/",
         "headers": [
-          { "key": "Cache-Control", "value": "no-cache" }
+          {
+            "key": "Cache-Control",
+            "value": "no-cache"
+          }
         ]
       },
       {
         "source": "/manifest.json",
         "headers": [
-          { "key": "Content-Type", "value": "application/manifest+json" },
-          { "key": "Cache-Control", "value": "no-cache" }
+          {
+            "key": "Content-Type",
+            "value": "application/manifest+json"
+          },
+          {
+            "key": "Cache-Control",
+            "value": "no-cache"
+          }
         ]
       },
       {
         "source": "/sw.js",
         "headers": [
-          { "key": "Cache-Control", "value": "no-cache" },
-          { "key": "Service-Worker-Allowed", "value": "/" }
+          {
+            "key": "Cache-Control",
+            "value": "no-cache"
+          },
+          {
+            "key": "Service-Worker-Allowed",
+            "value": "/"
+          }
         ]
       },
       {
         "source": "/icons/**",
         "headers": [
-          { "key": "Cache-Control", "value": "public, max-age=604800, immutable" }
+          {
+            "key": "Cache-Control",
+            "value": "public, max-age=604800, immutable"
+          }
         ]
       }
     ]
-  }
+  },
+  "functions": [
+    {
+      "source": "functions",
+      "codebase": "default",
+      "ignore": [
+        "node_modules",
+        ".git",
+        "*.log"
+      ]
+    }
+  ]
 }

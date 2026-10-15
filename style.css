@@ -216,14 +216,6 @@ body{height:100%;min-height:-webkit-fill-available;font-family:var(--fn);backgro
 
 /* Comment toggle badge in day list */
 
-/* Leaflet popup overrides */
-.leaflet-popup-content-wrapper{
-  border-radius:10px;border:1px solid var(--c3);
-  box-shadow:var(--shm);padding:0;overflow:hidden;
-}
-.leaflet-popup-content{margin:0;padding:10px 12px;font-family:var(--fn)}
-.leaflet-popup-tip-container{margin-top:-1px}
-
 /* Route duration tooltip (permanent label on route lines) */
 
 /* Route loading indicator */
@@ -258,7 +250,6 @@ body{height:100%;min-height:-webkit-fill-available;font-family:var(--fn);backgro
 .settlements h4{font-size:11px;font-weight:800;color:var(--grn);margin-bottom:8px;text-transform:uppercase;letter-spacing:.4px}
 
 /* Remove grey tile-gap background on all maps */
-.leaflet-container{background:#aad3df}
 
 /* Info panel pills */
 .mm-pill{display:inline-flex;align-items:center;gap:3px;padding:3px 8px;border-radius:999px;font-size:10px;font-weight:600;background:var(--c2);border:1px solid var(--c3);color:var(--ink3)}
@@ -913,8 +904,6 @@ html,body{background:var(--c)}
 
 [data-theme="dark"] .google-btn{background:var(--c3);color:var(--ink);border-color:var(--c4)}
 [data-theme="dark"] .google-btn:hover{background:var(--c4)}
-[data-theme="dark"] .leaflet-popup-content-wrapper{background:var(--c2);border-color:var(--c4)}
-[data-theme="dark"] .leaflet-popup-tip{background:var(--c2)}
 [data-theme="dark"] .notes-ta{background:var(--c3);border-color:var(--c4);color:var(--ink)}
 
 [data-theme="dark"] .comp-rename-input{background:var(--c3);color:var(--ink)}
@@ -2235,3 +2224,7 @@ html:has(.tv2-story) #notif{z-index:20200}
 .hv2-logo-row > i{transition:transform .2s}
 .hv2-logo-row.open > i{transform:rotate(90deg)}
 .hv2-logo-panel{padding:12px 12px 12px;border-top:1px solid var(--hv-line)}
+
+/* v252 — carte de choix du lieu d'une sortie (MapLibre) */
+#sm-map .maplibregl-ctrl-attrib{font-size:10px}
+.sm-map-off{height:100%;display:flex;align-items:center;justify-content:center;text-align:center;padding:16px;font-size:12px;font-weight:600;color:var(--ink3)}

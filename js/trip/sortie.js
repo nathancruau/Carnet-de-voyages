@@ -167,9 +167,12 @@ function _infoHtml(trip) {
   const pin = trip.pin || {};
   const et  = _type(trip);
   const gpxPoints = resolveGpxPoints(trip.id, pin);
+  const _fmtD = iso => new Date(iso + 'T12:00:00').toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+  // Sortie sur plusieurs jours (pin.endDate) : « du … au … » (v252)
   const dateStr = pin.date
-    ? new Date(pin.date + 'T12:00:00').toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
+    ? (pin.endDate && pin.endDate !== pin.date ? `du ${_fmtD(pin.date)} au ${_fmtD(pin.endDate)}` : _fmtD(pin.date))
     : 'Date non définie';
+  const comps = (trip.companions || []).map(c => c.name).filter(Boolean);
 
   // trip.photos[0] = la couverture (même photo que trip.photo), les suivantes = photos en plus
   const allPhotos = trip.photos?.length ? trip.photos : (trip.photo ? [{ url: trip.photo }] : []);
@@ -186,7 +189,8 @@ function _infoHtml(trip) {
 
   const rows = [
     ['📅', dateStr + (pin.time ? ` · ${_esc(pin.time)}` : '')],
-    trip.destination ? ['📍', _esc(trip.destination)] : null,
+    trip.destination || pin.countryFlag ? ['📍', [_esc(trip.destination || ''), pin.countryFlag ? _esc(pin.countryFlag) : ''].filter(Boolean).join(' ')] : null,
+    comps.length ? ['👥', _esc(comps.join(', '))] : null,
     pin.weather ? ['🌡', _esc(pin.weather)] : null,
   ].filter(Boolean);
 

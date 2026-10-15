@@ -2,7 +2,7 @@
 
 ## Présentation
 
-PWA « Atlas » (nom affiché depuis v248 ; dépôt, clés localStorage et Firebase gardent l'ancien nom « carnet ») de carnet de voyage (planification, journal, budget, carte). Stack : JS vanilla ES modules, Firebase Auth + Firestore (sync cloud), localStorage (cache local), Leaflet (cartes), service worker.
+PWA « Atlas » (nom affiché depuis v248 ; dépôt, clés localStorage et Firebase gardent l'ancien nom « carnet ») de carnet de voyage (planification, journal, budget, carte). Stack : JS vanilla ES modules, Firebase Auth + Firestore (sync cloud) + Storage (photos) + Cloud Messaging (push), Cloud Functions (`functions/`), localStorage (cache local), MapLibre GL (cartes), service worker.
 
 Pas de build tool. Les fichiers sont servis directement par le navigateur.
 
@@ -18,7 +18,7 @@ Quatre endroits à synchroniser, toujours le même numéro N :
 | `sw.js` | `const SHELL_CACHE = 'cv-shell-N'` |
 | `store.js` | `export const APP_VERSION = 'N'` |
 
-Version actuelle : **251**
+Version actuelle : **252**
 
 ---
 
@@ -62,6 +62,11 @@ js/
   logos.js              Logos de l'appli (SVG) : passeport, globe, sextant, étoile polaire, avion, rose des vents + tampon par pays visité (v248)
   notifications.js      Notifications départ (localStorage, DST-safe)
   share.js              Partage de voyage (liens d'invitation, observateurs)
+  push.js               Notifications push (jeton FCM → users/{uid}.pushTokens) (v252)
+
+functions/
+  index.js              Cloud Function notifySharedTrip (shared_trips modifié → envoi FCM)
+  notify.js             Logique pure : quelles notifications pour quel changement (testable)
 
   sheet.js              Feuille glissante sur carte (écran voyage v2)
 
@@ -157,7 +162,7 @@ js/
   - Itinéraires : cache ≤ 200 tronçons × 120 points ; réponse OSRM 400 (pas de route) mémorisée ; tronçons > 2 500 km non calculés.
   - Divers : `refreshHome` (mises à jour réseau sans quitter les Statistiques ni effacer la recherche) ; menu ⋯ qui se refermait aussitôt ; double enregistrement d'une sortie pendant la recherche du pays ; rechargement de mise à jour qui ignorait les fenêtres ouvertes (`_isModalOpen` testait une classe inexistante) ; glissé de fermeture bloqué si une zone interne défile ; échappement HTML de contenus venant de voyages partagés (drapeau, couleurs, icône de catégorie, reçu) ; nom saisi gardé dans la fenêtre catégorie du budget ; feuille masquée sans recalcul à chaque image.
   - Finitions : notification en pastille sombre en haut de l'écran, images en fondu, retour visuel au toucher des cartes.
-- **Pas corrigé (volontairement)** : synchros qui se chevauchent / lecture de tous les `shared_trips` à chaque synchro (auth.js — refonte risquée), invitations re-créées à chaque ouverture de « Partager » (share.js).
+- ~~Pas corrigé~~ → **corrigé en v252** : synchros qui se chevauchent, lecture de tous les `shared_trips` à chaque synchro, invitations re-créées à chaque ouverture de « Partager ».
 
 ---
 
@@ -170,6 +175,20 @@ js/
 - **v250→v251** : un logo « sans fond » distinct de l'icône a été essayé en v250 puis **abandonné à la demande** (le logo = l'icône, ça rendait mieux). Reste de la v250 : logo **Avion = ancien logo de l'en-tête** (✈ blanc dans un rond blanc penché de −20°) sur fond sarcelle.
 - **Icône d'écran d'accueil iPhone selon le choix (v251)** : iOS fige l'icône (`<link rel="apple-touch-icon">`) au moment de l'ajout à l'écran d'accueil — aucune API ne permet de la changer ensuite pour une PWA (`setAlternateIconName` est réservé aux applis natives). `_cacheTouchIcon` (logos.js) dessine l'icône choisie en PNG 180 px carré plein (canvas) → `atlas_icon_png` ; un script inline de index.html le met dans le lien `apple-touch-icon` au chargement. Il faut donc choisir l'icône **dans Safari** (le stockage de l'appli installée est séparé de celui de Safari) puis la ré-ajouter à l'écran d'accueil. Le manifest (Android) garde l'icône passeport.
 - Le logo apparaît : **écran de démarrage** (`.splash` dans index.html, SVG lu dans localStorage par un script inline, repli `/icons/icon.svg`), en-tête de l'accueil (`.hv2-brand`, à la place de l'avion), carte de connexion (`.lg-brand`), mode grands-parents (`.gp-logo`). `appLogoHtml(cls)` pour l'insérer ailleurs.
+
+---
+
+## v252 — synchro en file, invitations réutilisées, notifications push, sorties sans Leaflet
+
+- **Synchro (auth.js)** : `syncToFirestore` ne lance plus jamais deux envois en parallèle — `_doSync` en cours → l'appel suivant attend (`_syncNext`) et les appels rapprochés se **regroupent** en un seul (dernier état, `recentlyDeletedIds` cumulés). Les `shared_trips` ne sont relus (protection des photos encore référencées par un voyage partagé) **que si une URL de notre dossier a disparu** (avant : à chaque synchro). `pushTokens` n'est jamais réécrit depuis l'état local.
+- **Invitations (share.js)** : jetons gardés dans `shared_trips/{id}.invites = { member, observer }` (nouveau champ) et réutilisés ; créés seulement s'ils manquent.
+- **Notifications push** :
+  - Client `js/push.js` : `enablePush()` (dans le geste du toggle « Activer les notifications » — import statique, pas d'`await` avant `Notification.requestPermission()`), SDK `firebase-messaging` 11.1.0 chargé à la demande, `getToken` avec **le service worker de l'appli** (`serviceWorkerRegistration`), clé VAPID facultative (`firebaseConfig.vapidKey`, sinon clé FCM par défaut). Jeton → `users/{uid}.pushTokens.{jeton} = { ua, at }` (`savePushToken`, setDoc merge) ; `atlas_push_token` en localStorage ; `disablePush()` ; `refreshPush(settings)` au démarrage connecté. `pushAvailability()` : iPhone hors appli installée = `ios-install` (pas de Web Push dans un onglet Safari).
+  - `sw.js` : `push` (messages FCM « data » `{ title, body, url, tag }` → `showNotification`, toujours — iOS retire l'abonnement sinon) et `notificationclick` (appli ouverte → `postMessage OPEN_URL`, sinon `openWindow`). `app.js` : `?trip=ID` → `_openPendingTrip()` après chargement des données (et des voyages partagés).
+  - Serveur `functions/` (Node 20, région europe-west1) : `notifySharedTrip` sur `shared_trips/{tripId}` modifié → `buildNotifications(before, after)` (notify.js) : publication (`lastPublished`, kind `observerPublish`, tous sauf l'auteur), commentaires (`observerComments`, `comments.{day}` → `social`), ❤ (`reactions` → `social`, voyageurs), modification (`activity`, `collaborative`, au plus une par auteur et 30 min). Destinataires lus par `select('pushTokens','settings')`, filtrés par `settings.notifications` (`enabled` + clé du type ; nouveau réglage `social` = « Commentaires et ❤ sur vos publications »). Jetons morts supprimés. Les entrées `activity` et `lastPublished` portent maintenant `uid` (auteur exclu).
+  - Appareil abonné (`pushActive()`) : share.js ne lance plus ses notifications locales (doublon), le toast in-app reste.
+  - **Déploiement** : `.github/workflows/firebase-functions.yml` (push sur main/beta touchant `functions/**`, ou manuel). Le compte de service du secret doit avoir les rôles Cloud Functions Admin, Service Account User, Cloud Build Editor, Artifact Registry Administrator, Eventarc Admin — sinon `firebase deploy --only functions` depuis un ordinateur. `firebase.json` : `functions` + `functions/**` exclu de l'hébergement.
+- **Sorties** : la fenêtre de sortie utilise `createPickerMap` (homemap.js — 2ᵉ instance MapLibre, fond Standard, tap = PIN, détruite à la fermeture) + bouton 🎯 Ma position ; **Leaflet supprimé** (`vendor/leaflet.*`, `vendor/images`, règles CSS, exceptions tactiles). Enregistrement : le PIN existant est **fusionné** (avant : remplacé, champs perdus), `pin.countryCode/countryFlag` posés comme pour les événements (couleur de pays sur la carte, tampon pays du logo), photos réduites à 2000 px (avant : originaux de plusieurs Mo dans le stockage local). Écran d'une sortie : compagnons, drapeau du pays, « du … au … ».
 
 ---
 

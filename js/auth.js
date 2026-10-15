@@ -38,7 +38,8 @@ let _user = null;
 
 let _docFn, _getDocFn, _getDocFromServerFn, _setDocFn, _updateDocFn, _onSnapshotFn, _signOutFn, _GoogleProvider;
 let _signInRedirectFn, _getRedirectResultFn;
-let _arrayUnionFn, _deleteFieldFn, _deleteDocFn;
+let _arrayUnionFn, _deleteFieldFn, _deleteDocFn, _FieldPath;
+let _app = null;
 
 // Last confirmed server trips (fromCache:false snapshot).
 // Used by syncToFirestore to merge before writing so we never silently
@@ -48,6 +49,7 @@ let _onSyncError     = null;
 
 export function isFirebaseConfigured() { return _configured; }
 export function getCurrentUser()       { return _user; }
+export function getFirebaseApp()       { return _app; }
 
 /**
  * Initialise Firebase and call onReady(user, cloudData) once the auth
@@ -75,7 +77,7 @@ export async function initAuth(onReady) {
     const config = location.hostname.includes('--beta')
       ? { ...firebaseConfig, authDomain: location.hostname }
       : firebaseConfig;
-    const app = appMod.initializeApp(config);
+    const app = _app = appMod.initializeApp(config);
     _auth = authMod.getAuth(app);
     // Non-blocking — sync falls back to embedding compressed photos in
     // Firestore directly if Storage never becomes ready.
@@ -95,6 +97,7 @@ export async function initAuth(onReady) {
     _arrayUnionFn        = dbMod.arrayUnion;
     _deleteFieldFn       = dbMod.deleteField;
     _deleteDocFn         = dbMod.deleteDoc;
+    _FieldPath           = dbMod.FieldPath;
 
     // Enable Firestore offline persistence (IndexedDB) so reads/writes work
     // without network and sync automatically when connection returns.
@@ -271,7 +274,35 @@ async function _collectSharedTripsUrls(tripIds) {
   return urls;
 }
 
-export async function syncToFirestore(localState, recentlyDeletedIds = []) {
+// Une seule synchro à la fois (v252) : avant, deux appels rapprochés (debounce du store,
+// fusion au démarrage, Paramètres…) partaient en parallèle — chacun réconciliait avec le
+// même _lastServerTrips, uploadait les mêmes photos et pouvait écrire après l'autre une
+// copie plus ancienne. Un appel pendant une synchro en cours est mis en attente ; les
+// appels suivants se regroupent en un seul (dernier état, suppressions cumulées).
+let _syncRunning = null;
+let _syncNext    = null;   // { state, ids:Set, promise, resolve }
+
+export function syncToFirestore(localState, recentlyDeletedIds = []) {
+  if (_syncRunning) {
+    if (!_syncNext) {
+      let resolve;
+      const promise = new Promise(r => { resolve = r; });
+      _syncNext = { state: localState, ids: new Set(), promise, resolve };
+    }
+    _syncNext.state = localState;
+    recentlyDeletedIds.forEach(id => _syncNext.ids.add(id));
+    return _syncNext.promise;
+  }
+  _syncRunning = _doSync(localState, recentlyDeletedIds).finally(() => {
+    _syncRunning = null;
+    const next = _syncNext;
+    _syncNext = null;
+    if (next) syncToFirestore(next.state, [...next.ids]).then(next.resolve);
+  });
+  return _syncRunning;
+}
+
+async function _doSync(localState, recentlyDeletedIds = []) {
   if (!_db || !_uid || !_setDocFn || !_docFn) return;
   try {
     const localTrips = localState.trips || [];
@@ -293,7 +324,10 @@ export async function syncToFirestore(localState, recentlyDeletedIds = []) {
 
     const cloudTrips = await _buildCloudTrips(tripsToWrite);
 
-    const stateToWrite = { ...localState, trips: cloudTrips };
+    // pushTokens : géré à part (savePushToken / la Cloud Function retire les jetons
+    // morts) — jamais réécrit depuis l'état local, qui pourrait en ressusciter un
+    const { pushTokens: _pt, ...rest } = localState;
+    const stateToWrite = { ...rest, trips: cloudTrips };
     await _setDocFn(_docFn(_db, 'users', _uid), JSON.parse(JSON.stringify(stateToWrite)), { merge: true });
 
     // Clean up Storage files that dropped out of every trip since the last
@@ -302,18 +336,17 @@ export async function syncToFirestore(localState, recentlyDeletedIds = []) {
     // Best-effort: never blocks or fails the sync (deletePhoto swallows its
     // own errors).
     if (_lastServerTrips) {
-      const prevUrls = _collectStorageUrls(_lastServerTrips);
-      const newUrls  = _collectStorageUrls(cloudTrips);
-      const sharedIds = getSharedTripIds().filter(id => cloudTrips.some(t => t.id === id));
-      if (sharedIds.length) {
-        const sharedUrls = await _collectSharedTripsUrls(sharedIds);
-        for (const url of sharedUrls) newUrls.add(url);
-      }
+      const newUrls = _collectStorageUrls(cloudTrips);
       // Seulement les fichiers de NOTRE dossier : une photo d'un autre (propriétaire
       // d'un voyage partagé qu'on vient de quitter…) n'est jamais effacée par nous (v247)
       const mine = `users%2F${_uid}%2F`;
-      for (const url of prevUrls) {
-        if (!newUrls.has(url) && url.includes(mine)) deletePhoto(url);
+      const gone = [..._collectStorageUrls(_lastServerTrips)].filter(url => !newUrls.has(url) && url.includes(mine));
+      // Les documents partagés ne sont relus que si une photo a réellement disparu
+      // (v252) — avant : lecture de tous les shared_trips à chaque synchro
+      if (gone.length) {
+        const sharedIds = getSharedTripIds().filter(id => cloudTrips.some(t => t.id === id));
+        const sharedUrls = sharedIds.length ? await _collectSharedTripsUrls(sharedIds) : new Set();
+        for (const url of gone) if (!sharedUrls.has(url)) deletePhoto(url);
       }
     }
 
@@ -549,6 +582,25 @@ export async function addActivityEntry(tripId, entry) {
       id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
     }),
   });
+}
+
+// ── Notifications push (v252) ────────────────────────────────────────────────
+// Jetons FCM de l'utilisateur, dans son propre document users/{uid} (déjà autorisé
+// en écriture pour lui) : champ pushTokens = { <jeton>: { ua, at } }. Lus par la
+// Cloud Function functions/index.js pour envoyer les notifications.
+
+export async function savePushToken(token) {
+  if (!_db || !_uid || !_setDocFn || !token) return;
+  // setDoc + merge : fusionne la clé dans la map (et marche même si le document
+  // n'existe pas encore, contrairement à updateDoc)
+  await _setDocFn(_docFn(_db, 'users', _uid),
+    { pushTokens: { [token]: { ua: navigator.userAgent.slice(0, 120), at: new Date().toISOString() } } },
+    { merge: true });
+}
+
+export async function removePushToken(token) {
+  if (!_db || !_uid || !_updateDocFn || !_FieldPath || !_deleteFieldFn || !token) return;
+  await _updateDocFn(_docFn(_db, 'users', _uid), new _FieldPath('pushTokens', token), _deleteFieldFn()).catch(() => {});
 }
 
 /** Load the user's state from Firestore with a 5 s timeout. */

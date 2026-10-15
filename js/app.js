@@ -17,10 +17,20 @@ import { appLogoHtml } from './logos.js';
 {
   const params = new URLSearchParams(location.search);
   const token  = params.get('invite');
-  if (token) {
-    sessionStorage.setItem('_pendingInvite', token);
-    history.replaceState(null, '', location.pathname + location.hash);
-  }
+  // ?trip=ID : ouverture depuis une notification push (sw.js) — ouvert une fois les
+  // données chargées (_openPendingTrip)
+  const tripParam = params.get('trip');
+  if (tripParam) sessionStorage.setItem('_pendingTrip', tripParam);
+  if (token) sessionStorage.setItem('_pendingInvite', token);
+  if (token || tripParam) history.replaceState(null, '', location.pathname + location.hash);
+}
+
+function _openPendingTrip() {
+  const id = sessionStorage.getItem('_pendingTrip');
+  if (!id || !getTrips().some(t => t.id === id)) return;
+  sessionStorage.removeItem('_pendingTrip');
+  closeModal();
+  navigateToTrip(id);
 }
 
 // ── Current state ──────────────────────────────────────────────────────────────
@@ -248,9 +258,12 @@ function _onAuthReady(user, cloudData, meta = {}) {
         )) {
           refreshHome();
         }
+        _openPendingTrip();   // voyage partagé/observé : connu seulement maintenant
         return handlePendingInvite(user);
       });
     });
+    _openPendingTrip();
+    import('./push.js').then(m => m.refreshPush(getSettings())).catch(() => {});
   } catch (err) {
     console.error('[app] render failed after login:', err);
     // The login form may not exist yet (spinner is still showing).
@@ -294,6 +307,11 @@ if (window._swUpdatePending) _scheduleSwReload();
 // Handle future SW messages (e.g. update while app is already running)
 navigator.serviceWorker?.addEventListener('message', e => {
   if (e.data?.type === 'SW_UPDATED') _scheduleSwReload();
+  // Tap sur une notification push alors que l'appli est ouverte (sw.js)
+  if (e.data?.type === 'OPEN_URL') {
+    const id = new URL(e.data.url, location.origin).searchParams.get('trip');
+    if (id) { sessionStorage.setItem('_pendingTrip', id); _openPendingTrip(); }
+  }
 });
 
 // ── Offline indicator ──────────────────────────────────────────────────────────

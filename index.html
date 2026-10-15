@@ -38,10 +38,11 @@
        (openShareModal, isCurrentUserObserver, …), so every session fetches it
        anyway; preloading it here fetches it in parallel with home.js instead of
        only being discovered once home.js itself finishes parsing. -->
-  <link rel="modulepreload" href="js/app.js?v=251" />
+  <link rel="modulepreload" href="js/app.js?v=252" />
   <link rel="modulepreload" href="js/store.js" />
   <link rel="modulepreload" href="js/utils.js" />
   <link rel="modulepreload" href="js/logos.js" />
+  <link rel="modulepreload" href="js/push.js" />
   <link rel="modulepreload" href="js/auth.js" />
   <link rel="modulepreload" href="js/firebase-config.js" />
   <link rel="modulepreload" href="js/photostore.js" />
@@ -50,9 +51,7 @@
   <link rel="modulepreload" href="js/trip/trip.js" />
   <link rel="modulepreload" href="js/notifications.js" />
 
-  <!-- Leaflet (CSS + JS) n'est plus chargé au démarrage : home.js le charge à la
-       1ʳᵉ ouverture de la fenêtre d'une sortie (_ensureLeaflet), CSS inséré avant style.css. -->
-  <link rel="stylesheet" href="style.css?v=251" />
+  <link rel="stylesheet" href="style.css?v=252" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <script>
@@ -176,22 +175,18 @@
       });
     }
     // iOS 10+ ignores user-scalable=no.
-    // Leaflet uses touchmove (not gesture events) for map pan/zoom, so gesturestart/change/end
-    // can be prevented globally without breaking map interaction.
+    // Les cartes (MapLibre) gèrent le pincement elles-mêmes via touchmove : on peut bloquer
+    // le zoom de la page partout (gesture*), et les pincements hors carte.
     document.addEventListener('gesturestart',  function(e) { e.preventDefault(); }, { passive: false });
     document.addEventListener('gesturechange', function(e) { e.preventDefault(); }, { passive: false });
     document.addEventListener('gestureend',    function(e) { e.preventDefault(); }, { passive: false });
     document.addEventListener('touchstart', function(e) {
-      if (e.touches.length > 1 &&
-          !e.target.closest('.leaflet-container') &&
-          !e.target.closest('#mm-map-col')) {
+      if (e.touches.length > 1 && !e.target.closest('.maplibregl-map')) {
         e.preventDefault();
       }
     }, { passive: false });
     document.addEventListener('touchmove', function(e) {
-      if ((e.touches.length > 1 || (e.scale != null && e.scale !== 1)) &&
-          !e.target.closest('.leaflet-container') &&
-          !e.target.closest('#mm-map-col')) {
+      if ((e.touches.length > 1 || (e.scale != null && e.scale !== 1)) && !e.target.closest('.maplibregl-map')) {
         e.preventDefault();
       }
     }, { passive: false });
@@ -310,6 +305,6 @@
       if (bar) bar.style.display = 'none';
     }
   </script>
-<script type="module" src="js/app.js?v=251"></script>
+<script type="module" src="js/app.js?v=252"></script>
 </body>
 </html>

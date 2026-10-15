@@ -6,7 +6,7 @@
    - Firebase   : network-only (handles its own offline via IndexedDB)
    ============================================================ */
 
-const SHELL_CACHE = 'cv-shell-251';
+const SHELL_CACHE = 'cv-shell-252';
 const TILE_CACHE  = 'cv-tiles-1';
 
 const SHELL_URLS = [
@@ -14,8 +14,6 @@ const SHELL_URLS = [
   '/index.html',
   '/manifest.json',
   '/style.css',
-  '/vendor/leaflet.css',
-  '/vendor/leaflet.js',
   '/icons/icon.svg',
   '/icons/icon-192.png',
   '/icons/icon-512.png',
@@ -34,6 +32,7 @@ const SHELL_URLS = [
   '/js/store.js',
   '/js/utils.js',
   '/js/logos.js',
+  '/js/push.js',
   '/js/trip/budget.js',
   '/js/trip/journal.js',
   '/js/trip/mapcal.js',
@@ -153,3 +152,32 @@ async function _networkFirst(req, isNavigate) {
     { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8' } }
   );
 }
+
+// ── Notifications push (v252) ────────────────────────────────────────────────
+// Messages FCM « data » envoyés par la Cloud Function (functions/index.js) :
+// { title, body, url, tag }. Affichés ici, appli ouverte ou fermée (iOS exige
+// qu'un push affiche toujours une notification, sinon l'abonnement est retiré).
+self.addEventListener('push', e => {
+  let d = {};
+  try { const j = e.data ? e.data.json() : {}; d = j.data || j.notification || j; }
+  catch (_) { d = { body: e.data ? e.data.text() : '' }; }
+  e.waitUntil(self.registration.showNotification(d.title || 'Atlas', {
+    body: d.body || '',
+    icon: '/icons/icon-192.png',
+    badge: '/icons/favicon-32.png',
+    tag: d.tag || undefined,
+    renotify: !!d.tag,
+    data: { url: d.url || '/' },
+  }));
+});
+
+// Tap sur la notification : appli déjà ouverte → elle ouvre le voyage ; sinon on la lance
+self.addEventListener('notificationclick', e => {
+  e.notification.close();
+  const url = (e.notification.data && e.notification.data.url) || '/';
+  e.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(list => {
+    const c = list.find(w => w.url.startsWith(self.location.origin));
+    if (c) { c.postMessage({ type: 'OPEN_URL', url }); return c.focus(); }
+    return self.clients.openWindow(url);
+  }));
+});

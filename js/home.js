@@ -14,7 +14,7 @@ import {
   fmtDate, fmtDateShort,
   dpInit, dpGetDates,
   generateDays, isoToDate, dateToIso,
-  reverseGeocodeCountry, fmtFlag,
+  reverseGeocodeCountry, fmtFlag, compressPhotoDataUrl,
 } from './utils.js';
 // navigateToTrip accessed via window global (set by app.js) to avoid circular import
 // import.js / export.js / gpx.js are dynamically imported at their few call sites below —
@@ -22,8 +22,9 @@ import {
 // so none of them should be in the boot bundle.
 import { getCurrentUser, logout, syncToFirestore, cleanupDuplicatePhotos } from './auth.js';
 import { requestNotificationPermission, notificationPermissionGranted } from './notifications.js';
+import * as _push from './push.js';
 import { appLogoHtml, availableLogos, currentLogoId, setAppLogo, logoSvg, syncLogoCache } from './logos.js';
-import { collectMapPins, attachHomeMap, setHomeMapPadding, flyToPin } from './homemap.js';
+import { collectMapPins, attachHomeMap, setHomeMapPadding, flyToPin, createPickerMap } from './homemap.js';
 import { openShareModal, leaveSharedTrip, deleteOwnerSharedTrip, removeSharedTripMember, isCurrentUserObserver, getSharedDocData, addObserverReaction, addObserverComment, deleteObserverComment, handlePendingInvite } from './share.js';
 
 // ── Module state ───────────────────────────────────────────────────────────────
@@ -59,8 +60,7 @@ let _photoMode   = 'url';   // 'url' | 'file'
 let _photoBase64 = null;
 
 // ── Sortie modal state ─────────────────────────────────────────────────────────
-let _sortieModalMap    = null;
-let _sortieModalMarker = null;
+let _sortieModalMap    = null;   // { setPoint, destroy } — createPickerMap (homemap.js)
 let _sortieLat         = null;
 let _sortieLng         = null;
 let _sortieWeather     = null;
@@ -2332,6 +2332,15 @@ function _logoTrips() {
     && (t.status === 'done' || ((t.startDate || t.pin?.date || '9999') <= today)));
 }
 
+// Sous-titre de « Activer les notifications » : où en est le push sur cet appareil
+function _pushStatusText(enabled, push = _push) {
+  const a = push.pushAvailability();
+  if (a === 'ios-install') return 'iPhone : seulement depuis l\'appli ajoutée à l\'écran d\'accueil';
+  if (a === 'unsupported') return 'Seulement quand l\'appli est ouverte (navigateur sans push)';
+  if (enabled && push.pushActive()) return 'Activées sur cet appareil, même appli fermée';
+  return 'Requiert l\'autorisation du navigateur';
+}
+
 function _openSettingsModal() {
   const settings   = getSettings();
   const curTheme   = settings.theme || 'light';
@@ -2393,11 +2402,12 @@ function _openSettingsModal() {
 
       <div class="hv2-fsec">Notifications</div>
       <div class="hv2-card-group">
-        ${sw('notif-enabled', 'Activer les notifications', curNotif.enabled, 'Requiert l\'autorisation du navigateur')}
+        ${sw('notif-enabled', 'Activer les notifications', curNotif.enabled, _pushStatusText(curNotif.enabled))}
         <div id="notif-sub" style="transition:opacity .15s;${curNotif.enabled ? '' : 'opacity:0.45;pointer-events:none'}">
           ${sw('notif-departure', 'Rappel de départ (veille et jour J)', curNotif.departure !== false)}
           ${sw('notif-collaborative', 'Modifications des voyages partagés', curNotif.collaborative !== false)}
           ${sw('notif-observer-publish', 'Publications des voyages observés', curNotif.observerPublish !== false)}
+          ${sw('notif-social', 'Commentaires et ❤ sur vos publications', curNotif.social !== false)}
         </div>
       </div>
 
@@ -2429,13 +2439,14 @@ function _openSettingsModal() {
     const notifDep        = document.getElementById('notif-departure')?.checked                ?? true;
     const notifCollab     = document.getElementById('notif-collaborative')?.checked            ?? true;
     const notifObsPub     = document.getElementById('notif-observer-publish')?.checked         ?? true;
+    const notifSocial     = document.getElementById('notif-social')?.checked                   ?? true;
     const grandParents    = document.getElementById('gp-mode')?.checked                       ?? false;
     const mapProj         = document.querySelector('input[name="map-proj"]:checked')?.value   || 'globe';
     const mapBase         = document.querySelector('input[name="map-base"]:checked')?.value   || 'relief';
 
     updateSettings({
       lang, theme,
-      notifications: { enabled: notifEnabled, departure: notifDep, collaborative: notifCollab, observerPublish: notifObsPub },
+      notifications: { enabled: notifEnabled, departure: notifDep, collaborative: notifCollab, observerPublish: notifObsPub, social: notifSocial },
       grandParentsMode: grandParents,
       homeMap: { projection: mapProj, base: mapBase },
     });
@@ -2467,10 +2478,23 @@ function _openSettingsModal() {
       }
     }
     _applySettings();
-    // Request permission when enabling notifications
-    if (e.target.id === 'notif-enabled' && e.target.checked && !notificationPermissionGranted()) {
-      const granted = await requestNotificationPermission();
-      if (!granted) notify('Permission refusée par le navigateur', '⚠️');
+    // Notifications push (v252) : abonnement de cet appareil à l'activation, désabonnement
+    // à la désactivation. La demande d'autorisation part dans le geste (pas d'await avant).
+    if (e.target.id === 'notif-enabled') {
+      const push = _push;   // import statique : pas d'await avant la demande d'autorisation (iOS)
+      const small = e.target.closest('label')?.querySelector('small');
+      if (e.target.checked) {
+        const res = await push.enablePush();
+        if (res.ok) notify('Notifications activées sur cet appareil', '🔔');
+        else if (res.reason === 'ios-install' || res.reason === 'unsupported') {
+          // Pas de push ici : on garde les notifications quand l'appli est ouverte
+          if (!notificationPermissionGranted()) await requestNotificationPermission();
+          notify(push.pushErrorText(res), 'ℹ️');
+        } else notify(push.pushErrorText(res), '⚠️');
+      } else {
+        await push.disablePush();
+      }
+      if (small) small.textContent = _pushStatusText(e.target.checked, push);
     }
   };
   _box?.addEventListener('change', _box._settingsChange);
@@ -2808,12 +2832,13 @@ function _compsListHtml(comps = _modalComps) {
 // ── Sortie modal ───────────────────────────────────────────────────────────────
 
 function _cleanupSortieModalMap() {
+  _sortieMapSeq++;            // une carte encore en chargement ne s'installera pas
   if (_sortieModalMap) {
-    try { _sortieModalMap.remove(); } catch (_) {}
-    _sortieModalMap    = null;
-    _sortieModalMarker = null;
+    _sortieModalMap.destroy();
+    _sortieModalMap = null;
   }
 }
+let _sortieMapSeq = 0;
 
 function _updateSortieCoordDisplay() {
   const el = document.getElementById('sm-coords');
@@ -2946,6 +2971,7 @@ function _buildSortieModalHtml(trip) {
       <div style="display:flex;gap:6px;margin-bottom:6px">
         <input type="text" id="sm-search" placeholder="Chercher un lieu…" autocomplete="off" style="flex:1;min-width:0">
         <button type="button" id="sm-search-btn" class="bc" style="padding:6px 10px;white-space:nowrap">🔍</button>
+        <button type="button" id="sm-locate" class="bc" style="padding:6px 10px;white-space:nowrap" title="Ma position">🎯</button>
       </div>
       <div id="sm-map"></div>
       <div style="font-size:10px;color:var(--ink4);margin-top:4px">📌 <span id="sm-coords">${_esc(coordsText)}</span></div>
@@ -3120,8 +3146,10 @@ function _initSortieModalListeners(trip) {
     const file = ev.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = e => {
-      _sortiePhotoBase64 = e.target.result;
+    reader.onload = async e => {
+      // Photo réduite à 2000 px (v252) : avant, l'original (souvent 3–8 Mo) allait tel
+      // quel dans le stockage local. Format illisible (HEIC…) → original gardé.
+      _sortiePhotoBase64 = (await compressPhotoDataUrl(e.target.result, 2000, 0.88)) || e.target.result;
       const prev = document.getElementById('sm-photo-preview');
       if (prev) { prev.src = _sortiePhotoBase64; prev.style.display = 'block'; }
     };
@@ -3137,7 +3165,7 @@ function _initSortieModalListeners(trip) {
         r.onerror = reject;
         r.readAsDataURL(file);
       });
-      _sortieExtraPhotos.push({ url: b64 });
+      _sortieExtraPhotos.push({ url: (await compressPhotoDataUrl(b64, 2000, 0.88)) || b64 });
     }
     ev.target.value = '';
     _renderExtraThumbs();
@@ -3235,66 +3263,28 @@ function _initSortieModalListeners(trip) {
   document.getElementById('sm-cancel')?.addEventListener('click', () => { _cleanupSortieModalMap(); closeModal(); });
   document.getElementById('sm-delete')?.addEventListener('click', _handleDelete);
 
-  // Init map with a small delay so the DOM has fully laid out (Leaflet chargé à la demande)
-  setTimeout(() => { _ensureLeaflet().then(_initSortieModalMap).catch(() => {}); }, 80);
+  // Carte de choix du lieu (MapLibre, v252 — Leaflet n'est plus utilisé nulle part)
+  _initSortieModalMap();
 }
 
-// Leaflet (147 Ko) ne sert plus qu'à cette petite carte : chargé à la 1ʳᵉ ouverture
-// au lieu d'à chaque lancement de l'appli (v246). Fichiers déjà en cache du SW.
-let _leafletP = null;
-function _ensureLeaflet() {
-  if (window.L) return Promise.resolve();
-  return (_leafletP ||= new Promise((resolve, reject) => {
-    const css = document.createElement('link');
-    css.rel = 'stylesheet'; css.href = 'vendor/leaflet.css';
-    // avant style.css, qui surcharge quelques règles .leaflet-*
-    document.head.insertBefore(css, document.querySelector('link[href^="style.css"]'));
-    const js = document.createElement('script');
-    js.src = 'vendor/leaflet.js';
-    js.onload = () => resolve();
-    js.onerror = () => { _leafletP = null; reject(new Error('leaflet')); };
-    document.head.appendChild(js);
-  }));
-}
-
-function _initSortieModalMap() {
+async function _initSortieModalMap() {
   const container = document.getElementById('sm-map');
-  if (!container || !window.L) return;
+  if (!container) return;
   _cleanupSortieModalMap();
-
-  const hasCoords = _sortieLat != null && _sortieLng != null;
-  const center    = hasCoords ? [_sortieLat, _sortieLng] : [20, 0];
-  const zoom      = hasCoords ? 10 : 2;
-
+  const seq = _sortieMapSeq;
+  const setPos = (la, ln) => { _sortieLat = la; _sortieLng = ln; _updateSortieCoordDisplay(); };
   try {
-    _sortieModalMap = L.map('sm-map', { zoomControl: true }).setView(center, zoom);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '© OpenStreetMap', maxZoom: 19,
-    }).addTo(_sortieModalMap);
-
-    if (hasCoords) {
-      _sortieModalMarker = L.marker([_sortieLat, _sortieLng]).addTo(_sortieModalMap);
-    }
-
-    // Click → place pin
-    _sortieModalMap.on('click', e => {
-      _sortieLat = e.latlng.lat;
-      _sortieLng = e.latlng.lng;
-      if (_sortieModalMarker) {
-        _sortieModalMarker.setLatLng([_sortieLat, _sortieLng]);
-      } else {
-        _sortieModalMarker = L.marker([_sortieLat, _sortieLng]).addTo(_sortieModalMap);
-      }
-      _updateSortieCoordDisplay();
-    });
+    const picker = await createPickerMap(container, { lat: _sortieLat, lng: _sortieLng, onPick: setPos });
+    if (seq !== _sortieMapSeq || !container.isConnected) { picker.destroy(); return; }
+    _sortieModalMap = picker;
   } catch (e) {
     console.warn('[home] sortie modal map error', e);
+    container.innerHTML = '<div class="sm-map-off">Carte indisponible (hors-ligne ?) — recherchez le lieu ci-dessus</div>';
   }
 
-  // Search button
+  // Recherche d'un lieu (Nominatim)
   const searchBtn = document.getElementById('sm-search-btn');
   const searchIn  = document.getElementById('sm-search');
-
   const doSearch = async () => {
     const q = searchIn?.value.trim();
     if (!q) return;
@@ -3302,16 +3292,8 @@ function _initSortieModalMap() {
       const res  = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&limit=1&accept-language=fr`);
       const data = await res.json();
       if (data.length > 0) {
-        _sortieLat = parseFloat(data[0].lat);
-        _sortieLng = parseFloat(data[0].lon);
-        _sortieModalMap?.setView([_sortieLat, _sortieLng], 13);
-        if (_sortieModalMarker) {
-          _sortieModalMarker.setLatLng([_sortieLat, _sortieLng]);
-        } else if (_sortieModalMap) {
-          _sortieModalMarker = L.marker([_sortieLat, _sortieLng]).addTo(_sortieModalMap);
-        }
-        _updateSortieCoordDisplay();
-        // Auto-fill destination if empty
+        setPos(parseFloat(data[0].lat), parseFloat(data[0].lon));
+        _sortieModalMap?.setPoint(_sortieLat, _sortieLng, 13);
         const destInput = document.getElementById('sm-dest');
         if (destInput && !destInput.value.trim()) destInput.value = q;
       } else {
@@ -3321,9 +3303,17 @@ function _initSortieModalMap() {
       notify('Erreur de géocodage.', '⚠️');
     }
   };
-
   searchBtn?.addEventListener('click', doSearch);
   searchIn?.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); doSearch(); } });
+
+  // Ma position
+  document.getElementById('sm-locate')?.addEventListener('click', () => {
+    if (!navigator.geolocation) { notify('Position indisponible', '⚠️'); return; }
+    navigator.geolocation.getCurrentPosition(
+      p => { setPos(p.coords.latitude, p.coords.longitude); _sortieModalMap?.setPoint(_sortieLat, _sortieLng, 14); },
+      () => notify('Position refusée ou indisponible', '⚠️'),
+      { enableHighAccuracy: true, timeout: 10000 });
+  });
 }
 
 async function _handleSortieSave() {
@@ -3370,9 +3360,13 @@ async function _handleSortieSave() {
     _existingPin.lat === _sortieLat && _existingPin.lng === _sortieLng;
 
   let flag = _locationUnchanged ? (_existingTrip.flag || '🎯') : '🎯';
-  if (!_locationUnchanged && _sortieLat != null && _sortieLng != null) {
+  // Pays du PIN (v252) : comme pour les événements d'un voyage — avant, une sortie
+  // n'avait que trip.flag, donc pas de couleur de pays sur la carte ni de tampon pays
+  let country = _locationUnchanged && _existingPin.countryCode
+    ? { code: _existingPin.countryCode, flag: _existingPin.countryFlag } : null;
+  if ((!_locationUnchanged || !country) && _sortieLat != null && _sortieLng != null) {
     const geo = await reverseGeocodeCountry(_sortieLat, _sortieLng);
-    if (geo) flag = geo.flag;
+    if (geo) { flag = geo.flag; country = geo; }
     // Fenêtre fermée (glissée vers le bas…) pendant la recherche : rien n'est enregistré
     if (!document.getElementById('sm-save') || !document.getElementById('modal-overlay')?.classList.contains('open')) return;
   }
@@ -3395,7 +3389,10 @@ async function _handleSortieSave() {
     finalGpxPoints  = _sortieGpxTrack.points.filter((_, i) => i % step === 0);
   }
 
+  // On repart du PIN existant (v252) : avant, il était remplacé en entier et tout champ
+  // hors de cette liste (pays, carnet…) disparaissait à chaque modification
   const pin = {
+    ..._existingPin,
     lat:         _sortieLat,
     lng:         _sortieLng,
     pinType:     _sortiePinType,
@@ -3406,12 +3403,14 @@ async function _handleSortieSave() {
     cost,
     currency:    'EUR',
   };
-  if (endDate && endDate !== startDate) pin.endDate = endDate;
+  if (endDate && endDate !== startDate) pin.endDate = endDate; else delete pin.endDate;
+  if (country?.code) { pin.countryCode = country.code; pin.countryFlag = country.flag; }
+  else if (!_locationUnchanged) { delete pin.countryCode; delete pin.countryFlag; }
   if (finalGpxTrackId) {
     pin.gpxTrackId = finalGpxTrackId;
     pin.gpxStats   = finalGpxStats;
     pin.gpxPoints  = finalGpxPoints;
-  }
+  } else { delete pin.gpxTrackId; delete pin.gpxStats; delete pin.gpxPoints; }
 
   const data = {
     name,

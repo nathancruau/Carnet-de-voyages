@@ -1,0 +1,36 @@
+name: Deploy Cloud Functions (notifications push)
+
+# Déploie functions/ (notifications push, v252) sur le projet Firebase.
+# Une seule fonction pour la prod ET la bêta (mêmes données Firestore).
+# Le compte de service du secret ci-dessous doit avoir, dans Google Cloud → IAM :
+#   Cloud Functions Admin, Service Account User, Cloud Build Editor,
+#   Artifact Registry Administrator, Eventarc Admin (+ Firebase Admin).
+# À défaut : `firebase deploy --only functions` une fois depuis un ordinateur.
+
+on:
+  push:
+    branches: [main, beta]
+    paths: ['functions/**', '.github/workflows/firebase-functions.yml']
+  workflow_dispatch:
+
+concurrency:
+  group: firebase-functions
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install dependencies
+        run: npm ci --prefix functions
+      - name: Deploy functions
+        env:
+          SA_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_CARNET_DE_VOYAGE_2DC04 }}
+        run: |
+          echo "$SA_JSON" > "$RUNNER_TEMP/sa.json"
+          export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/sa.json"
+          npx --yes firebase-tools@13 deploy --only functions --project carnet-de-voyage-2dc04 --non-interactive --force

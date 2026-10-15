@@ -558,3 +558,49 @@ export function flyToPin(pin) {
   _map.flyTo({ center: [pin.lng, pin.lat], zoom: Math.max(_map.getZoom(), 12), duration: 1400, essential: true });
 }
 
+
+/**
+ * Petite carte indépendante pour choisir un point (fenêtre d'une sortie, v252 —
+ * remplace la dernière carte Leaflet de l'appli). Instance MapLibre séparée de celle
+ * de l'accueil (qui reste affichée derrière la fenêtre), fond Standard, projection
+ * plate. Tap = place le PIN. destroy() libère le contexte WebGL à la fermeture.
+ * → Promise<{ setPoint(lat, lng, zoom?), destroy() }>
+ */
+export async function createPickerMap(container, { lat = null, lng = null, onPick } = {}) {
+  const lib = await _loadLib();
+  if (!container.isConnected) return { setPoint() {}, destroy() {} };
+  const has = lat != null && lng != null;
+  const base = BASES.standard;
+  const map = new lib.Map({
+    container,
+    style: {
+      version: 8,
+      sources: { osm: { type: 'raster', tiles: base.layers[0].tiles, tileSize: 256, maxzoom: 19, attribution: base.attribution } },
+      layers: [{ id: 'osm', type: 'raster', source: 'osm' }],
+    },
+    center: has ? [lng, lat] : [2.5, 46.5],
+    zoom: has ? 11 : 4,
+    attributionControl: { compact: true },
+    dragRotate: false,
+    pitchWithRotate: false,
+  });
+  map.touchZoomRotate.disableRotation();
+  map.addControl(new lib.NavigationControl({ showCompass: false }), 'top-right');
+  let marker = null;
+  const place = (la, ln) => {
+    if (!marker) marker = new lib.Marker({ color: '#d97706' }).setLngLat([ln, la]).addTo(map);
+    else marker.setLngLat([ln, la]);
+  };
+  if (has) place(lat, lng);
+  map.on('click', e => {
+    place(e.lngLat.lat, e.lngLat.lng);
+    onPick?.(e.lngLat.lat, e.lngLat.lng);
+  });
+  // La fenêtre s'anime à l'ouverture : on recadre une fois sa taille définitive
+  const ro = new ResizeObserver(() => map.resize());
+  ro.observe(container);
+  return {
+    setPoint(la, ln, zoom = 13) { place(la, ln); map.jumpTo({ center: [ln, la], zoom }); },
+    destroy() { ro.disconnect(); try { map.remove(); } catch (_) {} },
+  };
+}

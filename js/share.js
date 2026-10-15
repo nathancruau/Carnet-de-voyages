@@ -25,6 +25,7 @@ import {
   updateSharedTripFields, deleteSharedTripField,
   deleteSharedTripDoc,
 } from './auth.js';
+import { pushActive } from './push.js';
 import {
   getTrip, markTripShared, unmarkTripShared, isTripShared,
   replaceTripFromNetwork, setSharedSyncCallback,
@@ -125,6 +126,7 @@ export async function publishDay(tripId, dayNum, dayTitle, itemText = '') {
     dayTitle:  dayTitle  || '',
     itemText:  itemText  || '',
     actorName,
+    uid: user.uid,
     tripName,
     dayLabel,
     ts: new Date().toISOString(),
@@ -482,6 +484,7 @@ function _pushSharedTripEdit(tripId, tripData, action) {
       || user.displayName || 'Quelqu\'un';
     addActivityEntry(tripId, {
       actor: actorName,
+      uid: user.uid,          // v252 : la notification push ne revient pas à son auteur
       action,
       ts: new Date().toISOString(),
     }).catch(() => {});
@@ -565,7 +568,7 @@ function _onNetworkUpdate(tripId, data, hasPendingWrites) {
   if (!hasPendingWrites && tripChanged) {
     const acts = data.activity || [];
     const latestActor = acts.length > 0 ? acts[acts.length - 1].actor : null;
-    notifyCollaboratorChange(getTrip(tripId)?.name, latestActor, getSettings());
+    if (!pushActive()) notifyCollaboratorChange(getTrip(tripId)?.name, latestActor, getSettings());
   }
 
   if ((!hasPendingWrites && tripChanged) || commentsChanged) {
@@ -602,7 +605,8 @@ function _showPublishNotification(pub, members) {
 
   notify(msg, '📡');
   const s = getSettings();
-  if (s?.notifications?.enabled && s.notifications.observerPublish !== false && Notification?.permission === 'granted') {
+  // Appareil abonné au push : la Cloud Function envoie déjà cette notification
+  if (!pushActive() && s?.notifications?.enabled && s.notifications.observerPublish !== false && Notification?.permission === 'granted') {
     try { new Notification('Atlas', { body: msg, icon: '/icons/icon-192.png' }); } catch (_) {}
   }
 }
@@ -687,20 +691,27 @@ export async function openShareModal(tripId) {
       updatePresence(tripId, null, user.displayName || 'Organisateur').catch(() => {});
     }
 
-    // Generate two fresh invite tokens: one for collaborators, one for observers
-    const collabToken = _genToken();
-    const obsToken    = _genToken();
-    await Promise.all([
-      createInvite(collabToken, tripId, 'member'),
-      createInvite(obsToken, tripId, 'observer'),
-    ]);
+    // Liens d'invitation (v252) : les mêmes jetons sont réutilisés d'une ouverture à
+    // l'autre (gardés dans shared_trips.invites, nouveau champ) — avant, deux nouveaux
+    // documents invites/{token} étaient créés à chaque ouverture de « Partager ».
+    const sharedDoc = await loadSharedTrip(tripId);
+    const members   = sharedDoc?.members || {};
+    const saved     = sharedDoc?.invites || {};
+    let collabToken = saved.member, obsToken = saved.observer;
+    if (!collabToken || !obsToken) {
+      collabToken ||= _genToken();
+      obsToken    ||= _genToken();
+      await Promise.all([
+        saved.member   ? null : createInvite(collabToken, tripId, 'member'),
+        saved.observer ? null : createInvite(obsToken, tripId, 'observer'),
+      ]);
+      updateSharedTripFields(tripId, { invites: { member: collabToken, observer: obsToken } }).catch(() => {});
+    }
 
     const baseUrl   = `${location.origin}${location.pathname}`;
     const collabUrl = `${baseUrl}?invite=${collabToken}`;
     const obsUrl    = `${baseUrl}?invite=${obsToken}`;
 
-    const sharedDoc = await loadSharedTrip(tripId);
-    const members   = sharedDoc?.members || {};
     const isOwner   = members[user.uid]?.role === 'owner';
 
     showModal(_shareModalHtml(trip, collabUrl, obsUrl, members, isOwner));

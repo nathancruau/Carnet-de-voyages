@@ -155,7 +155,7 @@ export function showModal(htmlContent, { onClose, fullscreenMobile = false, boxC
 // le bas fait suivre la fenêtre au doigt ; relâchée assez bas (ou d'un geste rapide)
 // elle se ferme, sinon elle remonte. Ignoré dans un champ de saisie, une carte, un
 // carrousel horizontal, ou sur un élément marqué data-noswipe.
-const _NO_SWIPE = 'input,textarea,select,[contenteditable],canvas,.leaflet-container,.maplibregl-map,[data-noswipe]';
+const _NO_SWIPE = 'input,textarea,select,[contenteditable],canvas,.maplibregl-map,[data-noswipe]';
 function _inHScroll(el, stop) {
   for (; el && el !== stop && el.nodeType === 1; el = el.parentElement) {
     if (el.scrollWidth > el.clientWidth + 2) {
