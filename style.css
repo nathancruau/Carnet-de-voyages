@@ -30,7 +30,7 @@
 
 /* ── Reset ── */
 *{box-sizing:border-box;margin:0;padding:0}
-html{height:100%;min-height:-webkit-fill-available;font-family:var(--fn);background:var(--c);color:var(--ink);overflow:hidden;overscroll-behavior:none;touch-action:manipulation}
+html{height:100%;min-height:-webkit-fill-available;font-family:var(--fn);background:var(--c);color:var(--ink);overflow:hidden;overscroll-behavior:none;touch-action:manipulation;-webkit-tap-highlight-color:transparent;-webkit-text-size-adjust:100%;text-size-adjust:100%}
 body{height:100%;min-height:-webkit-fill-available;font-family:var(--fn);background:var(--c);color:var(--ink);overflow:hidden;overscroll-behavior:none}
 
 /* ── Screens ── */
@@ -971,7 +971,7 @@ html,body{background:var(--c)}
      zone de la barre Safari, laissant une bande vide sous l'accueil. La carte et la feuille
      descendent jusqu'au vrai bas de l'écran ; la barre d'onglets (.hv2-nav, fixed) reste
      au-dessus de celle de Safari. */
-  position:fixed;top:0;left:0;right:0;height:calc(100vh + var(--ios-gap,0px));height:calc(100lvh + var(--ios-gap,0px));overflow:hidden;z-index:1;
+  position:fixed;top:0;left:0;right:0;height:calc(100vh + var(--ios-gap,0px));height:calc(var(--vh-full) + var(--ios-gap,0px));overflow:hidden;z-index:1;
   font-family:var(--fn);color:var(--hv-ink);
   background:
     radial-gradient(1px 1px at 12% 18%,rgba(255,255,255,.8),transparent 60%),
@@ -1109,7 +1109,7 @@ html,body{background:var(--c)}
 .hv2-scroll{
   position:absolute;inset:0;will-change:transform;
   overflow:hidden;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;
-  padding:2px 16px calc(96px + var(--hv-safe-b) + 100lvh - 100dvh);
+  padding:2px 16px calc(96px + var(--hv-safe-b) + var(--vh-full) - 100dvh);
 }
 .hv2[data-snap="full"] .hv2-scroll{overflow-y:auto}
 
@@ -1444,7 +1444,7 @@ html,body{background:var(--c)}
 #trip-v2[hidden]{display:none!important}
 .tv2{
   position:fixed;top:0;left:0;right:0;z-index:5;overflow:hidden;
-  height:calc(100vh + var(--ios-gap,0px));height:calc(100lvh + var(--ios-gap,0px));
+  height:calc(100vh + var(--ios-gap,0px));height:calc(var(--vh-full) + var(--ios-gap,0px));
   font-family:var(--fn);color:var(--hv-ink);
   background:radial-gradient(ellipse at 50% 30%,#0b1a33 0%,#05080f 70%);
 }
@@ -1477,7 +1477,7 @@ html,body{background:var(--c)}
 [data-theme="dark"] .tv2-grab span{background:#3a434d}
 .tv2-scroll{
   position:absolute;inset:0;will-change:transform;overflow:hidden;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;
-  padding:2px 16px calc(110px + var(--hv-safe-b) + 100lvh - 100dvh);
+  padding:2px 16px calc(110px + var(--hv-safe-b) + var(--vh-full) - 100dvh);
 }
 .tv2[data-snap="full"] .tv2-scroll{overflow-y:auto}
 .tv2-sheet-head{
@@ -1598,7 +1598,7 @@ html,body{background:var(--c)}
 .tv2-ocard-flag{position:absolute;top:12px;left:12px;font-size:22px;z-index:2}
 
 /* Visionneuse plein écran d'une publication (rattachée à <html>) */
-.tv2-story{position:fixed;top:0;left:0;right:0;height:100vh;height:100lvh;z-index:20000;background:#000;opacity:0;transition:opacity .2s ease;font-family:var(--fn);color:#fff}
+.tv2-story{position:fixed;top:0;left:0;right:0;height:100vh;height:var(--vh-full);z-index:20000;background:#000;opacity:0;transition:opacity .2s ease;font-family:var(--fn);color:#fff}
 .tv2-story.open{opacity:1}
 .tv2-story-card{position:absolute;inset:0;overflow:hidden;will-change:transform}
 .tv2-story-media{position:absolute;inset:0;background:linear-gradient(160deg,var(--sc),#05080f);display:flex;align-items:center;justify-content:center}
@@ -1649,7 +1649,7 @@ html,body{background:var(--c)}
 /* v226 : les overlays sont ancrés en haut avec une hauteur 100lvh — exactement comme .hv2,
    le seul élément qui descendait jusqu'en bas sur iPhone. Un élément ancré en bas
    (inset:0 / bottom:0) s'arrête au bas de la fenêtre raccourcie (~793 px sur 852). */
-.ov,.calc-kp-ov{bottom:auto;height:calc(100vh + var(--ios-gap,0px));height:calc(100lvh + var(--ios-gap,0px))}
+.ov,.calc-kp-ov{bottom:auto;height:calc(100vh + var(--ios-gap,0px));height:calc(var(--vh-full) + var(--ios-gap,0px))}
 .calc-kp-sheet{padding-bottom:calc(14px + var(--ios-gap,0px))}
 @media (max-width:768px){
   /* La boîte se place dans l'overlay (absolute) et non plus par rapport à la fenêtre (fixed) :
@@ -1680,7 +1680,7 @@ html::after{
    uniquement (aucun effet dans un onglet Safari). Correctif rapporté par plusieurs projets
    touchés par la même régression WebKit. */
 @media (display-mode: standalone){
-  html{height:100lvh!important}
+  html.ios{height:100lvh!important}
 }
 /* Écran voyage v2 — sous-vue Budget/Dépenses : le bouton ＋ passe au-dessus du sélecteur du bas */
 #screen-app:has(> #tv2-subnav) .panel-fab{bottom:calc(74px + min(env(safe-area-inset-bottom,0px),34px) - var(--ios-gap,0px))!important}
@@ -2124,7 +2124,7 @@ html:has(.tv2-story) #notif{z-index:20200}
 /* ══ v244 — Écran de connexion au style v2 ══ */
 #screen-login.active{background:#0b1622!important;padding:0!important;display:block!important}
 #login-wrap{min-height:100%}
-.lg{position:fixed;top:0;left:0;right:0;height:100lvh;display:flex;flex-direction:column;justify-content:flex-end;font-family:var(--fn);
+.lg{position:fixed;top:0;left:0;right:0;height:var(--vh-full);display:flex;flex-direction:column;justify-content:flex-end;font-family:var(--fn);
   background:radial-gradient(120% 70% at 50% 18%,#1d3d5c 0%,#0f2233 45%,#0b1622 100%);overflow:hidden}
 .lg-art{flex:1;display:flex;align-items:center;justify-content:center;min-height:0;padding-top:calc(min(env(safe-area-inset-top,0px),59px) + 20px)}
 .lg-globe{width:min(72vw,340px);height:auto;max-height:100%;filter:drop-shadow(0 30px 60px rgba(13,148,136,.25));animation:lg-float 6s ease-in-out infinite}
@@ -2151,7 +2151,7 @@ html:has(.tv2-story) #notif{z-index:20200}
 }
 
 /* ══ v244 — Mode grands-parents au style v2 : fil « En direct » en grand ══ */
-.gp{font-family:var(--fn);color:var(--hv-ink);background:var(--hv-sheet);min-height:100lvh;padding:calc(min(env(safe-area-inset-top,0px),59px) + 14px) 16px calc(40px + var(--ios-gap,0px));box-sizing:border-box}
+.gp{font-family:var(--fn);color:var(--hv-ink);background:var(--hv-sheet);min-height:var(--vh-full);padding:calc(min(env(safe-area-inset-top,0px),59px) + 14px) 16px calc(40px + var(--ios-gap,0px));box-sizing:border-box}
 .gp-top{display:flex;align-items:center;justify-content:space-between;gap:12px;max-width:680px;margin:0 auto 18px}
 .gp-top small{display:block;font-size:15px;font-weight:700;color:var(--hv-ink2)}
 .gp-top b{display:block;font-size:26px;font-weight:800;letter-spacing:-.5px;line-height:1.15}
@@ -2163,7 +2163,7 @@ html:has(.tv2-story) #notif{z-index:20200}
 [data-theme="dark"] #screen-home.active:has(.gp){background:#14181d!important}
 
 /* ══ v245 — Petite fenêtre de choix par-dessus une fenêtre (home.js _askChoice) ══ */
-.ask-ov{position:fixed;top:0;left:0;right:0;height:100lvh;z-index:20300;background:rgba(10,20,30,.45);display:flex;align-items:center;justify-content:center;padding:20px;box-sizing:border-box}
+.ask-ov{position:fixed;top:0;left:0;right:0;height:var(--vh-full);z-index:20300;background:rgba(10,20,30,.45);display:flex;align-items:center;justify-content:center;padding:20px;box-sizing:border-box}
 .ask-box{width:100%;max-width:380px;background:var(--hv-sheet);color:var(--hv-ink);border-radius:24px;padding:22px 18px 16px;font-family:var(--fn);box-shadow:0 20px 60px rgba(0,0,0,.3)}
 .ask-box h3{margin:0 0 8px;font-size:19px;font-weight:800}
 .ask-box p{margin:0 0 16px;font-size:14.5px;font-weight:600;line-height:1.5;color:var(--hv-ink2)}
@@ -2193,7 +2193,7 @@ html:has(.tv2-story) #notif{z-index:20200}
 .app-logo svg{width:100%;height:100%;display:block}
 .hv2-logo{width:32px;height:32px;border:0;border-radius:0;transform:none;filter:drop-shadow(0 2px 6px rgba(0,0,0,.35))}
 .hv2-brand{gap:9px}
-.splash{position:fixed;top:0;left:0;right:0;height:100lvh;z-index:5;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;
+.splash{position:fixed;top:0;left:0;right:0;height:var(--vh-full);z-index:5;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;
   background:radial-gradient(120% 70% at 50% 30%,#1d3d5c 0%,#0f2233 50%,#0b1622 100%);font-family:var(--fn);animation:splash-in .35s ease-out both}
 .splash-logo{width:112px;height:112px;line-height:0;filter:drop-shadow(0 18px 40px rgba(0,0,0,.45));animation:splash-pop .6s cubic-bezier(.2,.9,.3,1.25) both}
 .splash-logo svg,.splash-logo img{width:100%;height:100%;display:block}
@@ -2228,3 +2228,9 @@ html:has(.tv2-story) #notif{z-index:20200}
 /* v252 — carte de choix du lieu d'une sortie (MapLibre) */
 #sm-map .maplibregl-ctrl-attrib{font-size:10px}
 .sm-map-off{height:100%;display:flex;align-items:center;justify-content:center;text-align:center;padding:16px;font-size:12px;font-weight:600;color:var(--ink3)}
+
+/* v254 — Android : les correctifs de hauteur iOS (100lvh, --ios-gap) ne s'appliquent qu'à
+   l'iPhone/iPad (classe html.ios posée par index.html). Sur Android, 100lvh dépassait sous
+   la barre d'adresse de Chrome (bas des fenêtres caché) → 100dvh = la hauteur visible. */
+:root{--vh-full:100dvh}
+html.ios{--vh-full:100lvh}

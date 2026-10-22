@@ -40,7 +40,7 @@
        (openShareModal, isCurrentUserObserver, …), so every session fetches it
        anyway; preloading it here fetches it in parallel with home.js instead of
        only being discovered once home.js itself finishes parsing. -->
-  <link rel="modulepreload" href="js/app.js?v=253" />
+  <link rel="modulepreload" href="js/app.js?v=254" />
   <link rel="modulepreload" href="js/store.js" />
   <link rel="modulepreload" href="js/utils.js" />
   <link rel="modulepreload" href="js/logos.js" />
@@ -53,7 +53,7 @@
   <link rel="modulepreload" href="js/trip/trip.js" />
   <link rel="modulepreload" href="js/notifications.js" />
 
-  <link rel="stylesheet" href="style.css?v=253" />
+  <link rel="stylesheet" href="style.css?v=254" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <script>
@@ -79,6 +79,11 @@
     // onglet Safari, la barre d'outils explique légitimement la différence) et on
     // l'expose en --ios-gap pour que les éléments fixes descendent jusqu'en bas.
     (function(){
+      // v254 : correctifs réservés à iOS (iPhone, iPad en mode ordinateur). Sur Android,
+      // « écran − fenêtre » vaut barre d'état + barre de navigation (~70 px) : l'écart
+      // était appliqué à tort et décalait/agrandissait tous les éléments du bas.
+      var IOS = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+      if (IOS) document.documentElement.classList.add('ios');
       // Plusieurs mesures croisées de la hauteur réellement utilisable : sur iPhone (v222)
       // innerHeight et un élément fixe top:0/bottom:0 annonçaient tous deux 852 au lancement
       // alors que l'affichage s'arrêtait ensuite à ~792 — iOS raccourcit la zone après coup,
@@ -108,7 +113,7 @@
           standalone: !!sa,
         };
         var usable = Math.min.apply(null, [d.inner, d.fixed, d.vv || d.inner, d.dvh || d.inner].filter(function(v){ return v > 200; }));
-        var gap = sa ? Math.round(sh - usable) : 0;
+        var gap = (sa && IOS) ? Math.round(sh - usable) : 0;
         if (gap < 0 || gap > 120) gap = 0;
         d.gap = gap;
         d.usable = Math.round(usable);
@@ -307,6 +312,6 @@
       if (bar) bar.style.display = 'none';
     }
   </script>
-<script type="module" src="js/app.js?v=253"></script>
+<script type="module" src="js/app.js?v=254"></script>
 </body>
 </html>
