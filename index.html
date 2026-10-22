@@ -10,6 +10,8 @@
 
   <!-- Theme & status bar -->
   <meta name="mobile-web-app-capable" content="yes" />
+  <!-- Android : couleur de la barre d'état / du sélecteur d'applis (v253) -->
+  <meta name="theme-color" content="#0b1f33" />
 
   <!-- iOS / Safari PWA -->
   <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -38,7 +40,7 @@
        (openShareModal, isCurrentUserObserver, …), so every session fetches it
        anyway; preloading it here fetches it in parallel with home.js instead of
        only being discovered once home.js itself finishes parsing. -->
-  <link rel="modulepreload" href="js/app.js?v=252" />
+  <link rel="modulepreload" href="js/app.js?v=253" />
   <link rel="modulepreload" href="js/store.js" />
   <link rel="modulepreload" href="js/utils.js" />
   <link rel="modulepreload" href="js/logos.js" />
@@ -51,7 +53,7 @@
   <link rel="modulepreload" href="js/trip/trip.js" />
   <link rel="modulepreload" href="js/notifications.js" />
 
-  <link rel="stylesheet" href="style.css?v=252" />
+  <link rel="stylesheet" href="style.css?v=253" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <script>
@@ -305,6 +307,6 @@
       if (bar) bar.style.display = 'none';
     }
   </script>
-<script type="module" src="js/app.js?v=252"></script>
+<script type="module" src="js/app.js?v=253"></script>
 </body>
 </html>
