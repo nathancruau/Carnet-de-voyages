@@ -34,6 +34,9 @@ jobs:
           # Durée max d'un canal Firebase ; chaque nouveau déploiement la renouvelle.
           expires: 30d
           projectId: carnet-de-voyage-2dc04
+          # Version figée : firebase-tools 15.34.1 vérifie une permission (serviceusage.services.get)
+          # que le compte de service n'a pas → déploiement refusé (403). 15.34.0 fonctionne.
+          firebaseToolsVersion: 15.34.0
 
       - name: Afficher l'URL bêta
         run: |

@@ -20,3 +20,6 @@ jobs:
           firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_CARNET_DE_VOYAGE_2DC04 }}
           channelId: live
           projectId: carnet-de-voyage-2dc04
+          # Version figée : firebase-tools 15.34.1 vérifie une permission (serviceusage.services.get)
+          # que le compte de service n'a pas → déploiement refusé (403). 15.34.0 fonctionne.
+          firebaseToolsVersion: 15.34.0
